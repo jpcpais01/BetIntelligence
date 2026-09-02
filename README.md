@@ -23,6 +23,17 @@ Tapping **AI Analyze** on a match runs a two-step process against
 
 Both results are shown in the UI as a guided reveal, and the whole thing can be saved to **My Picks**.
 
+## Filtering and refreshing
+
+- **Leagues** — pick any combination of leagues from the filter row; tapping a league toggles it,
+  and **All** clears the selection. Your choice is remembered across visits.
+- **Top Games** — narrows to matches where at least one side is on the curated elite-club list in
+  `lib/topTeams.ts`. Combines with the league selection.
+- **Caching** — fetched markets are cached in `localStorage`, so reopening the app renders instantly
+  with no network request. They refresh automatically every 30 minutes, when you return to a tab
+  that's gone stale, and whenever you tap the refresh button in the header. If a refresh fails, the
+  last known odds stay on screen with a notice rather than being replaced by an error.
+
 ## Getting started
 
 ```bash
