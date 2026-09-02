@@ -129,8 +129,6 @@ async function fetchEventsBroad(
       active: "true",
       limit: String(pageSize),
       offset: String(page * pageSize),
-      order: "start_date",
-      ascending: "true",
     });
     const { events, error } = await fetchEventsByParams(params);
     if (error) errors.push(error);
@@ -155,8 +153,6 @@ async function fetchSoccerEvents(): Promise<{
         closed: "false",
         active: "true",
         limit: "300",
-        order: "start_date",
-        ascending: "true",
         tag_slug: "soccer",
       }),
     ],
@@ -166,8 +162,6 @@ async function fetchSoccerEvents(): Promise<{
         closed: "false",
         active: "true",
         limit: "300",
-        order: "start_date",
-        ascending: "true",
         tag_slug: "football",
       }),
     ],
@@ -187,8 +181,6 @@ async function fetchSoccerEvents(): Promise<{
         closed: "false",
         active: "true",
         limit: "300",
-        order: "start_date",
-        ascending: "true",
         tag_id: tagId,
       })
     );
