@@ -73,7 +73,10 @@ async function getJson<T>(path: string, params: URLSearchParams): Promise<FetchR
   const url = `${GAMMA_BASE}${path}?${params.toString()}`;
   try {
     const res = await fetch(url, {
-      next: { revalidate: 45 },
+      // A full league sweep is expensive (many requests), so cache each page's result for a
+      // while — long enough that concurrent users and rapid client refreshes reuse it rather
+      // than re-triggering the whole sweep, short enough that odds don't go stale for long.
+      next: { revalidate: 180 },
       headers: { accept: "application/json" },
     });
     if (!res.ok) {
@@ -123,13 +126,64 @@ const PAGE_SIZE = 100;
 // The API rejects deep offsets outright ("offset too large, use /events/keyset"), which
 // caps a broad sweep at roughly 2100 rows. Per-league queries stay far below that.
 const MAX_SWEEP_PAGES = 20;
-const MAX_LEAGUE_PAGES = 12;
-const PAGE_BATCH = 6;
+const MAX_LEAGUE_PAGES = 15;
+const PAGE_RETRIES = 2;
+
+// Caps how many Polymarket requests are ever in flight at once across the ENTIRE fetch —
+// not just within one league's pagination. Firing dozens of paginated sweeps in parallel
+// (one per league tag) previously meant 100+ concurrent requests, which is enough to trip
+// rate limiting; a failed page then looked identical to "no more results" (see fetchPage
+// below for why that stopped being true) and silently truncated exactly the leagues that
+// generate the most pages — Premier League, La Liga, Serie A.
+const MAX_CONCURRENT_REQUESTS = 8;
+
+class RequestGate {
+  private active = 0;
+  private queue: (() => void)[] = [];
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.active >= MAX_CONCURRENT_REQUESTS) {
+      await new Promise<void>((resolve) => this.queue.push(resolve));
+    }
+    this.active++;
+    try {
+      return await fn();
+    } finally {
+      this.active--;
+      this.queue.shift()?.();
+    }
+  }
+}
+
+const gate = new RequestGate();
+
+// A page that errored (rate limit, transient 5xx) is retried a couple of times rather than
+// treated as "reached the end" — those look identical (both return zero events) unless we
+// distinguish them explicitly, and conflating them is what silently truncated results.
+async function fetchPageWithRetry(
+  base: Record<string, string>,
+  page: number
+): Promise<{ events: RawEvent[]; error?: string; failed: boolean }> {
+  let lastError: string | undefined;
+
+  for (let attempt = 0; attempt <= PAGE_RETRIES; attempt++) {
+    const result = await gate.run(() =>
+      fetchEventsByParams(
+        new URLSearchParams({ ...base, limit: String(PAGE_SIZE), offset: String(page * PAGE_SIZE) })
+      )
+    );
+    if (!result.error) return { events: result.events, failed: false };
+    lastError = result.error;
+    if (attempt < PAGE_RETRIES) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+  }
+
+  return { events: [], error: lastError, failed: true };
+}
 
 // /events returns at most ~100 rows per request no matter what limit is asked for, so
-// anything broad has to be walked with offset. Page 0 is fetched alone (so a slug that
-// returns nothing costs exactly one request); the rest go in small parallel batches, and
-// the walk stops as soon as a short page shows we've reached the end.
+// anything broad has to be walked with offset. The walk stops only once a page that
+// actually SUCCEEDED comes back short — a failed page (see fetchPageWithRetry) never
+// signals the end on its own, it just contributes no rows for that slice.
 async function fetchPaginated(
   base: Record<string, string>,
   maxPages: number
@@ -137,32 +191,17 @@ async function fetchPaginated(
   const events: RawEvent[] = [];
   const errors: string[] = [];
 
-  const fetchPage = (page: number) =>
-    fetchEventsByParams(
-      new URLSearchParams({
-        ...base,
-        limit: String(PAGE_SIZE),
-        offset: String(page * PAGE_SIZE),
-      })
-    );
-
-  const first = await fetchPage(0);
+  const first = await fetchPageWithRetry(base, 0);
   if (first.error) errors.push(first.error);
   events.push(...first.events);
-  if (first.events.length < PAGE_SIZE) return { events, errors };
+  if (!first.failed && first.events.length < PAGE_SIZE) return { events, errors };
 
   let reachedEnd = false;
-  for (let start = 1; start < maxPages && !reachedEnd; start += PAGE_BATCH) {
-    const pageNumbers: number[] = [];
-    for (let p = start; p < Math.min(start + PAGE_BATCH, maxPages); p++) pageNumbers.push(p);
-
-    const results = await Promise.all(pageNumbers.map(fetchPage));
-
-    for (const result of results) {
-      if (result.error) errors.push(result.error);
-      events.push(...result.events);
-      if (result.events.length < PAGE_SIZE) reachedEnd = true;
-    }
+  for (let page = 1; page < maxPages && !reachedEnd; page++) {
+    const result = await fetchPageWithRetry(base, page);
+    if (result.error) errors.push(result.error);
+    events.push(...result.events);
+    if (!result.failed && result.events.length < PAGE_SIZE) reachedEnd = true;
   }
 
   return { events, errors };

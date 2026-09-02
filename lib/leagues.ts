@@ -21,8 +21,12 @@ export interface LeagueConfig {
   // "Brazil Serie B", women's and youth divisions...). If any of these appear alongside a
   // keyword hit, it's a different competition than the one we want.
   excludeKeywords: string[];
-  // Candidate Polymarket tag slugs, used to query that league's events directly.
-  // Wrong guesses simply return nothing, so extra candidates are harmless.
+  // Polymarket tag slug(s) for this league's own events. Most leagues have exactly one,
+  // confirmed against live data; a couple of smaller ones still carry unverified guesses
+  // as extra candidates. Keep this list as short as possible — every slug here is walked
+  // through full pagination in parallel, and having many redundant candidates for the
+  // busiest leagues (which paginate the most) risks tripping Polymarket's rate limit and
+  // having pages silently come back short.
   tagSlugs: string[];
 }
 
@@ -54,7 +58,8 @@ export const LEAGUES: LeagueConfig[] = [
     flag: "\u{1F1E7}\u{1F1F7}",
     keywords: ["brasileir", "campeonato brasileiro", "brazil serie a", "brazilian serie a"],
     excludeKeywords: [...COMMON_EXCLUDES, "serie b", "serie c", "serie d", "sub-20"],
-    tagSlugs: ["brazil-serie-a", "brasileirao", "campeonato-brasileiro"],
+    // Confirmed against live data — see the comment on LeagueConfig.tagSlugs.
+    tagSlugs: ["brazil-serie-a"],
   },
   {
     id: "premier-league",
@@ -108,7 +113,7 @@ export const LEAGUES: LeagueConfig[] = [
       "qatar",
       "premier league 2",
     ],
-    tagSlugs: ["epl", "premier-league", "english-premier-league"],
+    tagSlugs: ["epl"],
   },
   {
     id: "la-liga",
@@ -127,7 +132,7 @@ export const LEAGUES: LeagueConfig[] = [
       "argentina",
       "liga mx",
     ],
-    tagSlugs: ["la-liga", "laliga"],
+    tagSlugs: ["la-liga"],
   },
   {
     id: "bundesliga",
@@ -146,7 +151,7 @@ export const LEAGUES: LeagueConfig[] = [
       "osterreich",
       "3. liga",
     ],
-    tagSlugs: ["bundesliga", "german-bundesliga"],
+    tagSlugs: ["bundesliga"],
   },
   {
     id: "ligue-1",
@@ -156,7 +161,7 @@ export const LEAGUES: LeagueConfig[] = [
     flag: "\u{1F1EB}\u{1F1F7}",
     keywords: ["ligue 1"],
     excludeKeywords: [...COMMON_EXCLUDES, "ligue 2"],
-    tagSlugs: ["ligue-1", "french-ligue-1"],
+    tagSlugs: ["ligue-1"],
   },
   {
     id: "serie-a",
@@ -175,7 +180,7 @@ export const LEAGUES: LeagueConfig[] = [
       "serie b",
       "serie c",
     ],
-    tagSlugs: ["serie-a", "italy-serie-a", "italian-serie-a"],
+    tagSlugs: ["serie-a"],
   },
   {
     id: "primeira-liga",
@@ -185,7 +190,7 @@ export const LEAGUES: LeagueConfig[] = [
     flag: "\u{1F1F5}\u{1F1F9}",
     keywords: ["primeira liga", "liga portugal"],
     excludeKeywords: [...COMMON_EXCLUDES, "brazil", "brasil", "liga 2", "liga 3"],
-    tagSlugs: ["primeira-liga", "liga-portugal", "portugal-primeira-liga"],
+    tagSlugs: ["primeira-liga"],
   },
   {
     id: "eredivisie",

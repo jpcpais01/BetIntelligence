@@ -28,7 +28,9 @@ Both results are shown in the UI as a guided reveal, and the whole thing can be 
 - **Leagues** — pick any combination of leagues from the filter row; tapping a league toggles it,
   and **All** clears the selection. Your choice is remembered across visits.
 - **Top Games** — narrows to matches where at least one side is on the curated elite-club list in
-  `lib/topTeams.ts`. Combines with the league selection.
+  `lib/topTeams.ts`. Combines with the league selection. Those clubs' crests are fetched from
+  [TheSportsDB](https://www.thesportsdb.com/) (`lib/clubLogos.ts`, `/api/logos`), cached client-side
+  for a week, and every club falls back to its initials if a crest is missing or fails to load.
 - **Caching** — fetched markets are cached in `localStorage`, so reopening the app renders instantly
   with no network request. They refresh automatically every 30 minutes, when you return to a tab
   that's gone stale, and whenever you tap the refresh button in the header. If a refresh fails, the

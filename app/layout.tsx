@@ -3,6 +3,7 @@ import { Inter, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import BottomNav from "@/components/BottomNav";
 import ServiceWorker from "@/components/ServiceWorker";
+import ClubLogosProvider from "@/components/ClubLogosProvider";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -54,8 +55,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${inter.variable} ${spaceGrotesk.variable} h-full antialiased`}
     >
       <body className="min-h-dvh flex flex-col">
-        <div className="flex-1 pb-28">{children}</div>
-        <BottomNav />
+        <ClubLogosProvider>
+          <div className="flex-1 pb-28">{children}</div>
+          <BottomNav />
+        </ClubLogosProvider>
         <ServiceWorker />
       </body>
     </html>

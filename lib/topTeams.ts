@@ -125,10 +125,44 @@ export function isTopTeam(teamName: string, league: LeagueId): boolean {
   return false;
 }
 
+// A separate, league-agnostic index for resolving any alias to its canonical name (e.g. "Man
+// City" -> "Manchester City"), used to key club logos consistently regardless of which alias
+// Polymarket happens to use. Collisions across leagues aren't a concern at this list's size.
+const CANONICAL_BY_ALIAS = new Map<string, string>();
+for (const teams of Object.values(TOP_TEAMS)) {
+  for (const t of teams) {
+    for (const alias of t.aliases) {
+      const key = normalizeTeamName(alias);
+      if (key && !CANONICAL_BY_ALIAS.has(key)) CANONICAL_BY_ALIAS.set(key, t.canonical);
+    }
+  }
+}
+
+export function resolveTopTeamCanonical(teamName: string): string | null {
+  const normalized = normalizeTeamName(teamName);
+  if (!normalized) return null;
+  const exact = CANONICAL_BY_ALIAS.get(normalized);
+  if (exact) return exact;
+
+  for (const [alias, canonical] of CANONICAL_BY_ALIAS) {
+    if (alias.length < 4) continue;
+    if (normalized.includes(alias) || alias.includes(normalized)) return canonical;
+  }
+  return null;
+}
+
 export function isTopGame(game: { league: LeagueId; homeTeam: string; awayTeam: string }): boolean {
   return isTopTeam(game.homeTeam, game.league) || isTopTeam(game.awayTeam, game.league);
 }
 
 export function getTopTeamNames(league: LeagueId): string[] {
   return TOP_TEAMS[league]?.map((t) => t.canonical) ?? [];
+}
+
+export function getAllTopTeamNames(): string[] {
+  const names = new Set<string>();
+  for (const teams of Object.values(TOP_TEAMS)) {
+    for (const t of teams) names.add(t.canonical);
+  }
+  return [...names];
 }

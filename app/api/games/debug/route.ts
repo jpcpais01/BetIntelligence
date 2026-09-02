@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getFetchDiagnostics } from "@/lib/polymarket";
 
+export const maxDuration = 60;
+
 // Not linked from the UI. Hit this directly (e.g. /api/games/debug) to see how many
 // Polymarket events were fetched and at which pipeline stage they got filtered out,
 // useful when /api/games is unexpectedly returning zero games.

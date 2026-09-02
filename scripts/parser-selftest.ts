@@ -169,6 +169,43 @@ const japanMatch = {
   markets: eplMatch.markets,
 };
 
+// Real fixture: Bundesliga tag's page 0 is permanently rate-limited (every attempt, so
+// retries can't save it), with the actual match sitting on page 1.
+const bundesligaMatch = {
+  id: "900007",
+  slug: "bundesliga-bay-dor",
+  title: "Bayern Munich vs. Borussia Dortmund",
+  startDate: iso(1),
+  tags: [
+    { label: "Soccer", slug: "soccer" },
+    { label: "Bundesliga", slug: "bundesliga" },
+  ],
+  series: [{ title: "Bundesliga", slug: "bundesliga" }],
+  markets: [
+    {
+      question: `Will Bayern Munich win on ${iso(4).slice(0, 10)}?`,
+      groupItemTitle: "Bayern Munich",
+      outcomes: '["Yes", "No"]',
+      outcomePrices: '["0.6", "0.4"]',
+      gameStartTime: iso(4),
+    },
+    {
+      question: "Will Bayern Munich vs. Borussia Dortmund end in a draw?",
+      groupItemTitle: "Draw (Bayern Munich vs. Borussia Dortmund)",
+      outcomes: '["Yes", "No"]',
+      outcomePrices: '["0.22", "0.78"]',
+      gameStartTime: iso(4),
+    },
+    {
+      question: `Will Borussia Dortmund win on ${iso(4).slice(0, 10)}?`,
+      groupItemTitle: "Borussia Dortmund",
+      outcomes: '["Yes", "No"]',
+      outcomePrices: '["0.18", "0.82"]',
+      gameStartTime: iso(4),
+    },
+  ],
+};
+
 // Deliberately excludes eplMatch/halftimeCompanion: those are served ONLY on page 2 of the
 // Premier League tag, so the EPL match can only be found if per-league paging actually works.
 const ALL_EVENTS = [laLigaMatch, egyptFutures, serieAFutures, japanMatch];
@@ -198,6 +235,14 @@ globalThis.fetch = (async (url: string | URL) => {
     return okResponse([]);
   }
 
+  // Every single attempt at page 0 fails — not just once, so a naive single-retry wouldn't
+  // save it either. The real match only appears on page 1.
+  if (tagSlug === "bundesliga") {
+    if (offset === 0) return errorResponse(429, "rate limited");
+    if (offset === 100) return okResponse([bundesligaMatch]);
+    return okResponse([]);
+  }
+
   // Everything else: one page of data, then empty so pagination terminates.
   return okResponse(offset === 0 ? ALL_EVENTS : []);
 }) as unknown as typeof fetch;
@@ -209,6 +254,16 @@ function okResponse(body: unknown[]) {
     statusText: "OK",
     json: async () => body,
     text: async () => JSON.stringify(body),
+  };
+}
+
+function errorResponse(status: number, body: string) {
+  return {
+    ok: false,
+    status,
+    statusText: "ERR",
+    json: async () => ({ error: body }),
+    text: async () => body,
   };
 }
 
@@ -229,9 +284,12 @@ async function main() {
   const failures: string[] = [];
   const titles = games.map((g) => `${g.homeTeam} vs ${g.awayTeam}`);
 
-  if (games.length !== 2) failures.push(`expected exactly 2 games, got ${games.length}`);
+  if (games.length !== 3) failures.push(`expected exactly 3 games, got ${games.length}`);
   if (!titles.includes("Arsenal vs Chelsea")) failures.push("missing EPL match");
   if (!titles.includes("Real Madrid vs Barcelona")) failures.push("missing La Liga match (question-date fallback)");
+  if (!titles.includes("Bayern Munich vs Borussia Dortmund")) {
+    failures.push("missing Bundesliga match — a permanently rate-limited page 0 wrongly stopped pagination before page 1");
+  }
 
   const epl = games.find((g) => g.homeTeam.startsWith("Arsenal"));
   if (epl) {

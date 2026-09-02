@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getRawSample } from "@/lib/polymarket";
 
+export const maxDuration = 60;
+
 // Not linked from the UI. Dumps trimmed raw Polymarket event/market data so the actual
 // shape of the data can be inspected directly instead of guessed at, when /api/games/debug
 // shows events getting dropped somewhere in the parsing pipeline.
