@@ -12,6 +12,7 @@ interface RawMarket {
   volume?: string | number;
   liquidity?: string | number;
   startDate?: string;
+  gameStartTime?: string;
 }
 
 interface RawEvent {
@@ -42,8 +43,10 @@ export interface FetchDiagnostics {
   eventsWithMarkets: number;
   eventsMatchingLeague: number;
   eventsWithParsedOutcomes: number;
+  droppedByTimeWindow: number;
   finalGames: number;
   sampleRejectedTitles: string[];
+  sampleParsedKickoffs: { title: string; startTime: string }[];
   requestErrors: string[];
 }
 
@@ -350,6 +353,35 @@ function marketLiquidity(markets: RawMarket[]): number {
   return markets.reduce((sum, m) => sum + toNumber(m.liquidity), 0);
 }
 
+// event.startDate (and market.startDate) turned out to reflect when the market was opened
+// for trading, not the actual kickoff — e.g. a real match's markets carried startDate values
+// from over a week before the date named in their own question text ("Will X win on
+// 2026-03-08?"). market.gameStartTime is the correct kickoff field when present; otherwise
+// fall back to parsing the date out of the question text, and only then to event.startDate.
+function extractDateFromQuestion(question: string | undefined): string | null {
+  if (!question) return null;
+  const match = question.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+  return match ? match[1] : null;
+}
+
+function resolveKickoff(event: RawEvent): string {
+  const markets = event.markets ?? [];
+
+  for (const m of markets) {
+    if (m.gameStartTime) return m.gameStartTime;
+  }
+
+  for (const m of markets) {
+    const date = extractDateFromQuestion(m.question);
+    if (date) {
+      const iso = new Date(date).toISOString();
+      if (!Number.isNaN(new Date(iso).getTime())) return iso;
+    }
+  }
+
+  return event.startDate || markets[0]?.startDate || new Date().toISOString();
+}
+
 // Polymarket splits extra bet types for the same match into separate companion events
 // (e.g. "Team A vs. Team B - Halftime Result", "- More Markets", "- Exact Score"). Those
 // can carry their own valid-looking 3-way structure (home/draw/away at halftime, say), so
@@ -400,7 +432,7 @@ function parseEvent(event: RawEvent): Game | null {
     leagueFlag: league.flag,
     homeTeam: titleTeams?.home ?? teamA.label,
     awayTeam: titleTeams?.away ?? teamB.label,
-    startTime: event.startDate || event.markets[0]?.startDate || new Date().toISOString(),
+    startTime: resolveKickoff(event),
     odds,
     volume: toNumber(event.volume) || marketVolume(event.markets),
     liquidity: toNumber(event.liquidity) || marketLiquidity(event.markets),
@@ -411,7 +443,9 @@ function parseEvent(event: RawEvent): Game | null {
 function withinWindow(startTime: string): boolean {
   const now = Date.now();
   const horizon = now + 14 * 24 * 60 * 60 * 1000;
-  const grace = now - 3 * 60 * 60 * 1000;
+  // Wide grace window: a question-text date fallback (see resolveKickoff) has no time-of-day,
+  // so it resolves to 00:00 UTC that day and would otherwise look "already over" almost always.
+  const grace = now - 24 * 60 * 60 * 1000;
   const t = new Date(startTime).getTime();
   return Number.isFinite(t) && t >= grace && t <= horizon;
 }
@@ -442,12 +476,17 @@ export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
     .map((e) => ({ event: e, game: parseEvent(e) }))
     .filter((r) => r.game !== null);
 
-  const finalGames = parsedGames.map((r) => r.game as Game).filter((g) => withinWindow(g.startTime));
+  const allParsedGames = parsedGames.map((r) => r.game as Game);
+  const finalGames = allParsedGames.filter((g) => withinWindow(g.startTime));
 
   const rejected = eventsMatchingLeague
     .filter((e) => parseEvent(e) === null)
     .slice(0, 8)
     .map((e) => e.title);
+
+  const sampleParsedKickoffs = allParsedGames
+    .slice(0, 10)
+    .map((g) => ({ title: `${g.homeTeam} vs ${g.awayTeam}`, startTime: g.startTime }));
 
   return {
     strategy,
@@ -455,8 +494,10 @@ export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
     eventsWithMarkets: eventsWithMarkets.length,
     eventsMatchingLeague: eventsMatchingLeague.length,
     eventsWithParsedOutcomes: parsedGames.length,
+    droppedByTimeWindow: allParsedGames.length - finalGames.length,
     finalGames: finalGames.length,
     sampleRejectedTitles: rejected,
+    sampleParsedKickoffs,
     requestErrors: errors,
   };
 }
@@ -470,6 +511,7 @@ function trimMarketForDebug(m: RawMarket) {
     outcomes: m.outcomes,
     outcomePrices: m.outcomePrices,
     startDate: m.startDate,
+    gameStartTime: m.gameStartTime,
   };
 }
 
