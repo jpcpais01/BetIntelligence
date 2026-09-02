@@ -17,7 +17,31 @@ export interface LeagueConfig {
   country: string;
   flag: string;
   keywords: string[];
+  // Many countries run a league with the same name ("Egypt Premier League", "2. Bundesliga",
+  // "Brazil Serie B", women's and youth divisions...). If any of these appear alongside a
+  // keyword hit, it's a different competition than the one we want.
+  excludeKeywords: string[];
+  // Candidate Polymarket tag slugs, used to query that league's events directly.
+  // Wrong guesses simply return nothing, so extra candidates are harmless.
+  tagSlugs: string[];
 }
+
+const COMMON_EXCLUDES = [
+  "women",
+  "womens",
+  "feminine",
+  "femenina",
+  "feminina",
+  "femminile",
+  "frauen",
+  "vrouwen",
+  "u21",
+  "u23",
+  "u19",
+  "u18",
+  "youth",
+  "reserve",
+];
 
 // Order matters: more specific / disambiguating leagues are matched first
 // (e.g. Brazil's "Serie A" must be caught before Italy's "Serie A").
@@ -29,6 +53,8 @@ export const LEAGUES: LeagueConfig[] = [
     country: "Brazil",
     flag: "\u{1F1E7}\u{1F1F7}",
     keywords: ["brasileir", "campeonato brasileiro", "brazil serie a", "brazilian serie a"],
+    excludeKeywords: [...COMMON_EXCLUDES, "serie b", "serie c", "serie d", "sub-20"],
+    tagSlugs: ["brazil-serie-a", "brasileirao", "campeonato-brasileiro"],
   },
   {
     id: "premier-league",
@@ -37,6 +63,52 @@ export const LEAGUES: LeagueConfig[] = [
     country: "England",
     flag: ENGLAND_FLAG,
     keywords: ["premier league", "epl", "english premier"],
+    excludeKeywords: [
+      ...COMMON_EXCLUDES,
+      "egypt",
+      "ghana",
+      "kenya",
+      "nigeria",
+      "zambia",
+      "zimbabwe",
+      "uganda",
+      "tanzania",
+      "rwanda",
+      "malawi",
+      "botswana",
+      "namibia",
+      "south africa",
+      "russia",
+      "russian",
+      "ukrain",
+      "belarus",
+      "kazakh",
+      "armenia",
+      "azerbaijan",
+      "uzbek",
+      "india",
+      "indian",
+      "bangladesh",
+      "nepal",
+      "hong kong",
+      "malaysia",
+      "singapore",
+      "thailand",
+      "myanmar",
+      "cambodia",
+      "cyprus",
+      "gibraltar",
+      "israel",
+      "wales",
+      "welsh",
+      "scottish",
+      "scotland",
+      "northern ireland",
+      "bahrain",
+      "qatar",
+      "premier league 2",
+    ],
+    tagSlugs: ["epl", "premier-league", "english-premier-league"],
   },
   {
     id: "la-liga",
@@ -45,6 +117,17 @@ export const LEAGUES: LeagueConfig[] = [
     country: "Spain",
     flag: "\u{1F1EA}\u{1F1F8}",
     keywords: ["la liga", "laliga", "spanish primera"],
+    excludeKeywords: [
+      ...COMMON_EXCLUDES,
+      "hypermotion",
+      "smartbank",
+      "laliga 2",
+      "la liga 2",
+      "segunda",
+      "argentina",
+      "liga mx",
+    ],
+    tagSlugs: ["la-liga", "laliga"],
   },
   {
     id: "bundesliga",
@@ -53,6 +136,17 @@ export const LEAGUES: LeagueConfig[] = [
     country: "Germany",
     flag: "\u{1F1E9}\u{1F1EA}",
     keywords: ["bundesliga"],
+    excludeKeywords: [
+      ...COMMON_EXCLUDES,
+      "2. bundesliga",
+      "2 bundesliga",
+      "zweite",
+      "austria",
+      "austrian",
+      "osterreich",
+      "3. liga",
+    ],
+    tagSlugs: ["bundesliga", "german-bundesliga"],
   },
   {
     id: "ligue-1",
@@ -61,6 +155,8 @@ export const LEAGUES: LeagueConfig[] = [
     country: "France",
     flag: "\u{1F1EB}\u{1F1F7}",
     keywords: ["ligue 1"],
+    excludeKeywords: [...COMMON_EXCLUDES, "ligue 2"],
+    tagSlugs: ["ligue-1", "french-ligue-1"],
   },
   {
     id: "serie-a",
@@ -69,6 +165,17 @@ export const LEAGUES: LeagueConfig[] = [
     country: "Italy",
     flag: "\u{1F1EE}\u{1F1F9}",
     keywords: ["serie a"],
+    excludeKeywords: [
+      ...COMMON_EXCLUDES,
+      "brazil",
+      "brasil",
+      "brasileir",
+      "ecuador",
+      "serie a2",
+      "serie b",
+      "serie c",
+    ],
+    tagSlugs: ["serie-a", "italy-serie-a", "italian-serie-a"],
   },
   {
     id: "primeira-liga",
@@ -77,6 +184,8 @@ export const LEAGUES: LeagueConfig[] = [
     country: "Portugal",
     flag: "\u{1F1F5}\u{1F1F9}",
     keywords: ["primeira liga", "liga portugal"],
+    excludeKeywords: [...COMMON_EXCLUDES, "brazil", "brasil", "liga 2", "liga 3"],
+    tagSlugs: ["primeira-liga", "liga-portugal", "portugal-primeira-liga"],
   },
   {
     id: "eredivisie",
@@ -85,6 +194,8 @@ export const LEAGUES: LeagueConfig[] = [
     country: "Netherlands",
     flag: "\u{1F1F3}\u{1F1F1}",
     keywords: ["eredivisie"],
+    excludeKeywords: [...COMMON_EXCLUDES, "keuken", "eerste"],
+    tagSlugs: ["eredivisie", "dutch-eredivisie"],
   },
   {
     id: "belgian-pro-league",
@@ -92,16 +203,27 @@ export const LEAGUES: LeagueConfig[] = [
     shortName: "Jupiler",
     country: "Belgium",
     flag: "\u{1F1E7}\u{1F1EA}",
-    keywords: ["jupiler pro league", "belgian pro league", "belgian first division"],
+    keywords: ["jupiler pro league", "belgian pro league", "belgian first division", "jupiler league"],
+    excludeKeywords: [...COMMON_EXCLUDES],
+    tagSlugs: ["belgian-pro-league", "jupiler-pro-league", "belgium-pro-league"],
   },
 ];
 
+function normalizeHaystack(haystacks: string[]): string {
+  return haystacks
+    .filter(Boolean)
+    .join(" ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
 export function matchLeague(haystacks: string[]): LeagueConfig | null {
-  const text = haystacks.filter(Boolean).join(" ").toLowerCase();
+  const text = normalizeHaystack(haystacks);
   for (const league of LEAGUES) {
-    if (league.keywords.some((kw) => text.includes(kw))) {
-      return league;
-    }
+    if (!league.keywords.some((kw) => text.includes(kw))) continue;
+    if (league.excludeKeywords.some((kw) => text.includes(kw))) continue;
+    return league;
   }
   return null;
 }

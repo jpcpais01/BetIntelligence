@@ -1,4 +1,4 @@
-import { matchLeague, LEAGUES, type LeagueConfig } from "./leagues";
+import { matchLeague, LEAGUES } from "./leagues";
 import { normalizeTeamName } from "./topTeams";
 import type { Game } from "./types";
 
@@ -25,12 +25,6 @@ interface RawEvent {
   tags?: { label?: string; slug?: string }[];
   series?: { title?: string; slug?: string }[];
   markets?: RawMarket[];
-}
-
-interface RawTag {
-  id: string | number;
-  slug?: string;
-  label?: string;
 }
 
 // Sub-markets that sometimes ride along in the same event (totals, BTTS, corners, etc.)
@@ -123,173 +117,121 @@ async function fetchEventsByParams(
   return { events: extractEventsArray(data), error };
 }
 
-async function fetchAllTags(): Promise<{ tags: RawTag[]; error?: string }> {
-  const { data, error } = await getJson<unknown>("/tags", new URLSearchParams({ limit: "1000" }));
-  return { tags: Array.isArray(data) ? (data as RawTag[]) : [], error };
-}
+const PAGE_SIZE = 100;
+const MAX_SWEEP_PAGES = 30;
+const PAGE_BATCH = 6;
 
-async function discoverSoccerTagId(): Promise<{ tagId: string | null; error?: string }> {
-  const { tags, error } = await fetchAllTags();
-  const match = tags.find((t) => {
-    const s = `${t.slug ?? ""} ${t.label ?? ""}`.toLowerCase();
-    return s.includes("soccer") || s.includes("football");
-  });
-  return { tagId: match ? String(match.id) : null, error };
-}
-
-// Each individual match on Polymarket carries its own league-specific tag (confirmed from
-// real data, e.g. {"label":"La Liga","slug":"la-liga"} or {"label":"Japan J2 League",...}),
-// separate from the broad "soccer" category tag. Querying per-league keeps every request
-// small — /events appears capped around ~100 results regardless of the requested limit, and
-// globally there are apparently thousands of active "soccer"-tagged events across dozens of
-// minor leagues worldwide, so a single broad fetch can easily miss our specific target leagues.
-function findLeagueTag(tags: RawTag[], league: LeagueConfig): RawTag | null {
-  for (const tag of tags) {
-    const text = `${tag.label ?? ""} ${(tag.slug ?? "").replace(/-/g, " ")}`.toLowerCase();
-    if (league.keywords.some((kw) => text.includes(kw))) return tag;
-  }
-  return null;
-}
-
-async function fetchEventsPerLeagueTags(): Promise<{
-  events: RawEvent[];
-  leaguesFound: string[];
-  leaguesMissing: string[];
-  errors: string[];
-}> {
-  const errors: string[] = [];
-  const { tags, error: tagsError } = await fetchAllTags();
-  if (tagsError) errors.push(tagsError);
-  if (tags.length === 0) {
-    return { events: [], leaguesFound: [], leaguesMissing: LEAGUES.map((l) => l.id), errors };
-  }
-
-  const leaguesFound: string[] = [];
-  const leaguesMissing: string[] = [];
-  const seen = new Set<string>();
-  const merged: RawEvent[] = [];
-
-  for (const league of LEAGUES) {
-    const tag = findLeagueTag(tags, league);
-    if (!tag) {
-      leaguesMissing.push(league.id);
-      continue;
-    }
-    leaguesFound.push(league.id);
-
-    const params = new URLSearchParams({ closed: "false", active: "true", limit: "100" });
-    if (tag.slug) params.set("tag_slug", tag.slug);
-    else params.set("tag_id", String(tag.id));
-
-    const { events, error } = await fetchEventsByParams(params);
-    if (error) errors.push(error);
-    for (const e of events) {
-      if (!seen.has(e.id)) {
-        seen.add(e.id);
-        merged.push(e);
-      }
-    }
-  }
-
-  return { events: merged, leaguesFound, leaguesMissing, errors };
-}
-
-async function fetchEventsBroad(
-  maxPages = 4,
-  pageSize = 500
+// /events returns at most ~100 rows per request no matter what limit is asked for, so
+// anything broad has to be walked with offset. Pages are fetched in small parallel batches
+// and the walk stops as soon as a short page shows we've reached the end.
+async function fetchPaginated(
+  base: Record<string, string>,
+  maxPages: number
 ): Promise<{ events: RawEvent[]; errors: string[] }> {
-  const all: RawEvent[] = [];
+  const events: RawEvent[] = [];
   const errors: string[] = [];
-  for (let page = 0; page < maxPages; page++) {
-    const params = new URLSearchParams({
-      closed: "false",
-      active: "true",
-      limit: String(pageSize),
-      offset: String(page * pageSize),
-    });
-    const { events, error } = await fetchEventsByParams(params);
-    if (error) errors.push(error);
-    if (events.length === 0) break;
-    all.push(...events);
-    if (events.length < pageSize) break;
+  let reachedEnd = false;
+
+  for (let start = 0; start < maxPages && !reachedEnd; start += PAGE_BATCH) {
+    const pageNumbers: number[] = [];
+    for (let p = start; p < Math.min(start + PAGE_BATCH, maxPages); p++) pageNumbers.push(p);
+
+    const results = await Promise.all(
+      pageNumbers.map((page) =>
+        fetchEventsByParams(
+          new URLSearchParams({
+            ...base,
+            limit: String(PAGE_SIZE),
+            offset: String(page * PAGE_SIZE),
+          })
+        )
+      )
+    );
+
+    for (const result of results) {
+      if (result.error) errors.push(result.error);
+      events.push(...result.events);
+      if (result.events.length < PAGE_SIZE) reachedEnd = true;
+    }
   }
-  return { events: all, errors };
+
+  return { events, errors };
 }
 
-// Polymarket tags this generic "games" bucket (as opposed to futures/outrights like
-// "2027 Champion") across every sport, so combined with our own league-keyword filter
-// it should isolate actual head-to-head matches without needing a per-sport tag.
-const GAMES_ONLY_TAG_ID = "100639";
+async function fetchEventsBroad(): Promise<{ events: RawEvent[]; errors: string[] }> {
+  return fetchPaginated({ closed: "false", active: "true" }, 10);
+}
 
+// Two complementary passes, merged rather than "first one that works wins":
+//   1. Each league's own tag slug (precise; a wrong guess just returns nothing).
+//   2. A full paginated sweep of the broad soccer tag, which is known to contain real
+//      match events — the earlier single-page version only ever saw the first 100 of
+//      several thousand worldwide soccer events, which is why our leagues never appeared.
 async function fetchSoccerEvents(): Promise<{
   events: RawEvent[];
   strategy: string;
   errors: string[];
 }> {
   const errors: string[] = [];
-  let bestEvents: RawEvent[] = [];
-  let bestStrategy = "none";
+  const seen = new Set<string>();
+  const merged: RawEvent[] = [];
+  const strategies: string[] = [];
 
-  const perLeague = await fetchEventsPerLeagueTags();
-  errors.push(...perLeague.errors);
-  if (perLeague.events.length > 0) {
-    bestEvents = perLeague.events;
-    bestStrategy = `per-league-tags (found: ${perLeague.leaguesFound.join(",") || "none"}; missing: ${perLeague.leaguesMissing.join(",") || "none"})`;
-  }
-  if (perLeague.events.some(eventMatchesTargetLeague)) {
-    return { events: perLeague.events, strategy: bestStrategy, errors };
-  }
-
-  const attempts: [string, URLSearchParams][] = [
-    [
-      `tag_id=${GAMES_ONLY_TAG_ID} (games only)`,
-      new URLSearchParams({ closed: "false", active: "true", limit: "500", tag_id: GAMES_ONLY_TAG_ID }),
-    ],
-    [
-      "tag_slug=soccer",
-      new URLSearchParams({ closed: "false", active: "true", limit: "300", tag_slug: "soccer" }),
-    ],
-    [
-      "tag_slug=football",
-      new URLSearchParams({ closed: "false", active: "true", limit: "300", tag_slug: "football" }),
-    ],
-  ];
-
-  for (const [label, params] of attempts) {
-    const { events, error } = await fetchEventsByParams(params);
-    if (error) errors.push(error);
-    if (events.length > bestEvents.length) {
-      bestEvents = events;
-      bestStrategy = label;
+  const addAll = (incoming: RawEvent[]) => {
+    for (const e of incoming) {
+      if (e?.id && !seen.has(e.id)) {
+        seen.add(e.id);
+        merged.push(e);
+      }
     }
-    if (events.some(eventMatchesTargetLeague)) {
-      return { events, strategy: label, errors };
-    }
-  }
+  };
 
-  const { tagId, error: tagError } = await discoverSoccerTagId();
-  if (tagError) errors.push(tagError);
-  if (tagId) {
-    const { events, error } = await fetchEventsByParams(
-      new URLSearchParams({ closed: "false", active: "true", limit: "300", tag_id: tagId })
-    );
-    if (error) errors.push(error);
-    if (events.length > bestEvents.length) {
-      bestEvents = events;
-      bestStrategy = `tag_id=${tagId}`;
-    }
-    if (events.some(eventMatchesTargetLeague)) {
-      return { events, strategy: `tag_id=${tagId}`, errors };
+  const slugAttempts = LEAGUES.flatMap((league) =>
+    league.tagSlugs.map((slug) => ({ leagueId: league.id, slug }))
+  );
+
+  const slugResults = await Promise.all(
+    slugAttempts.map(async (attempt) => {
+      const result = await fetchEventsByParams(
+        new URLSearchParams({
+          closed: "false",
+          active: "true",
+          limit: String(PAGE_SIZE),
+          tag_slug: attempt.slug,
+        })
+      );
+      return { ...attempt, ...result };
+    })
+  );
+
+  const workingSlugs: string[] = [];
+  for (const result of slugResults) {
+    if (result.error) errors.push(result.error);
+    if (result.events.length > 0) {
+      workingSlugs.push(`${result.slug}=${result.events.length}`);
+      addAll(result.events);
     }
   }
+  if (workingSlugs.length > 0) strategies.push(`league-slugs(${workingSlugs.join(",")})`);
 
-  const { events: broad, errors: broadErrors } = await fetchEventsBroad();
-  errors.push(...broadErrors);
-  if (broad.some(eventMatchesTargetLeague) || broad.length > bestEvents.length) {
-    return { events: broad, strategy: "broad+keyword", errors };
+  const sweep = await fetchPaginated(
+    { closed: "false", active: "true", tag_slug: "soccer" },
+    MAX_SWEEP_PAGES
+  );
+  errors.push(...sweep.errors);
+  if (sweep.events.length > 0) {
+    addAll(sweep.events);
+    strategies.push(`soccer-sweep(${sweep.events.length})`);
   }
 
-  return { events: bestEvents, strategy: bestStrategy, errors };
+  if (merged.length === 0) {
+    const broad = await fetchEventsBroad();
+    errors.push(...broad.errors);
+    addAll(broad.events);
+    strategies.push(`broad(${broad.events.length})`);
+  }
+
+  return { events: merged, strategy: strategies.join(" + ") || "none", errors };
 }
 
 function extractTeamsFromTitle(eventTitle: string): { home: string; away: string } | null {
