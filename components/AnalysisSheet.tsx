@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Game, IndependentPrediction, ComparisonResult } from "@/lib/types";
 import OutcomeBar from "./OutcomeBar";
 import ConfidenceBadge from "./ConfidenceBadge";
@@ -9,7 +9,18 @@ import { CloseIcon, BrainIcon, ScaleIcon, SparkleIcon, BookmarkIcon, AlertIcon, 
 import { formatKickoff } from "@/lib/format";
 import { savePick } from "@/lib/picks";
 
-type Stage = "predicting" | "predicted" | "comparing" | "compared" | "error";
+type Stage = "predicting" | "comparing" | "compared" | "error";
+
+async function postJson<T>(url: string, body: unknown, errorLabel: string): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || errorLabel);
+  return data as T;
+}
 
 const RESEARCH_MESSAGES = [
   "Scanning recent form...",
@@ -33,30 +44,58 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
   const [messageIdx, setMessageIdx] = useState(0);
   const [saved, setSaved] = useState(false);
 
+  // Each request is kicked off once and its promise cached on a ref, so React's dev-mode
+  // double-invoked effect re-subscribes to the same in-flight call rather than paying for a
+  // second web-search-backed prediction. Results are applied by whichever run is still live.
+  const predictRef = useRef<Promise<IndependentPrediction> | null>(null);
+  const compareRef = useRef<Promise<ComparisonResult> | null>(null);
+
+  // Both steps run back to back on open. Step 1's result is rendered as soon as it lands,
+  // then step 2 starts on its own and streams in underneath it — no tap needed in between.
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/analyze/predict", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        homeTeam: game.homeTeam,
-        awayTeam: game.awayTeam,
-        leagueName: game.leagueName,
-        startTime: game.startTime,
-      }),
-    })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Analysis failed.");
+
+    (async () => {
+      try {
+        predictRef.current ??= postJson<{ prediction: IndependentPrediction }>(
+          "/api/analyze/predict",
+          {
+            homeTeam: game.homeTeam,
+            awayTeam: game.awayTeam,
+            leagueName: game.leagueName,
+            startTime: game.startTime,
+          },
+          "Analysis failed."
+        ).then((d) => d.prediction);
+
+        const prediction = await predictRef.current;
         if (cancelled) return;
-        setIndependent(data.prediction);
-        setStage("predicted");
-      })
-      .catch((err) => {
+        setIndependent(prediction);
+        setStage("comparing");
+        setMessageIdx(0);
+
+        compareRef.current ??= postJson<{ comparison: ComparisonResult }>(
+          "/api/analyze/compare",
+          {
+            homeTeam: game.homeTeam,
+            awayTeam: game.awayTeam,
+            leagueName: game.leagueName,
+            independent: prediction,
+            market: game.odds,
+          },
+          "Comparison failed."
+        ).then((d) => d.comparison);
+
+        const result = await compareRef.current;
+        if (cancelled) return;
+        setComparison(result);
+        setStage("compared");
+      } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "Something went wrong.");
         setStage("error");
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
@@ -68,33 +107,6 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
     const id = setInterval(() => setMessageIdx((i) => i + 1), 1500);
     return () => clearInterval(id);
   }, [stage]);
-
-  const handleCompare = useCallback(() => {
-    if (!independent) return;
-    setStage("comparing");
-    setMessageIdx(0);
-    fetch("/api/analyze/compare", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        homeTeam: game.homeTeam,
-        awayTeam: game.awayTeam,
-        leagueName: game.leagueName,
-        independent,
-        market: game.odds,
-      }),
-    })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Comparison failed.");
-        setComparison(data.comparison);
-        setStage("compared");
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : "Something went wrong.");
-        setStage("error");
-      });
-  }, [independent, game]);
 
   const handleSave = () => {
     if (!independent || !comparison) return;
@@ -139,7 +151,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
         </div>
 
         <div className="px-5 py-6">
-          {(stage === "predicting" || stage === "comparing") && (
+          {stage === "predicting" && (
             <LoadingState message={messages[messageIdx % messages.length]} />
           )}
 
@@ -156,9 +168,14 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
             </div>
           )}
 
-          {(stage === "predicted" || stage === "comparing" || stage === "compared") && independent && (
+          {(stage === "comparing" || stage === "compared") && independent && (
             <div className="rise-in space-y-5">
-              <SectionHeader icon={BrainIcon} title="Independent AI Read" subtitle="Made before seeing any market odds" />
+              <SectionHeader
+                icon={BrainIcon}
+                step={1}
+                title="Independent AI Read"
+                subtitle="Made before seeing any market odds"
+              />
               <div className="space-y-4 rounded-2xl border border-border-soft bg-surface/60 p-4">
                 <OutcomeBar label={game.homeTeam} pct={independent.home} color="home" size="lg" />
                 <OutcomeBar label="Draw" pct={independent.draw} color="draw" size="lg" />
@@ -181,20 +198,26 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
             </div>
           )}
 
-          {stage === "predicted" && (
-            <button
-              onClick={handleCompare}
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-accent to-accent-2 px-4 py-3.5 text-sm font-semibold text-bg transition active:scale-[0.98]"
-              style={{ boxShadow: "0 0 30px -8px rgba(124,107,255,0.6)" }}
-            >
-              <ScaleIcon className="h-4 w-4" />
-              Reveal Market Odds &amp; Compare
-            </button>
+          {stage === "comparing" && (
+            <div className="rise-in mt-6 flex items-center gap-3 rounded-2xl border border-border-soft bg-surface/60 px-4 py-4">
+              <span className="pulse-dot h-2 w-2 shrink-0 rounded-full bg-accent-2" />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-text">Revealing market odds...</p>
+                <p className="mt-0.5 truncate text-xs text-text-faint">
+                  {messages[messageIdx % messages.length]}
+                </p>
+              </div>
+            </div>
           )}
 
           {stage === "compared" && comparison && independent && (
             <div className="rise-in mt-6 space-y-5">
-              <SectionHeader icon={ScaleIcon} title="Market Comparison" subtitle="Polymarket odds revealed" />
+              <SectionHeader
+                icon={ScaleIcon}
+                step={2}
+                title="Market Comparison"
+                subtitle="Polymarket odds revealed"
+              />
 
               <div className="space-y-4 rounded-2xl border border-border-soft bg-surface/60 p-4">
                 <OutcomeBar
@@ -297,10 +320,12 @@ function LoadingState({ message }: { message: string }) {
 
 function SectionHeader({
   icon: Icon,
+  step,
   title,
   subtitle,
 }: {
   icon: (props: { className?: string }) => React.ReactElement;
+  step: number;
   title: string;
   subtitle: string;
 }) {
@@ -309,8 +334,13 @@ function SectionHeader({
       <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-surface-2 text-accent">
         <Icon className="h-4 w-4" />
       </div>
-      <div>
-        <p className="text-sm font-semibold text-text">{title}</p>
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-text-faint">
+            STEP {step}
+          </span>
+          <p className="truncate text-sm font-semibold text-text">{title}</p>
+        </div>
         <p className="text-[11px] text-text-faint">{subtitle}</p>
       </div>
     </div>
