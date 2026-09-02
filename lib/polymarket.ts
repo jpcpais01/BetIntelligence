@@ -44,6 +44,7 @@ export interface FetchDiagnostics {
   eventsWithParsedOutcomes: number;
   finalGames: number;
   sampleRejectedTitles: string[];
+  requestErrors: string[];
 }
 
 function parseArrayField(field: string | string[] | undefined): string[] {
@@ -64,20 +65,30 @@ function toNumber(value: string | number | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-async function getJson<T>(path: string, params: URLSearchParams): Promise<T | null> {
+interface FetchResult<T> {
+  data: T | null;
+  error?: string;
+}
+
+async function getJson<T>(path: string, params: URLSearchParams): Promise<FetchResult<T>> {
+  const url = `${GAMMA_BASE}${path}?${params.toString()}`;
   try {
-    const res = await fetch(`${GAMMA_BASE}${path}?${params.toString()}`, {
+    const res = await fetch(url, {
       next: { revalidate: 45 },
       headers: { accept: "application/json" },
     });
     if (!res.ok) {
-      console.error(`Polymarket ${path} request failed: ${res.status} ${res.statusText}`);
-      return null;
+      const body = await res.text().catch(() => "");
+      const error = `${path} -> HTTP ${res.status} ${res.statusText}${body ? `: ${body.slice(0, 300)}` : ""}`;
+      console.error(`Polymarket request failed: ${error}`);
+      return { data: null, error };
     }
-    return (await res.json()) as T;
+    const json = (await res.json()) as T;
+    return { data: json };
   } catch (err) {
-    console.error(`Polymarket ${path} request threw`, err);
-    return null;
+    const error = `${path} threw: ${err instanceof Error ? err.message : String(err)}`;
+    console.error(`Polymarket request error: ${error}`);
+    return { data: null, error };
   }
 }
 
@@ -89,23 +100,29 @@ function extractEventsArray(data: unknown): RawEvent[] {
   return [];
 }
 
-async function fetchEventsByParams(params: URLSearchParams): Promise<RawEvent[]> {
-  const data = await getJson<unknown>("/events", params);
-  return extractEventsArray(data);
+async function fetchEventsByParams(
+  params: URLSearchParams
+): Promise<{ events: RawEvent[]; error?: string }> {
+  const { data, error } = await getJson<unknown>("/events", params);
+  return { events: extractEventsArray(data), error };
 }
 
-async function discoverSoccerTagId(): Promise<string | null> {
-  const data = await getJson<unknown>("/tags", new URLSearchParams({ limit: "1000" }));
+async function discoverSoccerTagId(): Promise<{ tagId: string | null; error?: string }> {
+  const { data, error } = await getJson<unknown>("/tags", new URLSearchParams({ limit: "1000" }));
   const tags = Array.isArray(data) ? (data as RawTag[]) : [];
   const match = tags.find((t) => {
     const s = `${t.slug ?? ""} ${t.label ?? ""}`.toLowerCase();
     return s.includes("soccer") || s.includes("football");
   });
-  return match ? String(match.id) : null;
+  return { tagId: match ? String(match.id) : null, error };
 }
 
-async function fetchEventsBroad(maxPages = 4, pageSize = 500): Promise<RawEvent[]> {
+async function fetchEventsBroad(
+  maxPages = 4,
+  pageSize = 500
+): Promise<{ events: RawEvent[]; errors: string[] }> {
   const all: RawEvent[] = [];
+  const errors: string[] = [];
   for (let page = 0; page < maxPages; page++) {
     const params = new URLSearchParams({
       closed: "false",
@@ -115,15 +132,22 @@ async function fetchEventsBroad(maxPages = 4, pageSize = 500): Promise<RawEvent[
       order: "start_date",
       ascending: "true",
     });
-    const events = await fetchEventsByParams(params);
+    const { events, error } = await fetchEventsByParams(params);
+    if (error) errors.push(error);
     if (events.length === 0) break;
     all.push(...events);
     if (events.length < pageSize) break;
   }
-  return all;
+  return { events: all, errors };
 }
 
-async function fetchSoccerEvents(): Promise<{ events: RawEvent[]; strategy: string }> {
+async function fetchSoccerEvents(): Promise<{
+  events: RawEvent[];
+  strategy: string;
+  errors: string[];
+}> {
+  const errors: string[] = [];
+
   const directAttempts: [string, URLSearchParams][] = [
     [
       "tag_slug=soccer",
@@ -150,13 +174,15 @@ async function fetchSoccerEvents(): Promise<{ events: RawEvent[]; strategy: stri
   ];
 
   for (const [label, params] of directAttempts) {
-    const events = await fetchEventsByParams(params);
-    if (events.length > 0) return { events, strategy: label };
+    const { events, error } = await fetchEventsByParams(params);
+    if (error) errors.push(error);
+    if (events.length > 0) return { events, strategy: label, errors };
   }
 
-  const tagId = await discoverSoccerTagId();
+  const { tagId, error: tagError } = await discoverSoccerTagId();
+  if (tagError) errors.push(tagError);
   if (tagId) {
-    const events = await fetchEventsByParams(
+    const { events, error } = await fetchEventsByParams(
       new URLSearchParams({
         closed: "false",
         active: "true",
@@ -166,11 +192,13 @@ async function fetchSoccerEvents(): Promise<{ events: RawEvent[]; strategy: stri
         tag_id: tagId,
       })
     );
-    if (events.length > 0) return { events, strategy: `tag_id=${tagId}` };
+    if (error) errors.push(error);
+    if (events.length > 0) return { events, strategy: `tag_id=${tagId}`, errors };
   }
 
-  const broad = await fetchEventsBroad();
-  return { events: broad, strategy: "broad+keyword" };
+  const { events: broad, errors: broadErrors } = await fetchEventsBroad();
+  errors.push(...broadErrors);
+  return { events: broad, strategy: "broad+keyword", errors };
 }
 
 function extractTeamsFromTitle(eventTitle: string): { home: string; away: string } | null {
@@ -298,7 +326,11 @@ function withinWindow(startTime: string): boolean {
 }
 
 export async function getUpcomingGames(): Promise<Game[]> {
-  const { events } = await fetchSoccerEvents();
+  const { events, errors } = await fetchSoccerEvents();
+
+  if (events.length === 0 && errors.length > 0) {
+    throw new Error(`Could not reach Polymarket: ${errors[errors.length - 1]}`);
+  }
 
   const games = events
     .map(parseEvent)
@@ -310,7 +342,7 @@ export async function getUpcomingGames(): Promise<Game[]> {
 }
 
 export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
-  const { events, strategy } = await fetchSoccerEvents();
+  const { events, strategy, errors } = await fetchSoccerEvents();
   const eventsWithMarkets = events.filter((e) => (e.markets?.length ?? 0) > 0);
 
   const eventsMatchingLeague = eventsWithMarkets.filter((e) =>
@@ -341,5 +373,6 @@ export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
     eventsWithParsedOutcomes: parsedGames.length,
     finalGames: finalGames.length,
     sampleRejectedTitles: rejected,
+    requestErrors: errors,
   };
 }
