@@ -92,6 +92,19 @@ async function getJson<T>(path: string, params: URLSearchParams): Promise<FetchR
   }
 }
 
+function eventLeagueFields(e: RawEvent): string[] {
+  return [
+    e.title,
+    e.slug,
+    ...(e.tags ?? []).map((t) => `${t.label ?? ""} ${t.slug ?? ""}`),
+    ...(e.series ?? []).map((s) => `${s.title ?? ""} ${s.slug ?? ""}`),
+  ];
+}
+
+function eventMatchesTargetLeague(e: RawEvent): boolean {
+  return matchLeague(eventLeagueFields(e)) !== null;
+}
+
 function extractEventsArray(data: unknown): RawEvent[] {
   if (Array.isArray(data)) return data as RawEvent[];
   if (data && typeof data === "object" && Array.isArray((data as { events?: unknown }).events)) {
@@ -139,58 +152,70 @@ async function fetchEventsBroad(
   return { events: all, errors };
 }
 
+// Polymarket tags this generic "games" bucket (as opposed to futures/outrights like
+// "2027 Champion") across every sport, so combined with our own league-keyword filter
+// it should isolate actual head-to-head matches without needing a per-sport tag.
+const GAMES_ONLY_TAG_ID = "100639";
+
 async function fetchSoccerEvents(): Promise<{
   events: RawEvent[];
   strategy: string;
   errors: string[];
 }> {
   const errors: string[] = [];
+  let bestEvents: RawEvent[] = [];
+  let bestStrategy = "none";
 
-  const directAttempts: [string, URLSearchParams][] = [
+  const attempts: [string, URLSearchParams][] = [
+    [
+      `tag_id=${GAMES_ONLY_TAG_ID} (games only)`,
+      new URLSearchParams({ closed: "false", active: "true", limit: "500", tag_id: GAMES_ONLY_TAG_ID }),
+    ],
     [
       "tag_slug=soccer",
-      new URLSearchParams({
-        closed: "false",
-        active: "true",
-        limit: "300",
-        tag_slug: "soccer",
-      }),
+      new URLSearchParams({ closed: "false", active: "true", limit: "300", tag_slug: "soccer" }),
     ],
     [
       "tag_slug=football",
-      new URLSearchParams({
-        closed: "false",
-        active: "true",
-        limit: "300",
-        tag_slug: "football",
-      }),
+      new URLSearchParams({ closed: "false", active: "true", limit: "300", tag_slug: "football" }),
     ],
   ];
 
-  for (const [label, params] of directAttempts) {
+  for (const [label, params] of attempts) {
     const { events, error } = await fetchEventsByParams(params);
     if (error) errors.push(error);
-    if (events.length > 0) return { events, strategy: label, errors };
+    if (events.length > bestEvents.length) {
+      bestEvents = events;
+      bestStrategy = label;
+    }
+    if (events.some(eventMatchesTargetLeague)) {
+      return { events, strategy: label, errors };
+    }
   }
 
   const { tagId, error: tagError } = await discoverSoccerTagId();
   if (tagError) errors.push(tagError);
   if (tagId) {
     const { events, error } = await fetchEventsByParams(
-      new URLSearchParams({
-        closed: "false",
-        active: "true",
-        limit: "300",
-        tag_id: tagId,
-      })
+      new URLSearchParams({ closed: "false", active: "true", limit: "300", tag_id: tagId })
     );
     if (error) errors.push(error);
-    if (events.length > 0) return { events, strategy: `tag_id=${tagId}`, errors };
+    if (events.length > bestEvents.length) {
+      bestEvents = events;
+      bestStrategy = `tag_id=${tagId}`;
+    }
+    if (events.some(eventMatchesTargetLeague)) {
+      return { events, strategy: `tag_id=${tagId}`, errors };
+    }
   }
 
   const { events: broad, errors: broadErrors } = await fetchEventsBroad();
   errors.push(...broadErrors);
-  return { events: broad, strategy: "broad+keyword", errors };
+  if (broad.some(eventMatchesTargetLeague) || broad.length > bestEvents.length) {
+    return { events: broad, strategy: "broad+keyword", errors };
+  }
+
+  return { events: bestEvents, strategy: bestStrategy, errors };
 }
 
 function extractTeamsFromTitle(eventTitle: string): { home: string; away: string } | null {
@@ -257,12 +282,7 @@ function marketLiquidity(markets: RawMarket[]): number {
 function parseEvent(event: RawEvent): Game | null {
   if (!event.markets || event.markets.length === 0) return null;
 
-  const league = matchLeague([
-    event.title,
-    event.slug,
-    ...(event.tags ?? []).map((t) => `${t.label ?? ""} ${t.slug ?? ""}`),
-    ...(event.series ?? []).map((s) => `${s.title ?? ""} ${s.slug ?? ""}`),
-  ]);
+  const league = matchLeague(eventLeagueFields(event));
   if (!league) return null;
 
   const entries = collectOutcomeEntries(event.markets);
@@ -337,14 +357,7 @@ export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
   const { events, strategy, errors } = await fetchSoccerEvents();
   const eventsWithMarkets = events.filter((e) => (e.markets?.length ?? 0) > 0);
 
-  const eventsMatchingLeague = eventsWithMarkets.filter((e) =>
-    matchLeague([
-      e.title,
-      e.slug,
-      ...(e.tags ?? []).map((t) => `${t.label ?? ""} ${t.slug ?? ""}`),
-      ...(e.series ?? []).map((s) => `${s.title ?? ""} ${s.slug ?? ""}`),
-    ])
-  );
+  const eventsMatchingLeague = eventsWithMarkets.filter(eventMatchesTargetLeague);
 
   const parsedGames = eventsMatchingLeague
     .map((e) => ({ event: e, game: parseEvent(e) }))
@@ -405,17 +418,7 @@ export async function getRawSample(): Promise<RawSample> {
   const { events, strategy } = await fetchSoccerEvents();
 
   const matchLikeEvents = events.filter((e) => MATCH_LIKE_TITLE.test(e.title)).slice(0, 4);
-
-  const leagueMatchedEvents = events
-    .filter((e) =>
-      matchLeague([
-        e.title,
-        e.slug,
-        ...(e.tags ?? []).map((t) => `${t.label ?? ""} ${t.slug ?? ""}`),
-        ...(e.series ?? []).map((s) => `${s.title ?? ""} ${s.slug ?? ""}`),
-      ])
-    )
-    .slice(0, 4);
+  const leagueMatchedEvents = events.filter(eventMatchesTargetLeague).slice(0, 4);
 
   return {
     strategy,
