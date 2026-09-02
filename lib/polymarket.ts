@@ -211,6 +211,86 @@ async function fetchEventsBroad(): Promise<{ events: RawEvent[]; errors: string[
   return fetchPaginated({ closed: "false", active: "true" }, 10);
 }
 
+interface RawSeries {
+  id?: string | number;
+  slug?: string;
+  title?: string;
+}
+
+interface RawSportMeta {
+  sport?: string;
+  tags?: string[];
+  series?: RawSeries[];
+}
+
+// Premier League, La Liga, and Serie A are official Polymarket partner leagues (separate deals
+// announced through 2026), and Polymarket's own site serves them from distinct routes
+// (polymarket.com/sports/epl/games, /sports/bkseriea/games) rather than the generic community
+// tag system — the leagues that generate the most events and therefore have needed the most
+// pagination all along. Their real match-by-match events plausibly live under a series_id
+// (gamma-api.polymarket.com/events?series_id=..., documented for exactly this purpose) rather
+// than any tag_slug we can guess, so this discovers each league's series id directly from
+// /sports metadata instead of guessing a slug.
+async function fetchLeaguesBySeries(): Promise<{
+  events: RawEvent[];
+  matchedLeagues: string[];
+  errors: string[];
+}> {
+  const errors: string[] = [];
+  const { data, error } = await getJson<unknown>("/sports", new URLSearchParams());
+  if (error) errors.push(error);
+
+  const sports: RawSportMeta[] = Array.isArray(data)
+    ? (data as RawSportMeta[])
+    : Array.isArray((data as { sports?: unknown })?.sports)
+      ? (data as { sports: RawSportMeta[] }).sports
+      : [];
+
+  const allSeries: RawSeries[] = sports.flatMap((s) => (Array.isArray(s.series) ? s.series : []));
+
+  const matches: { leagueId: string; series: RawSeries }[] = [];
+  for (const series of allSeries) {
+    const text = `${series.title ?? ""} ${(series.slug ?? "").replace(/-/g, " ")}`;
+    const league = matchLeague([text]);
+    if (league && series.id !== undefined) {
+      matches.push({ leagueId: league.id, series });
+    }
+  }
+
+  if (matches.length === 0) {
+    return { events: [], matchedLeagues: [], errors };
+  }
+
+  const seen = new Set<string>();
+  const merged: RawEvent[] = [];
+  const matchedLeagues: string[] = [];
+
+  const results = await Promise.all(
+    matches.map(async (m) => {
+      const result = await fetchPaginated(
+        { closed: "false", active: "true", series_id: String(m.series.id) },
+        MAX_LEAGUE_PAGES
+      );
+      return { ...m, ...result };
+    })
+  );
+
+  for (const result of results) {
+    errors.push(...result.errors);
+    if (result.events.length > 0) {
+      matchedLeagues.push(`${result.leagueId}(series_id=${result.series.id})=${result.events.length}`);
+      for (const e of result.events) {
+        if (e?.id && !seen.has(e.id)) {
+          seen.add(e.id);
+          merged.push(e);
+        }
+      }
+    }
+  }
+
+  return { events: merged, matchedLeagues, errors };
+}
+
 // Two complementary passes, merged rather than "first one that works wins":
 //   1. Each league's own tag slug (precise; a wrong guess just returns nothing).
 //   2. A full paginated sweep of the broad soccer tag, which is known to contain real
@@ -234,6 +314,13 @@ async function fetchSoccerEvents(): Promise<{
       }
     }
   };
+
+  const seriesResult = await fetchLeaguesBySeries();
+  errors.push(...seriesResult.errors);
+  if (seriesResult.events.length > 0) {
+    addAll(seriesResult.events);
+    strategies.push(`series(${seriesResult.matchedLeagues.join(",")})`);
+  }
 
   const slugAttempts = LEAGUES.flatMap((league) =>
     league.tagSlugs.map((slug) => ({ leagueId: league.id, slug }))

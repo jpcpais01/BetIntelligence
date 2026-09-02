@@ -113,7 +113,10 @@ export const LEAGUES: LeagueConfig[] = [
       "qatar",
       "premier league 2",
     ],
-    tagSlugs: ["epl"],
+    // Premier League is an official Polymarket partner league — its actual match-by-match
+    // events may route through a series_id rather than any generic tag_slug (see
+    // fetchLeaguesBySeries in polymarket.ts), so these are a hedge, not the primary path.
+    tagSlugs: ["epl", "premier-league", "english-premier-league"],
   },
   {
     id: "la-liga",
@@ -132,7 +135,8 @@ export const LEAGUES: LeagueConfig[] = [
       "argentina",
       "liga mx",
     ],
-    tagSlugs: ["la-liga"],
+    // La Liga is an official Polymarket partner league — see the Premier League comment above.
+    tagSlugs: ["la-liga", "laliga"],
   },
   {
     id: "bundesliga",
@@ -180,7 +184,8 @@ export const LEAGUES: LeagueConfig[] = [
       "serie b",
       "serie c",
     ],
-    tagSlugs: ["serie-a"],
+    // Serie A is an official Polymarket partner league — see the Premier League comment above.
+    tagSlugs: ["serie-a", "bkseriea", "italy-serie-a"],
   },
   {
     id: "primeira-liga",

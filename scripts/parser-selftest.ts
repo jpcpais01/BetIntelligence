@@ -206,8 +206,51 @@ const bundesligaMatch = {
   ],
 };
 
+// Real fixture: reachable ONLY via series_id, not any tag_slug — reproduces the theory that
+// official partner leagues (Serie A included) route their actual match events through a
+// series rather than the generic community tag system.
+const serieAMatchViaSeries = {
+  id: "900008",
+  slug: "seriea-int-mil",
+  title: "Inter Milan vs. AC Milan",
+  startDate: iso(1),
+  tags: [{ label: "Soccer", slug: "soccer" }],
+  series: [{ title: "Serie A", slug: "serie-a-2026" }],
+  markets: [
+    {
+      question: `Will Inter Milan win on ${iso(6).slice(0, 10)}?`,
+      groupItemTitle: "Inter Milan",
+      outcomes: '["Yes", "No"]',
+      outcomePrices: '["0.45", "0.55"]',
+      gameStartTime: iso(6),
+    },
+    {
+      question: "Will Inter Milan vs. AC Milan end in a draw?",
+      groupItemTitle: "Draw (Inter Milan vs. AC Milan)",
+      outcomes: '["Yes", "No"]',
+      outcomePrices: '["0.28", "0.72"]',
+      gameStartTime: iso(6),
+    },
+    {
+      question: `Will AC Milan win on ${iso(6).slice(0, 10)}?`,
+      groupItemTitle: "AC Milan",
+      outcomes: '["Yes", "No"]',
+      outcomePrices: '["0.27", "0.73"]',
+      gameStartTime: iso(6),
+    },
+  ],
+};
+
+const SPORTS_METADATA = [
+  {
+    sport: "Soccer",
+    series: [{ id: 555, slug: "serie-a-2026", title: "Serie A" }],
+  },
+];
+
 // Deliberately excludes eplMatch/halftimeCompanion: those are served ONLY on page 2 of the
 // Premier League tag, so the EPL match can only be found if per-league paging actually works.
+// Also excludes serieAMatchViaSeries: that one is served ONLY for series_id=555.
 const ALL_EVENTS = [laLigaMatch, egyptFutures, serieAFutures, japanMatch];
 
 let requestCount = 0;
@@ -217,6 +260,13 @@ globalThis.fetch = (async (url: string | URL) => {
   const parsed = new URL(href);
   const offset = Number(parsed.searchParams.get("offset") ?? "0");
   const tagSlug = parsed.searchParams.get("tag_slug");
+  const seriesId = parsed.searchParams.get("series_id");
+
+  if (parsed.pathname.endsWith("/sports")) return okResponse(SPORTS_METADATA);
+
+  if (seriesId === "555") {
+    return okResponse(offset === 0 ? [serieAMatchViaSeries] : []);
+  }
 
   // The Premier League tag is served as a FULL first page of nothing but futures and
   // companion events, with the actual fixture only on page 2. This reproduces the real
@@ -284,11 +334,14 @@ async function main() {
   const failures: string[] = [];
   const titles = games.map((g) => `${g.homeTeam} vs ${g.awayTeam}`);
 
-  if (games.length !== 3) failures.push(`expected exactly 3 games, got ${games.length}`);
+  if (games.length !== 4) failures.push(`expected exactly 4 games, got ${games.length}`);
   if (!titles.includes("Arsenal vs Chelsea")) failures.push("missing EPL match");
   if (!titles.includes("Real Madrid vs Barcelona")) failures.push("missing La Liga match (question-date fallback)");
   if (!titles.includes("Bayern Munich vs Borussia Dortmund")) {
     failures.push("missing Bundesliga match — a permanently rate-limited page 0 wrongly stopped pagination before page 1");
+  }
+  if (!titles.includes("Inter Milan vs AC Milan")) {
+    failures.push("missing Serie A match reachable only via series_id — /sports discovery isn't finding/using it");
   }
 
   const epl = games.find((g) => g.homeTeam.startsWith("Arsenal"));
@@ -304,6 +357,9 @@ async function main() {
 
   const laliga = games.find((g) => g.homeTeam.startsWith("Real Madrid"));
   if (laliga && laliga.league !== "la-liga") failures.push(`La Liga match got league ${laliga.league}`);
+
+  const serieA = games.find((g) => g.homeTeam.startsWith("Inter"));
+  if (serieA && serieA.league !== "serie-a") failures.push(`series_id Serie A match got league ${serieA.league}`);
 
   if (games.some((g) => g.homeTeam.includes("Iwaki"))) failures.push("Japan J2 match should be excluded");
   if (games.some((g) => g.slug.includes("halftime"))) failures.push("halftime companion should be excluded");
