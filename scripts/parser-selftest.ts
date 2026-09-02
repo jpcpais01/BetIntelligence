@@ -241,6 +241,32 @@ const serieAMatchViaSeries = {
   ],
 };
 
+// Real fixture: official partner leagues (Premier League, La Liga, Serie A) sometimes model
+// the whole 1X2 market as a SINGLE market whose three outcomes are standard European
+// notation — "1" / "X" / "2" — rather than three separate Yes/No markets with a
+// "Draw (...)"-labelled groupItemTitle. Before recognizing a bare "X" as a draw, this event
+// was fetched and league-matched correctly but silently dropped by parseEvent for every
+// single partner-league event, since entries.find(/draw|tie/i) never matched "X".
+const laLiga1X2Match = {
+  id: "900009",
+  slug: "laliga-sev-val-1x2",
+  title: "Sevilla vs. Valencia",
+  startDate: iso(2),
+  tags: [
+    { label: "Soccer", slug: "soccer" },
+    { label: "La Liga", slug: "la-liga" },
+  ],
+  series: [{ title: "La Liga", slug: "la-liga" }],
+  markets: [
+    {
+      question: "Sevilla vs. Valencia",
+      outcomes: '["1", "X", "2"]',
+      outcomePrices: '["0.42", "0.28", "0.30"]',
+      gameStartTime: iso(2),
+    },
+  ],
+};
+
 const SPORTS_METADATA = [
   {
     sport: "Soccer",
@@ -251,7 +277,7 @@ const SPORTS_METADATA = [
 // Deliberately excludes eplMatch/halftimeCompanion: those are served ONLY on page 2 of the
 // Premier League tag, so the EPL match can only be found if per-league paging actually works.
 // Also excludes serieAMatchViaSeries: that one is served ONLY for series_id=555.
-const ALL_EVENTS = [laLigaMatch, egyptFutures, serieAFutures, japanMatch];
+const ALL_EVENTS = [laLigaMatch, laLiga1X2Match, egyptFutures, serieAFutures, japanMatch];
 
 let requestCount = 0;
 globalThis.fetch = (async (url: string | URL) => {
@@ -334,7 +360,7 @@ async function main() {
   const failures: string[] = [];
   const titles = games.map((g) => `${g.homeTeam} vs ${g.awayTeam}`);
 
-  if (games.length !== 4) failures.push(`expected exactly 4 games, got ${games.length}`);
+  if (games.length !== 5) failures.push(`expected exactly 5 games, got ${games.length}`);
   if (!titles.includes("Arsenal vs Chelsea")) failures.push("missing EPL match");
   if (!titles.includes("Real Madrid vs Barcelona")) failures.push("missing La Liga match (question-date fallback)");
   if (!titles.includes("Bayern Munich vs Borussia Dortmund")) {
@@ -342,6 +368,9 @@ async function main() {
   }
   if (!titles.includes("Inter Milan vs AC Milan")) {
     failures.push("missing Serie A match reachable only via series_id — /sports discovery isn't finding/using it");
+  }
+  if (!titles.includes("Sevilla vs Valencia")) {
+    failures.push("missing single-market 1X2 La Liga match — bare \"X\" draw label isn't being recognized");
   }
 
   const epl = games.find((g) => g.homeTeam.startsWith("Arsenal"));
@@ -357,6 +386,16 @@ async function main() {
 
   const laliga = games.find((g) => g.homeTeam.startsWith("Real Madrid"));
   if (laliga && laliga.league !== "la-liga") failures.push(`La Liga match got league ${laliga.league}`);
+
+  const sevillaValencia = games.find((g) => g.homeTeam.startsWith("Sevilla"));
+  if (sevillaValencia) {
+    if (sevillaValencia.league !== "la-liga") {
+      failures.push(`1X2 La Liga match got league ${sevillaValencia.league}`);
+    }
+    if (!(sevillaValencia.odds.home > sevillaValencia.odds.away && sevillaValencia.odds.away > sevillaValencia.odds.draw)) {
+      failures.push("1X2 La Liga match odds ordering wrong (home 0.42 > away 0.30 > draw 0.28)");
+    }
+  }
 
   const serieA = games.find((g) => g.homeTeam.startsWith("Inter"));
   if (serieA && serieA.league !== "serie-a") failures.push(`series_id Serie A match got league ${serieA.league}`);

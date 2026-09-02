@@ -42,6 +42,7 @@ export interface FetchDiagnostics {
   matchedEventsByLeague: Record<string, number>;
   gamesByLeague: Record<string, number>;
   sampleRejectedTitles: string[];
+  samplePartnerLeagueRejections: { title: string; labels: string[] }[];
   sampleParsedKickoffs: { title: string; startTime: string }[];
   requestErrors: string[];
 }
@@ -466,6 +467,16 @@ function resolveKickoff(event: RawEvent): string {
 const DERIVATIVE_EVENT_SUFFIX =
   /\s-\s(more markets|halftime result|second half result|exact score|first team to score|total corners|both teams to score|correct score|to qualify)\s*$/i;
 
+// Official partner leagues (Premier League, La Liga, Serie A) label their draw outcome
+// with standard European "1X2" notation — a bare "X" — rather than a word containing
+// "draw"/"tie" like every other league's markets do. Matching only the word form meant
+// drawEntry was always undefined for these three leagues, so every one of their events
+// was silently rejected here despite being correctly fetched and league-matched.
+function isDrawLabel(label: string): boolean {
+  if (/draw|tie/i.test(label)) return true;
+  return label.trim().toLowerCase() === "x";
+}
+
 function parseEvent(event: RawEvent): Game | null {
   if (!event.markets || event.markets.length === 0) return null;
   if (DERIVATIVE_EVENT_SUFFIX.test(event.title)) return null;
@@ -476,7 +487,7 @@ function parseEvent(event: RawEvent): Game | null {
   const entries = collectOutcomeEntries(event.markets);
   if (entries.length < 3) return null;
 
-  const drawEntry = entries.find((e) => /draw|tie/i.test(e.label));
+  const drawEntry = entries.find((e) => isDrawLabel(e.label));
   if (!drawEntry) return null;
 
   const teamEntries = entries.filter((e) => e !== drawEntry);
@@ -491,7 +502,12 @@ function parseEvent(event: RawEvent): Game | null {
   let [teamA, teamB] = uniqueTeamEntries;
 
   const titleTeams = extractTeamsFromTitle(event.title);
-  if (titleTeams) {
+  const isNumeric1X2Label = (label: string) => label.trim() === "1" || label.trim() === "2";
+  if (isNumeric1X2Label(teamA.label) && isNumeric1X2Label(teamB.label)) {
+    // Standard "1X2" notation carries no team name to match against the title — "1" means
+    // home and "2" means away by convention, not by which one looks more like which name.
+    if (teamA.label.trim() !== "1") [teamA, teamB] = [teamB, teamA];
+  } else if (titleTeams) {
     const normalizedHome = normalizeTeamName(titleTeams.home);
     const normalizedA = normalizeTeamName(teamA.label);
     const aIsHome = normalizedHome.includes(normalizedA) || normalizedA.includes(normalizedHome);
@@ -561,6 +577,22 @@ export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
     .slice(0, 8)
     .map((e) => e.title);
 
+  // The premier-league/la-liga/serie-a "0% parse rate" bug (fixed by recognizing a bare
+  // "X" draw label) took several rounds to pin down because sampleRejectedTitles alone
+  // couldn't show *why* an event was rejected. Surfacing the raw outcome labels for any
+  // future rejection in these specific leagues means the next debug pull is conclusive.
+  const PARTNER_LEAGUES = new Set(["premier-league", "la-liga", "serie-a"]);
+  const samplePartnerLeagueRejections = eventsMatchingLeague
+    .filter((e) => {
+      const league = matchLeague(eventLeagueFields(e));
+      return league && PARTNER_LEAGUES.has(league.id) && parseEvent(e) === null;
+    })
+    .slice(0, 6)
+    .map((e) => ({
+      title: e.title,
+      labels: collectOutcomeEntries(e.markets ?? []).map((entry) => entry.label),
+    }));
+
   const sampleParsedKickoffs = allParsedGames
     .slice(0, 10)
     .map((g) => ({ title: `${g.homeTeam} vs ${g.awayTeam}`, startTime: g.startTime }));
@@ -587,6 +619,7 @@ export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
     matchedEventsByLeague,
     gamesByLeague,
     sampleRejectedTitles: rejected,
+    samplePartnerLeagueRejections,
     sampleParsedKickoffs,
     requestErrors: errors,
   };
