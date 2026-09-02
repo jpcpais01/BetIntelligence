@@ -368,3 +368,60 @@ export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
     requestErrors: errors,
   };
 }
+
+const MATCH_LIKE_TITLE = /\bvs\.?\b|\bv\.?\b|@/i;
+
+function trimMarketForDebug(m: RawMarket) {
+  return {
+    question: m.question,
+    groupItemTitle: m.groupItemTitle,
+    outcomes: m.outcomes,
+    outcomePrices: m.outcomePrices,
+    startDate: m.startDate,
+  };
+}
+
+function trimEventForDebug(e: RawEvent) {
+  return {
+    id: e.id,
+    slug: e.slug,
+    title: e.title,
+    startDate: e.startDate,
+    tags: (e.tags ?? []).map((t) => ({ label: t.label, slug: t.slug })),
+    series: (e.series ?? []).map((s) => ({ title: s.title, slug: s.slug })),
+    markets: (e.markets ?? []).map(trimMarketForDebug),
+  };
+}
+
+export interface RawSample {
+  strategy: string;
+  totalFetched: number;
+  titles: string[];
+  matchLikeEvents: ReturnType<typeof trimEventForDebug>[];
+  leagueMatchedEvents: ReturnType<typeof trimEventForDebug>[];
+}
+
+export async function getRawSample(): Promise<RawSample> {
+  const { events, strategy } = await fetchSoccerEvents();
+
+  const matchLikeEvents = events.filter((e) => MATCH_LIKE_TITLE.test(e.title)).slice(0, 4);
+
+  const leagueMatchedEvents = events
+    .filter((e) =>
+      matchLeague([
+        e.title,
+        e.slug,
+        ...(e.tags ?? []).map((t) => `${t.label ?? ""} ${t.slug ?? ""}`),
+        ...(e.series ?? []).map((s) => `${s.title ?? ""} ${s.slug ?? ""}`),
+      ])
+    )
+    .slice(0, 4);
+
+  return {
+    strategy,
+    totalFetched: events.length,
+    titles: events.map((e) => e.title),
+    matchLikeEvents: matchLikeEvents.map(trimEventForDebug),
+    leagueMatchedEvents: leagueMatchedEvents.map(trimEventForDebug),
+  };
+}
