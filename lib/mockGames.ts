@@ -40,11 +40,11 @@ const RAW: Array<
   },
   {
     league: "la-liga",
-    homeTeam: "Atletico Madrid",
-    awayTeam: "Sevilla",
-    odds: { home: 0.55, draw: 0.26, away: 0.19 },
-    volume: 97200,
-    liquidity: 31000,
+    homeTeam: "Real Betis",
+    awayTeam: "Girona",
+    odds: { home: 0.5, draw: 0.28, away: 0.22 },
+    volume: 41200,
+    liquidity: 12800,
     hours: 26,
   },
   {

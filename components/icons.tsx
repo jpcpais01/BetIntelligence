@@ -10,6 +10,20 @@ export function SparkleIcon({ className }: { className?: string }) {
   );
 }
 
+export function StarIcon({ className, filled }: { className?: string; filled?: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className}>
+      <path
+        d="M12 3.5 14.9 9.4l6.5.95-4.7 4.58 1.1 6.47L12 18.4l-5.8 3-1.1-6.47-4.7-4.58 6.5-.95L12 3.5Z"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function CloseIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className}>

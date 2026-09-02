@@ -1,8 +1,9 @@
 import type { Game } from "@/lib/types";
 import { formatCompactNumber, formatKickoff } from "@/lib/format";
+import { isTopGame } from "@/lib/topTeams";
 import Avatar from "./Avatar";
 import OutcomeBar from "./OutcomeBar";
-import { SparkleIcon } from "./icons";
+import { SparkleIcon, StarIcon } from "./icons";
 
 export default function GameCard({
   game,
@@ -14,17 +15,28 @@ export default function GameCard({
   style?: React.CSSProperties;
 }) {
   const { label: kickoffLabel, isLive } = formatKickoff(game.startTime);
+  const top = isTopGame(game);
 
   return (
     <div
-      className="rise-in rounded-3xl border border-border-soft bg-surface/70 backdrop-blur p-4 sm:p-5"
+      className={`rise-in rounded-3xl border bg-surface/70 backdrop-blur p-4 sm:p-5 ${
+        top ? "border-warn/30" : "border-border-soft"
+      }`}
       style={style}
     >
       <div className="flex items-center justify-between mb-4">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-text-dim">
-          <span className="text-sm leading-none">{game.leagueFlag}</span>
-          {game.leagueName}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-text-dim">
+            <span className="text-sm leading-none">{game.leagueFlag}</span>
+            {game.leagueName}
+          </span>
+          {top && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-warn/15 px-2 py-1 text-[11px] font-semibold text-warn">
+              <StarIcon className="h-3 w-3" filled />
+              Top
+            </span>
+          )}
+        </div>
         <span
           className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${
             isLive ? "bg-accent-3/15 text-accent-3" : "bg-surface-2 text-text-faint"

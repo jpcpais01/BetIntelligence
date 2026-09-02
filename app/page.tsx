@@ -7,11 +7,13 @@ import GameCardSkeleton from "@/components/GameCardSkeleton";
 import LeagueFilter from "@/components/LeagueFilter";
 import AnalysisSheet from "@/components/AnalysisSheet";
 import { AlertIcon, SparkleIcon } from "@/components/icons";
+import { isTopGame } from "@/lib/topTeams";
 
 export default function Home() {
   const [games, setGames] = useState<Game[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedLeague, setSelectedLeague] = useState<LeagueId | "all">("all");
+  const [topOnly, setTopOnly] = useState(false);
   const [analyzeGame, setAnalyzeGame] = useState<Game | null>(null);
 
   useEffect(() => {
@@ -36,10 +38,16 @@ export default function Home() {
     return c;
   }, [games]);
 
-  const filtered = useMemo(() => {
+  const byLeague = useMemo(() => {
     if (!games) return [];
     return selectedLeague === "all" ? games : games.filter((g) => g.league === selectedLeague);
   }, [games, selectedLeague]);
+
+  const topCount = useMemo(() => byLeague.filter(isTopGame).length, [byLeague]);
+
+  const filtered = useMemo(() => {
+    return topOnly ? byLeague.filter(isTopGame) : byLeague;
+  }, [byLeague, topOnly]);
 
   return (
     <div className="mx-auto max-w-md px-4 pt-6">
@@ -57,7 +65,14 @@ export default function Home() {
       </header>
 
       <div className="mb-5">
-        <LeagueFilter selected={selectedLeague} onSelect={setSelectedLeague} counts={counts} />
+        <LeagueFilter
+          selected={selectedLeague}
+          onSelect={setSelectedLeague}
+          counts={counts}
+          topOnly={topOnly}
+          onToggleTop={() => setTopOnly((v) => !v)}
+          topCount={topCount}
+        />
       </div>
 
       {error && (
@@ -78,7 +93,11 @@ export default function Home() {
       {!error && games !== null && filtered.length === 0 && (
         <div className="flex flex-col items-center gap-3 rounded-3xl border border-border-soft bg-surface/70 px-5 py-14 text-center">
           <SparkleIcon className="h-7 w-7 text-text-faint" />
-          <p className="text-sm text-text-dim">No upcoming matches found for this league right now.</p>
+          <p className="text-sm text-text-dim">
+            {topOnly
+              ? "No top-team matches found for this filter right now."
+              : "No upcoming matches found for this league right now."}
+          </p>
         </div>
       )}
 
