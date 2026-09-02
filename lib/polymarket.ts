@@ -42,7 +42,14 @@ export interface FetchDiagnostics {
   matchedEventsByLeague: Record<string, number>;
   gamesByLeague: Record<string, number>;
   sampleRejectedTitles: string[];
-  samplePartnerLeagueRejections: { title: string; labels: string[] }[];
+  partnerLeagueMatchLikeRejections: number;
+  partnerLeagueNonMatchLikeRejections: number;
+  samplePartnerLeagueRejections: {
+    title: string;
+    league: string | undefined;
+    matchLikeTitle: boolean;
+    labels: string[];
+  }[];
   sampleParsedKickoffs: { title: string; startTime: string }[];
   requestErrors: string[];
 }
@@ -559,6 +566,13 @@ export async function getUpcomingGames(): Promise<Game[]> {
   return games;
 }
 
+const MATCH_LIKE_TITLE = /\bvs\.?\b|\bv\.?\b|@/i;
+
+// Premier League, La Liga, and Serie A are Polymarket's exclusive partner leagues — see
+// the debug/raw sample diagnostics below, which exist specifically to root-cause why
+// these three keep coming back with real events matched but zero games parsed.
+const PARTNER_LEAGUE_IDS = new Set(["premier-league", "la-liga", "serie-a"]);
+
 export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
   const { events, strategy, errors } = await fetchSoccerEvents();
   const eventsWithMarkets = events.filter((e) => (e.markets?.length ?? 0) > 0);
@@ -581,15 +595,30 @@ export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
   // "X" draw label) took several rounds to pin down because sampleRejectedTitles alone
   // couldn't show *why* an event was rejected. Surfacing the raw outcome labels for any
   // future rejection in these specific leagues means the next debug pull is conclusive.
-  const PARTNER_LEAGUES = new Set(["premier-league", "la-liga", "serie-a"]);
-  const samplePartnerLeagueRejections = eventsMatchingLeague
-    .filter((e) => {
-      const league = matchLeague(eventLeagueFields(e));
-      return league && PARTNER_LEAGUES.has(league.id) && parseEvent(e) === null;
-    })
-    .slice(0, 6)
+  //
+  // A first real debug pull after that fix still showed 0 games for all three leagues,
+  // and every sampled rejection was a season-long futures/props market ("Top Goalscorer",
+  // "2027 Champion", promotion odds, etc.) — never an actual fixture. That raised a new
+  // question the old 6-item, unordered sample couldn't answer: are there ANY real
+  // match-titled ("X vs. Y") events among what these leagues' tags return at all, or do
+  // the tags only ever surface futures/props with no per-fixture 1X2 market underneath?
+  // matchLikeRejectionCount/nonMatchLikeRejectionCount answers that directly, and
+  // match-titled rejections are sorted first so real fixtures are never crowded out of
+  // the sample by futures markets the way they were last time.
+  const partnerLeagueRejected = eventsMatchingLeague.filter((e) => {
+    const league = matchLeague(eventLeagueFields(e));
+    return league && PARTNER_LEAGUE_IDS.has(league.id) && parseEvent(e) === null;
+  });
+  const matchLikeRejectionCount = partnerLeagueRejected.filter((e) =>
+    MATCH_LIKE_TITLE.test(e.title)
+  ).length;
+  const samplePartnerLeagueRejections = [...partnerLeagueRejected]
+    .sort((a, b) => Number(MATCH_LIKE_TITLE.test(b.title)) - Number(MATCH_LIKE_TITLE.test(a.title)))
+    .slice(0, 15)
     .map((e) => ({
       title: e.title,
+      league: matchLeague(eventLeagueFields(e))?.id,
+      matchLikeTitle: MATCH_LIKE_TITLE.test(e.title),
       labels: collectOutcomeEntries(e.markets ?? []).map((entry) => entry.label),
     }));
 
@@ -619,13 +648,13 @@ export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
     matchedEventsByLeague,
     gamesByLeague,
     sampleRejectedTitles: rejected,
+    partnerLeagueMatchLikeRejections: matchLikeRejectionCount,
+    partnerLeagueNonMatchLikeRejections: partnerLeagueRejected.length - matchLikeRejectionCount,
     samplePartnerLeagueRejections,
     sampleParsedKickoffs,
     requestErrors: errors,
   };
 }
-
-const MATCH_LIKE_TITLE = /\bvs\.?\b|\bv\.?\b|@/i;
 
 function trimMarketForDebug(m: RawMarket) {
   return {
@@ -656,6 +685,7 @@ export interface RawSample {
   titles: string[];
   matchLikeEvents: ReturnType<typeof trimEventForDebug>[];
   leagueMatchedEvents: ReturnType<typeof trimEventForDebug>[];
+  partnerLeagueEvents: ReturnType<typeof trimEventForDebug>[];
 }
 
 export async function getRawSample(): Promise<RawSample> {
@@ -664,11 +694,24 @@ export async function getRawSample(): Promise<RawSample> {
   const matchLikeEvents = events.filter((e) => MATCH_LIKE_TITLE.test(e.title)).slice(0, 4);
   const leagueMatchedEvents = events.filter(eventMatchesTargetLeague).slice(0, 4);
 
+  // Full untrimmed-by-count dump of every premier-league/la-liga/serie-a matched event,
+  // match-like titles first — the debug endpoint's samplePartnerLeagueRejections shows
+  // parsed outcome labels only, this shows the complete raw market objects (question,
+  // groupItemTitle, outcomes, outcomePrices) so nothing about their real shape is guessed.
+  const partnerLeagueEvents = events
+    .filter((e) => {
+      const league = matchLeague(eventLeagueFields(e));
+      return league && PARTNER_LEAGUE_IDS.has(league.id);
+    })
+    .sort((a, b) => Number(MATCH_LIKE_TITLE.test(b.title)) - Number(MATCH_LIKE_TITLE.test(a.title)))
+    .slice(0, 20);
+
   return {
     strategy,
     totalFetched: events.length,
     titles: events.map((e) => e.title),
     matchLikeEvents: matchLikeEvents.map(trimEventForDebug),
     leagueMatchedEvents: leagueMatchedEvents.map(trimEventForDebug),
+    partnerLeagueEvents: partnerLeagueEvents.map(trimEventForDebug),
   };
 }
