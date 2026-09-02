@@ -1,4 +1,4 @@
-import { matchLeague } from "./leagues";
+import { matchLeague, LEAGUES, type LeagueConfig } from "./leagues";
 import { normalizeTeamName } from "./topTeams";
 import type { Game } from "./types";
 
@@ -120,14 +120,75 @@ async function fetchEventsByParams(
   return { events: extractEventsArray(data), error };
 }
 
-async function discoverSoccerTagId(): Promise<{ tagId: string | null; error?: string }> {
+async function fetchAllTags(): Promise<{ tags: RawTag[]; error?: string }> {
   const { data, error } = await getJson<unknown>("/tags", new URLSearchParams({ limit: "1000" }));
-  const tags = Array.isArray(data) ? (data as RawTag[]) : [];
+  return { tags: Array.isArray(data) ? (data as RawTag[]) : [], error };
+}
+
+async function discoverSoccerTagId(): Promise<{ tagId: string | null; error?: string }> {
+  const { tags, error } = await fetchAllTags();
   const match = tags.find((t) => {
     const s = `${t.slug ?? ""} ${t.label ?? ""}`.toLowerCase();
     return s.includes("soccer") || s.includes("football");
   });
   return { tagId: match ? String(match.id) : null, error };
+}
+
+// Each individual match on Polymarket carries its own league-specific tag (confirmed from
+// real data, e.g. {"label":"La Liga","slug":"la-liga"} or {"label":"Japan J2 League",...}),
+// separate from the broad "soccer" category tag. Querying per-league keeps every request
+// small — /events appears capped around ~100 results regardless of the requested limit, and
+// globally there are apparently thousands of active "soccer"-tagged events across dozens of
+// minor leagues worldwide, so a single broad fetch can easily miss our specific target leagues.
+function findLeagueTag(tags: RawTag[], league: LeagueConfig): RawTag | null {
+  for (const tag of tags) {
+    const text = `${tag.label ?? ""} ${(tag.slug ?? "").replace(/-/g, " ")}`.toLowerCase();
+    if (league.keywords.some((kw) => text.includes(kw))) return tag;
+  }
+  return null;
+}
+
+async function fetchEventsPerLeagueTags(): Promise<{
+  events: RawEvent[];
+  leaguesFound: string[];
+  leaguesMissing: string[];
+  errors: string[];
+}> {
+  const errors: string[] = [];
+  const { tags, error: tagsError } = await fetchAllTags();
+  if (tagsError) errors.push(tagsError);
+  if (tags.length === 0) {
+    return { events: [], leaguesFound: [], leaguesMissing: LEAGUES.map((l) => l.id), errors };
+  }
+
+  const leaguesFound: string[] = [];
+  const leaguesMissing: string[] = [];
+  const seen = new Set<string>();
+  const merged: RawEvent[] = [];
+
+  for (const league of LEAGUES) {
+    const tag = findLeagueTag(tags, league);
+    if (!tag) {
+      leaguesMissing.push(league.id);
+      continue;
+    }
+    leaguesFound.push(league.id);
+
+    const params = new URLSearchParams({ closed: "false", active: "true", limit: "100" });
+    if (tag.slug) params.set("tag_slug", tag.slug);
+    else params.set("tag_id", String(tag.id));
+
+    const { events, error } = await fetchEventsByParams(params);
+    if (error) errors.push(error);
+    for (const e of events) {
+      if (!seen.has(e.id)) {
+        seen.add(e.id);
+        merged.push(e);
+      }
+    }
+  }
+
+  return { events: merged, leaguesFound, leaguesMissing, errors };
 }
 
 async function fetchEventsBroad(
@@ -165,6 +226,16 @@ async function fetchSoccerEvents(): Promise<{
   const errors: string[] = [];
   let bestEvents: RawEvent[] = [];
   let bestStrategy = "none";
+
+  const perLeague = await fetchEventsPerLeagueTags();
+  errors.push(...perLeague.errors);
+  if (perLeague.events.length > 0) {
+    bestEvents = perLeague.events;
+    bestStrategy = `per-league-tags (found: ${perLeague.leaguesFound.join(",") || "none"}; missing: ${perLeague.leaguesMissing.join(",") || "none"})`;
+  }
+  if (perLeague.events.some(eventMatchesTargetLeague)) {
+    return { events: perLeague.events, strategy: bestStrategy, errors };
+  }
 
   const attempts: [string, URLSearchParams][] = [
     [
@@ -279,8 +350,16 @@ function marketLiquidity(markets: RawMarket[]): number {
   return markets.reduce((sum, m) => sum + toNumber(m.liquidity), 0);
 }
 
+// Polymarket splits extra bet types for the same match into separate companion events
+// (e.g. "Team A vs. Team B - Halftime Result", "- More Markets", "- Exact Score"). Those
+// can carry their own valid-looking 3-way structure (home/draw/away at halftime, say), so
+// they must be rejected by title before parsing, not just by individual market labels.
+const DERIVATIVE_EVENT_SUFFIX =
+  /\s-\s(more markets|halftime result|second half result|exact score|first team to score|total corners|both teams to score|correct score|to qualify)\s*$/i;
+
 function parseEvent(event: RawEvent): Game | null {
   if (!event.markets || event.markets.length === 0) return null;
+  if (DERIVATIVE_EVENT_SUFFIX.test(event.title)) return null;
 
   const league = matchLeague(eventLeagueFields(event));
   if (!league) return null;
