@@ -682,6 +682,7 @@ function trimEventForDebug(e: RawEvent) {
 export interface RawSample {
   strategy: string;
   totalFetched: number;
+  titlesShown: number;
   titles: string[];
   matchLikeEvents: ReturnType<typeof trimEventForDebug>[];
   leagueMatchedEvents: ReturnType<typeof trimEventForDebug>[];
@@ -693,6 +694,9 @@ export async function getRawSample(): Promise<RawSample> {
 
   const matchLikeEvents = events.filter((e) => MATCH_LIKE_TITLE.test(e.title)).slice(0, 4);
   const leagueMatchedEvents = events.filter(eventMatchesTargetLeague).slice(0, 4);
+  // Full title list can run into the thousands across a broad sweep — capped so this
+  // endpoint's response stays practical to inspect/paste; totalFetched keeps the real count.
+  const titles = events.map((e) => e.title).slice(0, 80);
 
   // Full untrimmed-by-count dump of every premier-league/la-liga/serie-a matched event,
   // match-like titles first — the debug endpoint's samplePartnerLeagueRejections shows
@@ -709,7 +713,8 @@ export async function getRawSample(): Promise<RawSample> {
   return {
     strategy,
     totalFetched: events.length,
-    titles: events.map((e) => e.title),
+    titlesShown: titles.length,
+    titles,
     matchLikeEvents: matchLikeEvents.map(trimEventForDebug),
     leagueMatchedEvents: leagueMatchedEvents.map(trimEventForDebug),
     partnerLeagueEvents: partnerLeagueEvents.map(trimEventForDebug),
