@@ -23,6 +23,18 @@ Tapping **AI Analyze** on a match runs a two-step process against
 
 Both results are shown in the UI as a guided reveal, and the whole thing can be saved to **My Picks**.
 
+Tap the select icon in the header to pick up to 10 matches and analyze them all in one batch —
+they run through the same two-step process sequentially (not in parallel, to stay well within
+OpenRouter's rate limits) and each result appears in the sheet as it finishes.
+
+## Bet Slip
+
+The **Slip** tab builds a single or multi-leg (parlay) bet from your saved picks: search your
+analyzed matches, tap Home/Draw/Away on each to add that outcome as a leg. In **Multi** mode with
+2+ legs, the combined market probability and combined AI probability are each the product of every
+leg's own probability for its chosen outcome (`lib/betslip.ts`) — the gap between the two is how
+much more, or less, likely the AI thinks the whole parlay is than the market's pricing implies.
+
 ## Filtering and refreshing
 
 - **Leagues** — pick any combination of leagues from the filter row; tapping a league toggles it,

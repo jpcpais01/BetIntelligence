@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { TrophyIcon, BookmarkIcon } from "./icons";
+import { TrophyIcon, BookmarkIcon, TicketIcon } from "./icons";
 
 const TABS = [
   { href: "/", label: "Games", icon: TrophyIcon },
   { href: "/picks", label: "Picks", icon: BookmarkIcon },
+  { href: "/slip", label: "Slip", icon: TicketIcon },
 ] as const;
 
 export default function BottomNav() {

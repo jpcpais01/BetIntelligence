@@ -6,7 +6,8 @@ import GameCard from "@/components/GameCard";
 import GameCardSkeleton from "@/components/GameCardSkeleton";
 import LeagueFilter from "@/components/LeagueFilter";
 import AnalysisSheet from "@/components/AnalysisSheet";
-import { AlertIcon, RefreshIcon, SparkleIcon } from "@/components/icons";
+import BatchAnalysisSheet from "@/components/BatchAnalysisSheet";
+import { AlertIcon, RefreshIcon, SparkleIcon, ListCheckIcon, CloseIcon } from "@/components/icons";
 import { isTopGame } from "@/lib/topTeams";
 import { formatRelativeTime } from "@/lib/format";
 import {
@@ -25,6 +26,12 @@ export default function Home() {
   const [selectedLeagues, setSelectedLeagues] = useState<LeagueId[]>([]);
   const [topOnly, setTopOnly] = useState(false);
   const [analyzeGame, setAnalyzeGame] = useState<Game | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchGames, setBatchGames] = useState<Game[] | null>(null);
+  const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
+
+  const MAX_BATCH = 10;
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -86,6 +93,37 @@ export default function Home() {
     saveSelectedLeagues([]);
   }, []);
 
+  const toggleSelectMode = useCallback(() => {
+    setSelectMode((v) => !v);
+    setSelectedIds(new Set());
+    setSelectionNotice(null);
+  }, []);
+
+  const toggleGameSelected = useCallback((game: Game) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(game.id)) {
+        next.delete(game.id);
+        setSelectionNotice(null);
+      } else {
+        if (next.size >= MAX_BATCH) {
+          setSelectionNotice(`You can analyze up to ${MAX_BATCH} games at once.`);
+          return current;
+        }
+        next.add(game.id);
+        setSelectionNotice(null);
+      }
+      return next;
+    });
+  }, []);
+
+  const startBatchAnalysis = useCallback(() => {
+    if (!games || selectedIds.size === 0) return;
+    setBatchGames(games.filter((g) => selectedIds.has(g.id)));
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, [games, selectedIds]);
+
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: games?.length ?? 0 };
     for (const g of games ?? []) c[g.league] = (c[g.league] ?? 0) + 1;
@@ -119,14 +157,27 @@ export default function Home() {
               {isRefreshing ? "Updating odds..." : `Updated ${formatRelativeTime(fetchedAt)}`}
             </p>
           </div>
-          <button
-            onClick={() => void refresh()}
-            disabled={isRefreshing}
-            aria-label="Refresh odds"
-            className="press shrink-0 rounded-full bg-surface p-2.5 text-text-dim ring-1 ring-inset ring-border-soft disabled:opacity-50"
-          >
-            <RefreshIcon className={`h-4 w-4 ${isRefreshing ? "spin" : ""}`} />
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={toggleSelectMode}
+              aria-label={selectMode ? "Cancel selection" : "Select games to analyze"}
+              className={`press rounded-full p-2.5 ring-1 ring-inset ${
+                selectMode
+                  ? "bg-accent/12 text-accent ring-accent/25"
+                  : "bg-surface text-text-dim ring-border-soft"
+              }`}
+            >
+              {selectMode ? <CloseIcon className="h-4 w-4" /> : <ListCheckIcon className="h-4 w-4" />}
+            </button>
+            <button
+              onClick={() => void refresh()}
+              disabled={isRefreshing}
+              aria-label="Refresh odds"
+              className="press rounded-full bg-surface p-2.5 text-text-dim ring-1 ring-inset ring-border-soft disabled:opacity-50"
+            >
+              <RefreshIcon className={`h-4 w-4 ${isRefreshing ? "spin" : ""}`} />
+            </button>
+          </div>
         </div>
 
         <div className="mt-3">
@@ -192,13 +243,38 @@ export default function Home() {
                 game={game}
                 onAnalyze={setAnalyzeGame}
                 style={{ animationDelay: `${Math.min(i, 6) * 35}ms` }}
+                selectMode={selectMode}
+                selected={selectedIds.has(game.id)}
+                onToggleSelect={toggleGameSelected}
               />
             ))}
           </div>
         )}
       </div>
 
+      {selectMode && (
+        <div className="fixed inset-x-0 bottom-[68px] z-30 px-4 pb-2">
+          <div className="mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl border border-border-soft bg-bg-elevated/95 px-4 py-3 shadow-lg backdrop-blur-xl">
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-text">
+                {selectedIds.size} of {MAX_BATCH} selected
+              </p>
+              {selectionNotice && <p className="text-[11px] text-accent-3">{selectionNotice}</p>}
+            </div>
+            <button
+              onClick={startBatchAnalysis}
+              disabled={selectedIds.size === 0}
+              className="press inline-flex shrink-0 items-center gap-1.5 rounded-full bg-accent px-4 py-2 text-xs font-semibold text-bg disabled:opacity-40"
+            >
+              <SparkleIcon className="h-3.5 w-3.5" />
+              Analyze {selectedIds.size > 0 ? selectedIds.size : ""}
+            </button>
+          </div>
+        </div>
+      )}
+
       {analyzeGame && <AnalysisSheet game={analyzeGame} onClose={() => setAnalyzeGame(null)} />}
+      {batchGames && <BatchAnalysisSheet games={batchGames} onClose={() => setBatchGames(null)} />}
     </div>
   );
 }
