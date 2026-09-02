@@ -8,7 +8,68 @@ interface ChatMessage {
   content: string;
 }
 
-async function callOpenRouter(messages: ChatMessage[], online: boolean): Promise<string> {
+export interface SourceCitation {
+  url: string;
+  title: string;
+}
+
+interface Completion {
+  content: string;
+  sources: SourceCitation[];
+  finishReason: string | null;
+}
+
+const MAX_ATTEMPTS = 3;
+const REQUEST_TIMEOUT_MS = 120_000;
+
+class RetryableError extends Error {}
+
+function messageText(message: unknown): string {
+  if (!message || typeof message !== "object") return "";
+  const m = message as Record<string, unknown>;
+
+  if (typeof m.content === "string" && m.content.trim()) return m.content;
+
+  // Some providers return content as an array of parts rather than a plain string.
+  if (Array.isArray(m.content)) {
+    const joined = m.content
+      .map((part) =>
+        typeof part === "string" ? part : ((part as Record<string, unknown>)?.text as string) ?? ""
+      )
+      .join("")
+      .trim();
+    if (joined) return joined;
+  }
+
+  // Reasoning models sometimes leave `content` empty and put the answer in `reasoning`.
+  if (typeof m.reasoning === "string" && m.reasoning.trim()) return m.reasoning;
+
+  return "";
+}
+
+function messageSources(message: unknown): SourceCitation[] {
+  if (!message || typeof message !== "object") return [];
+  const annotations = (message as Record<string, unknown>).annotations;
+  if (!Array.isArray(annotations)) return [];
+
+  const sources: SourceCitation[] = [];
+  for (const raw of annotations) {
+    const citation = (raw as Record<string, unknown>)?.url_citation as
+      | Record<string, unknown>
+      | undefined;
+    const url = typeof citation?.url === "string" ? citation.url : null;
+    if (!url) continue;
+    const title = typeof citation?.title === "string" && citation.title ? citation.title : url;
+    if (!sources.some((s) => s.url === url)) sources.push({ url, title });
+  }
+  return sources.slice(0, 10);
+}
+
+async function callOpenRouter(
+  messages: ChatMessage[],
+  online: boolean,
+  maxTokens: number
+): Promise<Completion> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     throw new Error(
@@ -16,33 +77,69 @@ async function callOpenRouter(messages: ChatMessage[], online: boolean): Promise
     );
   }
 
-  const res = await fetch(OPENROUTER_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "https://betintelligence.app",
-      "X-Title": "BetIntelligence",
-    },
-    body: JSON.stringify({
-      model: online ? `${MODEL}:online` : MODEL,
-      messages,
-      temperature: 0.4,
-      max_tokens: 1800,
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(OPENROUTER_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "https://betintelligence.app",
+        "X-Title": "BetIntelligence",
+      },
+      body: JSON.stringify({
+        model: online ? `${MODEL}:online` : MODEL,
+        messages,
+        temperature: 0.4,
+        max_tokens: maxTokens,
+      }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw new RetryableError(
+      `Could not reach OpenRouter: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
 
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`OpenRouter request failed (${res.status}): ${text.slice(0, 500)}`);
+    const body = await res.text().catch(() => "");
+    const detail = `${res.status} ${body.slice(0, 300)}`;
+    // Rate limits and provider hiccups are worth another go; auth/quota problems are not.
+    if (res.status === 429 || res.status >= 500) {
+      throw new RetryableError(`OpenRouter is busy (${detail})`);
+    }
+    throw new Error(`OpenRouter request failed (${detail})`);
   }
 
-  const data = await res.json();
-  const content: string | undefined = data?.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error("OpenRouter returned an empty response.");
+  const data = await res.json().catch(() => null);
+
+  // OpenRouter can return HTTP 200 with an error payload instead of a completion.
+  const errorPayload = (data as Record<string, unknown>)?.error;
+  if (errorPayload) {
+    const message =
+      typeof errorPayload === "object" && errorPayload !== null
+        ? String((errorPayload as Record<string, unknown>).message ?? JSON.stringify(errorPayload))
+        : String(errorPayload);
+    throw new RetryableError(`OpenRouter error: ${message.slice(0, 300)}`);
   }
-  return content;
+
+  const choice = (data as Record<string, unknown>)?.choices;
+  const first = Array.isArray(choice) ? (choice[0] as Record<string, unknown>) : undefined;
+  const message = first?.message;
+  const finishReason = typeof first?.finish_reason === "string" ? first.finish_reason : null;
+  const content = messageText(message);
+
+  if (!content) {
+    // Reasoning models can burn the whole budget before emitting an answer.
+    if (finishReason === "length") {
+      throw new RetryableError(
+        "The model hit its output limit before answering. Retrying with a shorter brief."
+      );
+    }
+    throw new RetryableError("OpenRouter returned an empty response.");
+  }
+
+  return { content, sources: messageSources(message), finishReason };
 }
 
 function extractJson<T>(raw: string): T {
@@ -54,6 +151,48 @@ function extractJson<T>(raw: string): T {
     throw new Error("Could not find JSON in AI response.");
   }
   return JSON.parse(candidate.slice(start, end + 1)) as T;
+}
+
+const NUDGE =
+  "Your previous reply could not be parsed. Reply with ONLY the raw JSON object described — " +
+  "no markdown fences, no preamble, no commentary, and keep it short.";
+
+// Retries cover the flaky parts: transient provider errors, empty replies, and replies that
+// aren't parseable JSON. On a parse failure the model is nudged to answer in the right shape.
+async function requestJson<T>(
+  messages: ChatMessage[],
+  online: boolean,
+  maxTokens: number
+): Promise<{ parsed: T; sources: SourceCitation[] }> {
+  let lastError: Error | null = null;
+  let attemptMessages = messages;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const completion = await callOpenRouter(attemptMessages, online, maxTokens);
+      try {
+        return { parsed: extractJson<T>(completion.content), sources: completion.sources };
+      } catch (parseError) {
+        lastError = parseError instanceof Error ? parseError : new Error(String(parseError));
+        attemptMessages = [
+          ...messages,
+          { role: "assistant", content: completion.content.slice(0, 2000) },
+          { role: "user", content: NUDGE },
+        ];
+      }
+    } catch (err) {
+      if (!(err instanceof RetryableError)) throw err;
+      lastError = err;
+    }
+
+    if (attempt < MAX_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+    }
+  }
+
+  throw new Error(
+    `The AI model failed to return a usable answer after ${MAX_ATTEMPTS} attempts. ${lastError?.message ?? ""}`.trim()
+  );
 }
 
 function clampConfidence(value: unknown): Confidence {
@@ -88,22 +227,21 @@ export async function getIndependentPrediction(input: {
 kicking off ${matchDate}. Research both teams' current form, squad news, injuries/suspensions, key players, and head-to-head \
 history, then give your own independent estimate of the 1X2 outcome probabilities. Respond with only the JSON object described.`;
 
-  const raw = await callOpenRouter(
-    [
-      { role: "system", content: PREDICT_SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-    true
-  );
-
-  const parsed = extractJson<{
+  const { parsed, sources } = await requestJson<{
     homeWinProb: number;
     drawProb: number;
     awayWinProb: number;
     confidence: string;
     keyFactors: string[];
     rationale: string;
-  }>(raw);
+  }>(
+    [
+      { role: "system", content: PREDICT_SYSTEM_PROMPT },
+      { role: "user", content: userPrompt },
+    ],
+    true,
+    3000
+  );
 
   const probs = normalize(parsed.homeWinProb, parsed.drawProb, parsed.awayWinProb);
 
@@ -114,6 +252,7 @@ history, then give your own independent estimate of the 1X2 outcome probabilitie
     confidence: clampConfidence(parsed.confidence),
     keyFactors: Array.isArray(parsed.keyFactors) ? parsed.keyFactors.slice(0, 6) : [],
     rationale: typeof parsed.rationale === "string" ? parsed.rationale : "",
+    sources,
   };
 }
 
@@ -151,15 +290,7 @@ Now revealed — Polymarket's current implied probabilities for this exact match
 
 Compare your view to the market and respond with only the JSON object described.`;
 
-  const raw = await callOpenRouter(
-    [
-      { role: "system", content: COMPARE_SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-    false
-  );
-
-  const parsed = extractJson<{
+  const { parsed } = await requestJson<{
     homeEdge: number;
     drawEdge: number;
     awayEdge: number;
@@ -167,7 +298,14 @@ Compare your view to the market and respond with only the JSON object described.
     confidence: string;
     agreesWithMarket: boolean;
     verdict: string;
-  }>(raw);
+  }>(
+    [
+      { role: "system", content: COMPARE_SYSTEM_PROMPT },
+      { role: "user", content: userPrompt },
+    ],
+    false,
+    2000
+  );
 
   const bestValue =
     parsed.bestValue === "home" || parsed.bestValue === "draw" || parsed.bestValue === "away"

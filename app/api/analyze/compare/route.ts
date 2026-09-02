@@ -3,6 +3,9 @@ import { compareToMarket } from "@/lib/openrouter";
 import { getMockComparison } from "@/lib/mockAnalysis";
 import type { IndependentPrediction, Probabilities } from "@/lib/types";
 
+// Retries mean this can outlive a default serverless timeout too.
+export const maxDuration = 300;
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();

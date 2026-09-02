@@ -32,6 +32,11 @@ export interface Game {
 
 export type Confidence = "low" | "medium" | "high";
 
+export interface SourceCitation {
+  url: string;
+  title: string;
+}
+
 export interface IndependentPrediction {
   home: number;
   draw: number;
@@ -39,6 +44,7 @@ export interface IndependentPrediction {
   confidence: Confidence;
   keyFactors: string[];
   rationale: string;
+  sources?: SourceCitation[];
 }
 
 export type ValueSide = "home" | "draw" | "away" | "none";

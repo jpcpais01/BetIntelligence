@@ -1,21 +1,21 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #05070a;
-  --bg-elevated: #0b0f16;
-  --surface: #10151f;
-  --surface-2: #161c28;
-  --border: #232a38;
-  --border-soft: #1a2029;
-  --text: #f4f6f9;
-  --text-dim: #9aa4b6;
-  --text-faint: #5c6577;
-  --accent: #34e39a;
+  --bg: #0b0c0e;
+  --bg-elevated: #131417;
+  --surface: #141518;
+  --surface-2: #1b1d21;
+  --border: #26282d;
+  --border-soft: #1f2126;
+  --text: #f2f3f5;
+  --text-dim: #9ba1ac;
+  --text-faint: #6b7280;
+  --accent: #2fd98f;
   --accent-2: #7c6bff;
-  --accent-3: #ff5f6d;
-  --warn: #ffb648;
-  --home: #34e39a;
-  --draw: #ffb648;
+  --accent-3: #f26b6b;
+  --warn: #f2b44c;
+  --home: #2fd98f;
+  --draw: #f2b44c;
   --away: #7c6bff;
 }
 
@@ -46,6 +46,8 @@
 
 html {
   color-scheme: dark;
+  /* Keeps an installed PWA from rubber-banding like a web page. */
+  overscroll-behavior-y: none;
 }
 
 body {
@@ -53,26 +55,25 @@ body {
   color: var(--text);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   min-height: 100dvh;
-  background-image:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(124, 107, 255, 0.16), transparent),
-    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(52, 227, 154, 0.10), transparent);
-  background-attachment: fixed;
+  overscroll-behavior-y: none;
+  /* App chrome shouldn't be selectable; prose opts back in via .selectable. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 ::selection {
-  background: rgba(52, 227, 154, 0.3);
+  background: rgba(47, 217, 143, 0.25);
 }
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 999px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
+  width: 0;
+  height: 0;
 }
 
 @keyframes shimmer {
@@ -86,22 +87,20 @@ body {
 .skeleton {
   background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 37%, var(--surface) 63%);
   background-size: 800px 100%;
-  animation: shimmer 1.6s ease-in-out infinite;
+  animation: shimmer 1.8s ease-in-out infinite;
 }
 
 @keyframes pulse-dot {
   0%,
   100% {
     opacity: 1;
-    transform: scale(1);
   }
   50% {
-    opacity: 0.4;
-    transform: scale(0.85);
+    opacity: 0.35;
   }
 }
 .pulse-dot {
-  animation: pulse-dot 1.4s ease-in-out infinite;
+  animation: pulse-dot 1.6s ease-in-out infinite;
 }
 
 @keyframes grow-bar {
@@ -110,13 +109,13 @@ body {
   }
 }
 .grow-bar {
-  animation: grow-bar 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: grow-bar 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes rise-in {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
@@ -124,7 +123,7 @@ body {
   }
 }
 .rise-in {
-  animation: rise-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: rise-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes sheet-up {
@@ -136,34 +135,44 @@ body {
   }
 }
 .sheet-up {
-  animation: sheet-up 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: sheet-up 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-@keyframes sparkle-spin {
-  from {
-    transform: rotate(0deg);
-  }
+@keyframes spin {
   to {
     transform: rotate(360deg);
   }
 }
-.sparkle-spin {
-  animation: sparkle-spin 3s linear infinite;
+.spin {
+  animation: spin 1s linear infinite;
 }
 
-@keyframes glow-pulse {
+@keyframes breathe {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(52, 227, 154, 0.35);
+    opacity: 0.55;
+    transform: scale(0.94);
   }
   50% {
-    box-shadow: 0 0 0 8px rgba(52, 227, 154, 0);
+    opacity: 1;
+    transform: scale(1);
   }
 }
-.glow-pulse {
-  animation: glow-pulse 2.2s ease-out infinite;
+.breathe {
+  animation: breathe 2s ease-in-out infinite;
 }
 
-.text-balance {
-  text-wrap: balance;
+.press {
+  transition:
+    transform 0.12s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.press:active {
+  transform: scale(0.97);
+}
+
+.safe-top {
+  padding-top: max(1.25rem, env(safe-area-inset-top));
 }

@@ -21,45 +21,43 @@ export default function PicksPage() {
   const valueCount = picks?.filter((p) => p.comparison.bestValue !== "none").length ?? 0;
 
   return (
-    <div className="mx-auto max-w-md px-4 pt-6">
-      <header className="mb-5">
-        <h1 className="font-display text-xl font-bold tracking-tight">My Picks</h1>
-        <p className="text-xs text-text-faint">
-          Tracked calls, paper only &mdash; no real money involved.
-        </p>
+    <div className="mx-auto max-w-md">
+      <header className="safe-top sticky top-0 z-30 border-b border-border-soft bg-bg/85 px-4 pb-3 backdrop-blur-xl">
+        <h1 className="font-display text-[17px] font-bold tracking-tight">Picks</h1>
+        <p className="text-[11px] text-text-faint">Tracked calls &middot; paper only, no real money</p>
       </header>
 
-      {picks && picks.length > 0 && (
-        <div className="mb-5 grid grid-cols-2 gap-3">
-          <div className="rounded-2xl border border-border-soft bg-surface/70 p-4">
-            <p className="text-[11px] text-text-faint">Picks tracked</p>
-            <p className="font-display text-2xl font-bold">{picks.length}</p>
+      <div className="px-4 pt-4">
+        {picks && picks.length > 0 && (
+          <div className="mb-3 grid grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-border-soft bg-surface p-3.5">
+              <p className="text-[11px] text-text-faint">Tracked</p>
+              <p className="font-display text-2xl font-bold tabular-nums">{picks.length}</p>
+            </div>
+            <div className="rounded-2xl bg-accent/8 p-3.5 ring-1 ring-inset ring-accent/20">
+              <p className="text-[11px] text-accent/70">Value spots</p>
+              <p className="font-display text-2xl font-bold tabular-nums text-accent">{valueCount}</p>
+            </div>
           </div>
-          <div className="rounded-2xl border border-accent/30 bg-accent/10 p-4">
-            <p className="text-[11px] text-accent/80">Value spots found</p>
-            <p className="font-display text-2xl font-bold text-accent">{valueCount}</p>
+        )}
+
+        {picks !== null && picks.length === 0 && (
+          <div className="flex flex-col items-center gap-2.5 rounded-2xl border border-border-soft bg-surface px-5 py-16 text-center">
+            <BookmarkIcon className="h-6 w-6 text-text-faint" />
+            <p className="max-w-[220px] text-[13px] text-text-dim">
+              No saved picks yet. Analyze a match and save it here.
+            </p>
           </div>
-        </div>
-      )}
+        )}
 
-      {picks === null && <div className="py-20" />}
-
-      {picks !== null && picks.length === 0 && (
-        <div className="flex flex-col items-center gap-3 rounded-3xl border border-border-soft bg-surface/70 px-5 py-16 text-center">
-          <BookmarkIcon className="h-7 w-7 text-text-faint" />
-          <p className="max-w-[220px] text-sm text-text-dim">
-            No saved picks yet. Run an AI Analysis on a game and save it here.
-          </p>
-        </div>
-      )}
-
-      {picks !== null && picks.length > 0 && (
-        <div className="space-y-4">
-          {picks.map((pick) => (
-            <PickCard key={pick.id} pick={pick} onRemove={handleRemove} />
-          ))}
-        </div>
-      )}
+        {picks !== null && picks.length > 0 && (
+          <div className="space-y-3">
+            {picks.map((pick) => (
+              <PickCard key={pick.id} pick={pick} onRemove={handleRemove} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -21,6 +21,11 @@ export async function getMockIndependentPrediction(input: {
       "Historical head-to-head is fairly even over the last 10 meetings",
     ],
     rationale: `${input.homeTeam} look slightly favoured at home given their current form and ${input.awayTeam}'s defensive injuries, though the gap isn't huge — this looks like a competitive match with a real draw possibility.`,
+    sources: [
+      { url: "https://example.com/team-news", title: "Team news: injury update ahead of the weekend" },
+      { url: "https://example.com/form-guide", title: "Form guide — last six matches" },
+      { url: "https://example.com/head-to-head", title: "Head-to-head record and recent meetings" },
+    ],
   };
 }
 

@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { getIndependentPrediction } from "@/lib/openrouter";
 import { getMockIndependentPrediction } from "@/lib/mockAnalysis";
 
+// Web-search-backed research plus retries can run well past a default serverless timeout.
+export const maxDuration = 300;
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
