@@ -169,14 +169,9 @@ const japanMatch = {
   markets: eplMatch.markets,
 };
 
-const ALL_EVENTS = [
-  eplMatch,
-  laLigaMatch,
-  halftimeCompanion,
-  egyptFutures,
-  serieAFutures,
-  japanMatch,
-];
+// Deliberately excludes eplMatch/halftimeCompanion: those are served ONLY on page 2 of the
+// Premier League tag, so the EPL match can only be found if per-league paging actually works.
+const ALL_EVENTS = [laLigaMatch, egyptFutures, serieAFutures, japanMatch];
 
 let requestCount = 0;
 globalThis.fetch = (async (url: string | URL) => {
@@ -184,8 +179,30 @@ globalThis.fetch = (async (url: string | URL) => {
   const href = typeof url === "string" ? url : url.toString();
   const parsed = new URL(href);
   const offset = Number(parsed.searchParams.get("offset") ?? "0");
-  // Only the first page has data; later offsets return [] so pagination terminates.
-  const body = offset === 0 ? ALL_EVENTS : [];
+  const tagSlug = parsed.searchParams.get("tag_slug");
+
+  // The Premier League tag is served as a FULL first page of nothing but futures and
+  // companion events, with the actual fixture only on page 2. This reproduces the real
+  // bug: taking just page 0 per league slug silently missed every EPL fixture.
+  if (tagSlug === "epl" || tagSlug === "premier-league") {
+    if (offset === 0) {
+      const filler = Array.from({ length: 100 }, (_, i) => ({
+        ...egyptFutures,
+        id: `filler-${i}`,
+        slug: `filler-${i}`,
+        title: `Egypt Premier League: Filler Market ${i}`,
+      }));
+      return okResponse(filler);
+    }
+    if (offset === 100) return okResponse([eplMatch, halftimeCompanion]);
+    return okResponse([]);
+  }
+
+  // Everything else: one page of data, then empty so pagination terminates.
+  return okResponse(offset === 0 ? ALL_EVENTS : []);
+}) as unknown as typeof fetch;
+
+function okResponse(body: unknown[]) {
   return {
     ok: true,
     status: 200,
@@ -193,7 +210,7 @@ globalThis.fetch = (async (url: string | URL) => {
     json: async () => body,
     text: async () => JSON.stringify(body),
   };
-}) as unknown as typeof fetch;
+}
 
 async function main() {
   const games = await getUpcomingGames();

@@ -39,6 +39,8 @@ export interface FetchDiagnostics {
   eventsWithParsedOutcomes: number;
   droppedByTimeWindow: number;
   finalGames: number;
+  matchedEventsByLeague: Record<string, number>;
+  gamesByLeague: Record<string, number>;
   sampleRejectedTitles: string[];
   sampleParsedKickoffs: { title: string; startTime: string }[];
   requestErrors: string[];
@@ -118,35 +120,43 @@ async function fetchEventsByParams(
 }
 
 const PAGE_SIZE = 100;
-const MAX_SWEEP_PAGES = 30;
+// The API rejects deep offsets outright ("offset too large, use /events/keyset"), which
+// caps a broad sweep at roughly 2100 rows. Per-league queries stay far below that.
+const MAX_SWEEP_PAGES = 20;
+const MAX_LEAGUE_PAGES = 12;
 const PAGE_BATCH = 6;
 
 // /events returns at most ~100 rows per request no matter what limit is asked for, so
-// anything broad has to be walked with offset. Pages are fetched in small parallel batches
-// and the walk stops as soon as a short page shows we've reached the end.
+// anything broad has to be walked with offset. Page 0 is fetched alone (so a slug that
+// returns nothing costs exactly one request); the rest go in small parallel batches, and
+// the walk stops as soon as a short page shows we've reached the end.
 async function fetchPaginated(
   base: Record<string, string>,
   maxPages: number
 ): Promise<{ events: RawEvent[]; errors: string[] }> {
   const events: RawEvent[] = [];
   const errors: string[] = [];
-  let reachedEnd = false;
 
-  for (let start = 0; start < maxPages && !reachedEnd; start += PAGE_BATCH) {
+  const fetchPage = (page: number) =>
+    fetchEventsByParams(
+      new URLSearchParams({
+        ...base,
+        limit: String(PAGE_SIZE),
+        offset: String(page * PAGE_SIZE),
+      })
+    );
+
+  const first = await fetchPage(0);
+  if (first.error) errors.push(first.error);
+  events.push(...first.events);
+  if (first.events.length < PAGE_SIZE) return { events, errors };
+
+  let reachedEnd = false;
+  for (let start = 1; start < maxPages && !reachedEnd; start += PAGE_BATCH) {
     const pageNumbers: number[] = [];
     for (let p = start; p < Math.min(start + PAGE_BATCH, maxPages); p++) pageNumbers.push(p);
 
-    const results = await Promise.all(
-      pageNumbers.map((page) =>
-        fetchEventsByParams(
-          new URLSearchParams({
-            ...base,
-            limit: String(PAGE_SIZE),
-            offset: String(page * PAGE_SIZE),
-          })
-        )
-      )
-    );
+    const results = await Promise.all(pageNumbers.map(fetchPage));
 
     for (const result of results) {
       if (result.error) errors.push(result.error);
@@ -190,15 +200,14 @@ async function fetchSoccerEvents(): Promise<{
     league.tagSlugs.map((slug) => ({ leagueId: league.id, slug }))
   );
 
+  // Each league slug is walked to exhaustion, not just its first page: several of these
+  // tags hold well over 100 events, and taking only page 0 returned an arbitrary slice
+  // that happened to contain futures/companion events rather than the upcoming fixtures.
   const slugResults = await Promise.all(
     slugAttempts.map(async (attempt) => {
-      const result = await fetchEventsByParams(
-        new URLSearchParams({
-          closed: "false",
-          active: "true",
-          limit: String(PAGE_SIZE),
-          tag_slug: attempt.slug,
-        })
+      const result = await fetchPaginated(
+        { closed: "false", active: "true", tag_slug: attempt.slug },
+        MAX_LEAGUE_PAGES
       );
       return { ...attempt, ...result };
     })
@@ -206,7 +215,7 @@ async function fetchSoccerEvents(): Promise<{
 
   const workingSlugs: string[] = [];
   for (const result of slugResults) {
-    if (result.error) errors.push(result.error);
+    errors.push(...result.errors);
     if (result.events.length > 0) {
       workingSlugs.push(`${result.slug}=${result.events.length}`);
       addAll(result.events);
@@ -430,6 +439,17 @@ export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
     .slice(0, 10)
     .map((g) => ({ title: `${g.homeTeam} vs ${g.awayTeam}`, startTime: g.startTime }));
 
+  const matchedEventsByLeague: Record<string, number> = {};
+  for (const e of eventsMatchingLeague) {
+    const league = matchLeague(eventLeagueFields(e));
+    if (league) matchedEventsByLeague[league.id] = (matchedEventsByLeague[league.id] ?? 0) + 1;
+  }
+
+  const gamesByLeague: Record<string, number> = {};
+  for (const g of finalGames) {
+    gamesByLeague[g.league] = (gamesByLeague[g.league] ?? 0) + 1;
+  }
+
   return {
     strategy,
     rawEventsFetched: events.length,
@@ -438,6 +458,8 @@ export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
     eventsWithParsedOutcomes: parsedGames.length,
     droppedByTimeWindow: allParsedGames.length - finalGames.length,
     finalGames: finalGames.length,
+    matchedEventsByLeague,
+    gamesByLeague,
     sampleRejectedTitles: rejected,
     sampleParsedKickoffs,
     requestErrors: errors,
