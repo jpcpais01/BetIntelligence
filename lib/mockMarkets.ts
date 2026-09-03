@@ -141,7 +141,11 @@ export function getMockMarkets(): Market[] {
     title: m.title,
     category: m.category,
     categoryEmoji: m.categoryEmoji,
-    outcomes: [...m.outcomes].sort((a, b) => b.price - a.price),
+    // Fake but present, so the "Odds history" dropdown renders in mock mode too — the API
+    // route's own mock branch ignores the actual value and synthesizes a trend instead.
+    outcomes: [...m.outcomes]
+      .map((o, j) => ({ ...o, tokenId: `mock-token-${i}-${j}` }))
+      .sort((a, b) => b.price - a.price),
     totalOutcomes: m.outcomes.length,
     endDate: daysFromNow(m.days),
     volume: m.volume,

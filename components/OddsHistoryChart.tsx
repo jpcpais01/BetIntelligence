@@ -1,0 +1,239 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { fetchOddsHistory, type HistoryPoint, type HistorySeries } from "@/lib/oddsHistory";
+import { toPercent } from "@/lib/format";
+
+export interface HistoryOutcomeInput {
+  label: string;
+  tokenId: string | null | undefined;
+  current: number;
+  color: string;
+}
+
+const CHART_W = 300;
+const CHART_H = 108;
+const PAD_L = 30;
+const PAD_R = 6;
+const PAD_T = 10;
+const PAD_B = 6;
+const PLOT_W = CHART_W - PAD_L - PAD_R;
+const PLOT_H = CHART_H - PAD_T - PAD_B;
+
+function niceTick(p: number): string {
+  return `${Math.round(p * 100)}%`;
+}
+
+export default function OddsHistoryChart({
+  outcomes,
+  surfaceColor = "var(--surface-2)",
+}: {
+  outcomes: HistoryOutcomeInput[];
+  // Matches whatever background this chart is dropped onto, so end-dot rings blend in rather
+  // than showing a mismatched halo (Discover's dark-green theme vs. Sports' neutral one).
+  surfaceColor?: string;
+}) {
+  const [series, setSeries] = useState<HistorySeries[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [hoverT, setHoverT] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  const depKey = outcomes.map((o) => `${o.label}:${o.tokenId ?? ""}:${o.current}`).join("|");
+
+  useEffect(() => {
+    let cancelled = false;
+    /* eslint-disable react-hooks/set-state-in-effect -- resetting to a loading state for a new fetch, not syncing derived state */
+    setSeries(null);
+    setFailed(false);
+    /* eslint-enable react-hooks/set-state-in-effect */
+    fetchOddsHistory(outcomes.map((o) => ({ label: o.label, tokenId: o.tokenId ?? null, current: o.current, color: o.color })))
+      .then((result) => {
+        if (!cancelled) setSeries(result);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // depKey is the real dependency (a flattened primitive of everything outcomes carries) —
+    // the array/object literal itself is a new reference on every parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depKey]);
+
+  const plottable = useMemo(() => (series ?? []).filter((s) => s.points.length >= 2), [series]);
+
+  const scale = useMemo(() => {
+    const all = plottable.flatMap((s) => s.points);
+    if (all.length === 0) return null;
+    const times = all.map((p) => new Date(p.t).getTime());
+    const minT = Math.min(...times);
+    const maxT = Math.max(...times);
+    const prices = all.map((p) => p.p);
+    let minP = Math.min(...prices);
+    let maxP = Math.max(...prices);
+    const pad = Math.max(0.015, (maxP - minP) * 0.15);
+    minP = Math.max(0, minP - pad);
+    maxP = Math.min(1, maxP + pad);
+    if (maxP - minP < 0.04) {
+      const mid = (maxP + minP) / 2;
+      minP = Math.max(0, mid - 0.03);
+      maxP = Math.min(1, mid + 0.03);
+    }
+    const x = (t: number) => PAD_L + (maxT === minT ? 0 : ((t - minT) / (maxT - minT)) * PLOT_W);
+    const y = (p: number) => PAD_T + (1 - (p - minP) / (maxP - minP || 1)) * PLOT_H;
+    return { minT, maxT, minP, maxP, x, y };
+  }, [plottable]);
+
+  const handlePointerMove: React.PointerEventHandler<SVGSVGElement> = (e) => {
+    if (!scale || !svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const relX = ((e.clientX - rect.left) / rect.width) * CHART_W;
+    const frac = Math.min(1, Math.max(0, (relX - PAD_L) / PLOT_W));
+    setHoverT(scale.minT + frac * (scale.maxT - scale.minT));
+  };
+
+  const clearHover = () => setHoverT(null);
+
+  if (failed) {
+    return <p className="px-1 py-3 text-center text-[11px] text-text-faint">Couldn&apos;t load price history right now.</p>;
+  }
+
+  if (series === null) {
+    return <div className="h-[108px] w-full animate-pulse rounded-sm bg-[var(--surface,rgba(255,255,255,0.04))]" />;
+  }
+
+  if (!scale || plottable.length === 0) {
+    return (
+      <p className="px-1 py-3 text-center text-[11px] text-text-faint">
+        Not enough trading history yet for this market.
+      </p>
+    );
+  }
+
+  const hoverPoints =
+    hoverT !== null
+      ? plottable.map((s) => ({ series: s, point: nearestPoint(s.points, hoverT) }))
+      : null;
+
+  return (
+    <div>
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${CHART_W} ${CHART_H}`}
+        className="w-full touch-none"
+        onPointerMove={handlePointerMove}
+        onPointerLeave={clearHover}
+        onPointerUp={clearHover}
+      >
+        {[scale.minP, (scale.minP + scale.maxP) / 2, scale.maxP].map((p, i) => (
+          <g key={i}>
+            <line
+              x1={PAD_L}
+              x2={CHART_W - PAD_R}
+              y1={scale.y(p)}
+              y2={scale.y(p)}
+              stroke="var(--border-soft, rgba(255,255,255,0.08))"
+              strokeWidth={1}
+            />
+            <text x={0} y={scale.y(p) + 3} fontSize={8} fill="var(--text-faint, #6b7280)">
+              {niceTick(p)}
+            </text>
+          </g>
+        ))}
+
+        {plottable.map((s) => (
+          <path
+            key={s.label}
+            d={s.points.map((pt, i) => `${i === 0 ? "M" : "L"}${scale.x(new Date(pt.t).getTime())},${scale.y(pt.p)}`).join(" ")}
+            fill="none"
+            stroke={s.color}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ))}
+
+        {plottable.map((s) => {
+          const last = s.points[s.points.length - 1];
+          const cx = scale.x(new Date(last.t).getTime());
+          const cy = scale.y(last.p);
+          return (
+            <g key={`${s.label}-end`}>
+              <circle cx={cx} cy={cy} r={6} fill={surfaceColor} />
+              <circle cx={cx} cy={cy} r={4} fill={s.color} />
+            </g>
+          );
+        })}
+
+        {hoverPoints && (
+          <g>
+            <line
+              x1={scale.x(hoverT!)}
+              x2={scale.x(hoverT!)}
+              y1={PAD_T}
+              y2={CHART_H - PAD_B}
+              stroke="var(--text-faint, #6b7280)"
+              strokeWidth={1}
+              strokeDasharray="2 2"
+            />
+            {hoverPoints.map(
+              ({ series: s, point }) =>
+                point && (
+                  <g key={`${s.label}-hover`}>
+                    <circle cx={scale.x(new Date(point.t).getTime())} cy={scale.y(point.p)} r={5} fill={surfaceColor} />
+                    <circle cx={scale.x(new Date(point.t).getTime())} cy={scale.y(point.p)} r={3} fill={s.color} />
+                  </g>
+                )
+            )}
+          </g>
+        )}
+      </svg>
+
+      {hoverPoints ? (
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-sm px-1.5 py-1" style={{ background: surfaceColor }}>
+          <span className="text-[9px] text-text-faint">{formatHoverTime(hoverT!)}</span>
+          {hoverPoints.map(
+            ({ series: s, point }) =>
+              point && (
+                <span key={s.label} className="inline-flex items-center gap-1 text-[10px]">
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: s.color }} />
+                  <span className="tabular-nums font-medium text-text">{toPercent(point.p)}</span>
+                  <span className="text-text-faint">{s.label}</span>
+                </span>
+              )
+          )}
+        </div>
+      ) : (
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+          {outcomes.map((o) => (
+            <span key={o.label} className="inline-flex items-center gap-1 text-[10px]">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: o.color }} />
+              <span className="text-text-faint">{o.label}</span>
+              <span className="tabular-nums font-medium text-text">{toPercent(o.current)}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      <p className="mt-1 text-center text-[9px] uppercase tracking-wide text-text-faint">Past 7 days</p>
+    </div>
+  );
+}
+
+function nearestPoint(points: HistoryPoint[], targetT: number): HistoryPoint | null {
+  if (points.length === 0) return null;
+  let best = points[0];
+  let bestDiff = Math.abs(new Date(best.t).getTime() - targetT);
+  for (const pt of points) {
+    const diff = Math.abs(new Date(pt.t).getTime() - targetT);
+    if (diff < bestDiff) {
+      best = pt;
+      bestDiff = diff;
+    }
+  }
+  return best;
+}
+
+function formatHoverTime(t: number): string {
+  return new Date(t).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}

@@ -6,24 +6,51 @@ import type { SavedPick, SavedMarketPick } from "./types";
 // migrated — this is local paper-trading data, not anything worth a migration path for.
 const STORAGE_KEY = "betintelligence.slip.v2";
 
-export type Outcome = "home" | "draw" | "away";
+// "1x"/"x2" are double-chance combos (home-or-draw, draw-or-away) — not a fourth/fifth
+// independent outcome, just two of the three 1X2 outcomes bet together. There is no "12"
+// (home-or-away) leg since Polymarket's own partner-league markets don't offer one and the app
+// only surfaces combos a real book actually prices.
+export type Outcome = "home" | "draw" | "away" | "1x" | "x2";
 
 export interface SlipLeg {
   pickId: string;
   kind: "sports" | "market";
   title: string; // "Arsenal v Chelsea" for sports, the market question for a market pick
   meta: string; // "🏴 Premier League" for sports, "💼 Business" for a market pick
-  outcomeLabel: string; // "Arsenal" / "Draw" / "Chelsea", or the chosen market outcome's label
+  outcomeLabel: string; // "Arsenal" / "Draw" / "Chelsea" / "1X" / "X2", or the chosen market outcome's label
   marketProb: number;
   aiProb: number;
 }
 
 export function legFromPick(pick: SavedPick, outcome: Outcome): SlipLeg {
-  return {
+  const base = {
     pickId: pick.id,
-    kind: "sports",
+    kind: "sports" as const,
     title: `${pick.homeTeam} v ${pick.awayTeam}`,
     meta: `${pick.leagueFlag} ${pick.leagueName}`,
+  };
+
+  // Double chance is just the sum of the two 1X2 outcomes it covers — both sides (mutually
+  // exclusive, exhaustive with the third) sum to the true probability of "either one hits".
+  if (outcome === "1x") {
+    return {
+      ...base,
+      outcomeLabel: "1X",
+      marketProb: pick.market.home + pick.market.draw,
+      aiProb: pick.independent.home + pick.independent.draw,
+    };
+  }
+  if (outcome === "x2") {
+    return {
+      ...base,
+      outcomeLabel: "X2",
+      marketProb: pick.market.draw + pick.market.away,
+      aiProb: pick.independent.draw + pick.independent.away,
+    };
+  }
+
+  return {
+    ...base,
     outcomeLabel: outcome === "draw" ? "Draw" : outcome === "home" ? pick.homeTeam : pick.awayTeam,
     marketProb: pick.market[outcome],
     aiProb: pick.independent[outcome],

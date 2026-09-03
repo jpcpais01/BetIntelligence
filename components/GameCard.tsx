@@ -10,7 +10,8 @@ import Avatar from "./Avatar";
 import OutcomeBar from "./OutcomeBar";
 import ConfidenceBadge from "./ConfidenceBadge";
 import ResearchRunsStepper from "./ResearchRunsStepper";
-import { SparkleIcon, StarIcon, CheckIcon, BrainIcon, ChevronDownIcon } from "./icons";
+import OddsHistoryChart from "./OddsHistoryChart";
+import { SparkleIcon, StarIcon, CheckIcon, BrainIcon, ChevronDownIcon, TrendingUpIcon } from "./icons";
 
 export default function GameCard({
   game,
@@ -94,6 +95,8 @@ export default function GameCard({
         </div>
       </div>
 
+      {!selectMode && <PriceHistoryPanel game={game} />}
+
       {!selectMode && lastAnalysis && <LastAnalysisPanel game={game} entry={lastAnalysis} />}
 
       <div className="flex items-center justify-between gap-3 border-t border-border-soft pt-3">
@@ -115,6 +118,47 @@ export default function GameCard({
       </div>
     </div>
   );
+}
+
+// A small collapsed-by-default dropdown showing how this match's 1X2 odds have moved over the
+// past week — only offered when Polymarket actually gave us a CLOB token id for at least one
+// side, since there's nothing to chart otherwise.
+function PriceHistoryPanel({ game }: { game: Game }) {
+  const [expanded, setExpanded] = useState(false);
+  const { tokenIds } = game;
+  if (!tokenIds || (!tokenIds.home && !tokenIds.draw && !tokenIds.away)) return null;
+
+  return (
+    <div className="mb-4 overflow-hidden rounded-xl bg-surface-2">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="press flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+      >
+        <span className="flex items-center gap-1.5 text-[11px] text-text-dim">
+          <TrendingUpIcon className="h-3.5 w-3.5 shrink-0 text-text-faint" />
+          Odds history
+        </span>
+        <ChevronDownIcon className={`h-3 w-3 shrink-0 text-text-faint transition-transform ${expanded ? "rotate-180" : ""}`} />
+      </button>
+
+      {expanded && (
+        <div className="rise-in px-3 pb-3">
+          <OddsHistoryChart
+            surfaceColor="var(--surface-2)"
+            outcomes={[
+              { label: firstWord(game.homeTeam), tokenId: tokenIds.home, current: game.odds.home, color: "var(--home)" },
+              { label: "Draw", tokenId: tokenIds.draw, current: game.odds.draw, color: "var(--draw)" },
+              { label: firstWord(game.awayTeam), tokenId: tokenIds.away, current: game.odds.away, color: "var(--away)" },
+            ]}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function firstWord(name: string): string {
+  return name.split(" ")[0];
 }
 
 function topOutcome(p: { home: number; draw: number; away: number }): "home" | "draw" | "away" {

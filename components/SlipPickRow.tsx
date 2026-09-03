@@ -4,7 +4,7 @@ import { toPercent } from "@/lib/format";
 import Avatar from "./Avatar";
 import { ChevronRightIcon } from "./icons";
 
-const OUTCOME_COLOR: Record<Outcome, string> = {
+const OUTCOME_COLOR: Record<"home" | "draw" | "away", string> = {
   home: "var(--home)",
   draw: "var(--draw)",
   away: "var(--away)",
@@ -67,6 +67,25 @@ export default function SlipPickRow({
           onClick={() => onPick("away")}
         />
       </div>
+
+      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+        <ComboButton
+          label="1X"
+          sublabel={`${firstWord(pick.homeTeam)} or draw`}
+          ai={pick.independent.home + pick.independent.draw}
+          market={pick.market.home + pick.market.draw}
+          active={selectedOutcome === "1X"}
+          onClick={() => onPick("1x")}
+        />
+        <ComboButton
+          label="X2"
+          sublabel={`Draw or ${firstWord(pick.awayTeam)}`}
+          ai={pick.independent.draw + pick.independent.away}
+          market={pick.market.draw + pick.market.away}
+          active={selectedOutcome === "X2"}
+          onClick={() => onPick("x2")}
+        />
+      </div>
     </div>
   );
 }
@@ -84,7 +103,7 @@ function OutcomeButton({
   onClick,
 }: {
   label: string;
-  outcome: Outcome;
+  outcome: "home" | "draw" | "away";
   ai: number;
   market: number;
   active: boolean;
@@ -103,6 +122,43 @@ function OutcomeButton({
         {toPercent(ai)}
       </p>
       <p className="text-[10px] tabular-nums text-text-faint">mkt {toPercent(market)}</p>
+    </button>
+  );
+}
+
+// Double chance (1X / X2): two of the three 1X2 outcomes bet together, so it gets a visually
+// distinct compact row rather than sitting inside the main 3-way grid as if it were a fourth
+// independent side.
+function ComboButton({
+  label,
+  sublabel,
+  ai,
+  market,
+  active,
+  onClick,
+}: {
+  label: string;
+  sublabel: string;
+  ai: number;
+  market: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`press flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-left ring-1 ring-inset ${
+        active ? "bg-accent-2/12 ring-accent-2" : "bg-surface-2/60 ring-border-soft"
+      }`}
+    >
+      <div className="min-w-0">
+        <p className={`text-[11px] font-semibold ${active ? "text-accent-2" : "text-text-dim"}`}>{label}</p>
+        <p className="truncate text-[9px] text-text-faint">{sublabel}</p>
+      </div>
+      <div className="shrink-0 text-right">
+        <p className="font-display text-[12px] font-semibold tabular-nums text-accent-2">{toPercent(ai)}</p>
+        <p className="text-[9px] tabular-nums text-text-faint">mkt {toPercent(market)}</p>
+      </div>
     </button>
   );
 }

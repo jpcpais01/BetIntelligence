@@ -9,6 +9,9 @@ interface RawMarket {
   groupItemTitle?: string;
   outcomes?: string | string[];
   outcomePrices?: string | string[];
+  // CLOB order-book token id per outcome, parallel to `outcomes` — the id price-history is
+  // actually keyed by, distinct from this market's own Gamma id.
+  clobTokenIds?: string | string[];
   volume?: string | number;
   liquidity?: string | number;
   startDate?: string;
@@ -470,6 +473,7 @@ function normalizeProbabilities(home: number, draw: number, away: number): Game[
 interface OutcomeEntry {
   label: string;
   price: number;
+  tokenId: string | null;
 }
 
 function collectOutcomeEntries(markets: RawMarket[]): OutcomeEntry[] {
@@ -478,12 +482,13 @@ function collectOutcomeEntries(markets: RawMarket[]): OutcomeEntry[] {
   for (const market of markets) {
     const outcomes = parseArrayField(market.outcomes);
     const prices = parseArrayField(market.outcomePrices).map((p) => parseFloat(p));
+    const tokenIds = parseArrayField(market.clobTokenIds);
 
     if (outcomes.length === 3 && prices.length === 3) {
       // A single market already modeling all three 1X2 outcomes.
       outcomes.forEach((label, i) => {
         if (label && Number.isFinite(prices[i]) && !NON_MONEYLINE_LABEL.test(label)) {
-          entries.push({ label, price: prices[i] });
+          entries.push({ label, price: prices[i], tokenId: tokenIds[i] ?? null });
         }
       });
       continue;
@@ -495,8 +500,9 @@ function collectOutcomeEntries(markets: RawMarket[]): OutcomeEntry[] {
 
     const lowerOutcomes = outcomes.map((o) => o.toLowerCase());
     const yesIdx = lowerOutcomes.indexOf("yes");
-    const price = yesIdx >= 0 ? prices[yesIdx] : prices[0];
-    if (Number.isFinite(price)) entries.push({ label, price });
+    const priceIdx = yesIdx >= 0 ? yesIdx : 0;
+    const price = prices[priceIdx];
+    if (Number.isFinite(price)) entries.push({ label, price, tokenId: tokenIds[priceIdx] ?? null });
   }
 
   return entries;
@@ -606,6 +612,7 @@ function parseEvent(event: RawEvent): Game | null {
     awayTeam: titleTeams?.away ?? teamB.label,
     startTime: resolveKickoff(event),
     odds,
+    tokenIds: { home: teamA.tokenId, draw: drawEntry.tokenId, away: teamB.tokenId },
     volume: toNumber(event.volume) || marketVolume(event.markets),
     liquidity: toNumber(event.liquidity) || marketLiquidity(event.markets),
     polymarketUrl: `https://polymarket.com/event/${event.slug}`,

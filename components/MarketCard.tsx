@@ -5,9 +5,14 @@ import type { Market, Confidence } from "@/lib/types";
 import type { LastMarketAnalysisEntry } from "@/lib/lastMarketAnalysis";
 import { formatCompactNumber, formatEndDate, formatRelativeTime, toPercent, toSignedPercent, formatCostUsd } from "@/lib/format";
 import { agreementLabel, agreementTone } from "@/lib/aggregate";
-import { ChevronDownIcon, ExternalLinkIcon, FlameIcon, SparkleIcon, BrainIcon } from "./icons";
+import { ChevronDownIcon, ExternalLinkIcon, FlameIcon, SparkleIcon, BrainIcon, TrendingUpIcon } from "./icons";
 import OutcomeMeter from "./OutcomeMeter";
 import ResearchRunsStepper from "./ResearchRunsStepper";
+import OddsHistoryChart from "./OddsHistoryChart";
+
+// Capped so the chart stays legible — a dozen-outcome market would otherwise draw a dozen
+// overlapping lines.
+const MAX_HISTORY_OUTCOMES = 4;
 
 const OUTCOME_COLORS = ["var(--d-accent)", "var(--d-violet)", "var(--d-accent-2)", "#8f9dff", "#ff8a5c", "#5cc9ff"];
 
@@ -117,6 +122,8 @@ export default function MarketCard({
         </div>
       )}
 
+      <PriceHistoryPanel market={market} />
+
       {lastAnalysis && <LastAnalysisPanel entry={lastAnalysis} />}
 
       <div className="flex items-center justify-between gap-3">
@@ -137,6 +144,43 @@ export default function MarketCard({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// A small collapsed-by-default dropdown showing how this market's top outcomes have moved over
+// the past week — only offered when Polymarket gave us a CLOB token id for at least one of them.
+function PriceHistoryPanel({ market }: { market: Market }) {
+  const [expanded, setExpanded] = useState(false);
+  const chartOutcomes = market.outcomes.slice(0, MAX_HISTORY_OUTCOMES);
+  if (!chartOutcomes.some((o) => o.tokenId)) return null;
+
+  return (
+    <div className="mb-3.5 overflow-hidden rounded-sm" style={{ background: "var(--d-surface-2)" }}>
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="press flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left"
+      >
+        <span className="flex items-center gap-1.5 text-[11px] text-text-dim">
+          <TrendingUpIcon className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--d-accent)" }} />
+          Odds history
+        </span>
+        <ChevronDownIcon className={`h-3 w-3 shrink-0 text-text-faint transition-transform ${expanded ? "rotate-180" : ""}`} />
+      </button>
+
+      {expanded && (
+        <div className="rise-in px-2.5 pb-2.5">
+          <OddsHistoryChart
+            surfaceColor="var(--d-surface-2)"
+            outcomes={chartOutcomes.map((o, i) => ({
+              label: o.label,
+              tokenId: o.tokenId,
+              current: o.price,
+              color: OUTCOME_COLORS[i % OUTCOME_COLORS.length],
+            }))}
+          />
+        </div>
+      )}
     </div>
   );
 }

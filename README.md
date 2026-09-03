@@ -42,12 +42,40 @@ Every analysis you save, whether it came from Discover or Sports, shows up toget
 - **Lab** (formerly "Slip") builds a single or multi-leg (parlay) bet from any combination of your
   saved picks, football and Discover markets alike: search across all of them (with the same
   All/Football filter as Picks), tap an outcome on each to add it as a leg, or tap the pick's own
-  title/teams to open its full analysis report instead. In **Multi** mode with 2+ legs, the combined market probability and
+  title/teams to open its full analysis report instead. With 2+ legs, the combined market probability and
   combined AI probability are each the product of every leg's own probability for its chosen
   outcome (`lib/betslip.ts`) — the gap between the two is how much more, or less, likely the AI
   thinks the whole parlay is than the market's pricing implies. This math doesn't care what kind
   of market a leg came from, so a parlay can freely mix a football result with, say, a crypto
   price target.
+- Every football pick in Lab also offers **double chance**: **1X** (home win or draw) and **X2**
+  (draw or away win), shown as a compact secondary row beneath the main three-way buttons. Neither
+  is a market Polymarket sells separately — a partner-league event is a plain 1X2 with no fourth or
+  fifth outcome — so both are computed client-side as the sum of the two 1X2 outcomes they cover
+  (`legFromPick` in `lib/betslip.ts`), for both the market's own probability and the AI's
+  independent read. They slot into a parlay exactly like any other leg.
+
+## Odds history
+
+Every card — a Discover market or a Sports match — has a collapsed **Odds history** dropdown that
+expands into a small line chart of how its outcomes' prices moved over the past week, one line per
+outcome (home/draw/away for football; the market's top few outcomes, capped at 4, for Discover),
+in the same colors used everywhere else on that card so the chart reads as an extension of it
+rather than a new visual language. Dragging or tapping along the chart shows a crosshair with the
+exact value of every line at that point in time. The dropdown only appears when Polymarket actually
+gave us a price-history token for at least one outcome — some thin or brand-new markets don't have
+one yet, and there's nothing to chart in that case.
+
+This is backed by Polymarket's own CLOB order-book API
+(`clob.polymarket.com/prices-history`), proxied through `/api/odds-history`
+(`lib/oddsHistoryServer.ts`) so the real endpoint and any caching stay server-side — the browser
+never talks to Polymarket directly for this. The token id each outcome needs for that lookup
+(`clobTokenIds`, distinct from the market's own id) is threaded through from Gamma's event data
+during parsing (`lib/polymarket.ts`, `lib/allMarkets.ts`) alongside the price itself; an outcome
+Gamma didn't give a token for simply doesn't get a line. In local mock mode (`MOCK_GAMES=1` /
+`MOCK_MARKETS=1`) the route synthesizes a deterministic pseudo-random trend that lands exactly on
+the mock price you're already seeing (`lib/mockOddsHistory.ts`), so the chart is testable without
+hitting Polymarket at all.
 
 ## How the AI analysis works
 

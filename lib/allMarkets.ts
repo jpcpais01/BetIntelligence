@@ -11,6 +11,7 @@ interface RawMarket {
   groupItemTitle?: string;
   outcomes?: string | string[];
   outcomePrices?: string | string[];
+  clobTokenIds?: string | string[];
   volume?: string | number;
   liquidity?: string | number;
 }
@@ -113,9 +114,10 @@ function collectOutcomes(markets: RawMarket[]): MarketOutcome[] {
   if (markets.length === 1) {
     const labels = parseArrayField(markets[0].outcomes);
     const prices = parseArrayField(markets[0].outcomePrices).map((p) => parseFloat(p));
+    const tokenIds = parseArrayField(markets[0].clobTokenIds);
     if (labels.length >= 2 && prices.length === labels.length) {
       return labels
-        .map((label, i) => ({ label, price: prices[i] }))
+        .map((label, i) => ({ label, price: prices[i], tokenId: tokenIds[i] ?? null }))
         .filter((o) => o.label && Number.isFinite(o.price));
     }
   }
@@ -126,9 +128,11 @@ function collectOutcomes(markets: RawMarket[]): MarketOutcome[] {
     if (!label) continue;
     const optionLabels = parseArrayField(m.outcomes).map((o) => o.toLowerCase());
     const prices = parseArrayField(m.outcomePrices).map((p) => parseFloat(p));
+    const tokenIds = parseArrayField(m.clobTokenIds);
     const yesIdx = optionLabels.indexOf("yes");
-    const price = yesIdx >= 0 ? prices[yesIdx] : prices[0];
-    if (Number.isFinite(price)) outcomes.push({ label, price });
+    const priceIdx = yesIdx >= 0 ? yesIdx : 0;
+    const price = prices[priceIdx];
+    if (Number.isFinite(price)) outcomes.push({ label, price, tokenId: tokenIds[priceIdx] ?? null });
   }
   return outcomes;
 }

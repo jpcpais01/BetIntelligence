@@ -15,6 +15,16 @@ export interface Probabilities {
   away: number;
 }
 
+// Polymarket's CLOB order-book token id per outcome — needed to look up that outcome's price
+// history (a Gamma market's own id only identifies the question, not a tradeable token). Null
+// when Gamma didn't return one for that outcome, which the price-history UI treats as "no
+// history available" rather than guessing.
+export interface OutcomeTokenIds {
+  home: string | null;
+  draw: string | null;
+  away: string | null;
+}
+
 export interface Game {
   id: string;
   slug: string;
@@ -25,6 +35,7 @@ export interface Game {
   awayTeam: string;
   startTime: string;
   odds: Probabilities;
+  tokenIds?: OutcomeTokenIds;
   volume: number;
   liquidity: number;
   polymarketUrl: string;
@@ -95,6 +106,9 @@ export interface SavedPick {
 export interface MarketOutcome {
   label: string;
   price: number;
+  // Same CLOB token id concept as Game.tokenIds, one per outcome instead of a fixed home/draw/away
+  // shape. Undefined/null when Gamma didn't return one for this outcome.
+  tokenId?: string | null;
 }
 
 export interface Market {

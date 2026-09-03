@@ -135,6 +135,9 @@ export function getMockGames(): Game[] {
       awayTeam: g.awayTeam,
       startTime: hoursFromNow(g.hours),
       odds: g.odds,
+      // Fake but present, so the "Odds history" dropdown renders in mock mode too — the API
+      // route's own mock branch ignores the actual value and synthesizes a trend instead.
+      tokenIds: { home: `mock-token-${i}-home`, draw: `mock-token-${i}-draw`, away: `mock-token-${i}-away` },
       volume: g.volume,
       liquidity: g.liquidity,
       polymarketUrl: `https://polymarket.com/event/${slug}`,
