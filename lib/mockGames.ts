@@ -101,24 +101,6 @@ const RAW: Array<
     liquidity: 7300,
     hours: 62,
   },
-  {
-    league: "brasileirao",
-    homeTeam: "Flamengo",
-    awayTeam: "Palmeiras",
-    odds: { home: 0.41, draw: 0.29, away: 0.3 },
-    volume: 88900,
-    liquidity: 24700,
-    hours: 8,
-  },
-  {
-    league: "brasileirao",
-    homeTeam: "Sao Paulo",
-    awayTeam: "Corinthians",
-    odds: { home: 0.36, draw: 0.31, away: 0.33 },
-    volume: 54200,
-    liquidity: 16800,
-    hours: 90,
-  },
 ];
 
 export function getMockGames(): Game[] {

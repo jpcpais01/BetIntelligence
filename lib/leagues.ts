@@ -51,17 +51,6 @@ const COMMON_EXCLUDES = [
 // (e.g. Brazil's "Serie A" must be caught before Italy's "Serie A").
 export const LEAGUES: LeagueConfig[] = [
   {
-    id: "brasileirao",
-    name: "Brasileirao",
-    shortName: "Brasileirao",
-    country: "Brazil",
-    flag: "\u{1F1E7}\u{1F1F7}",
-    keywords: ["brasileir", "campeonato brasileiro", "brazil serie a", "brazilian serie a"],
-    excludeKeywords: [...COMMON_EXCLUDES, "serie b", "serie c", "serie d", "sub-20"],
-    // Confirmed against live data — see the comment on LeagueConfig.tagSlugs.
-    tagSlugs: ["brazil-serie-a"],
-  },
-  {
     id: "premier-league",
     name: "Premier League",
     shortName: "EPL",

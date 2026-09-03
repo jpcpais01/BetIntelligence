@@ -6,8 +6,7 @@ export type LeagueId =
   | "ligue-1"
   | "eredivisie"
   | "primeira-liga"
-  | "belgian-pro-league"
-  | "brasileirao";
+  | "belgian-pro-league";
 
 export interface Probabilities {
   home: number;

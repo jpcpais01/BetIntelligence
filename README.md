@@ -5,8 +5,7 @@ AI odds-intelligence for Polymarket prediction markets. **Discover** (the home t
 — and lets an LLM independently research and form its own probability read on a market before it
 ever sees Polymarket's price, then compares the two to flag markets that might be mispriced.
 **Sports** is the original, more specialized version of the same idea: upcoming 1X2 matches from
-Polymarket's top 8 European football leagues plus Brazil's Brasileirao, with the same blind-then-
-compare flow.
+Polymarket's top 8 European football leagues, with the same blind-then-compare flow.
 
 This is a paper-trading / research tool: there is no real-money betting or wallet integration.
 "Saving a pick" just stores your AI's read in your browser's local storage.
@@ -221,8 +220,8 @@ required to run AI analysis.
   auth required.
   - `lib/polymarket.ts` (Sports) fetches upcoming soccer events, matches them against a keyword
     list for the Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Primeira Liga, Eredivisie,
-    Belgian Pro League, and Brasileirao, and derives 1X2 probabilities from each match's three
-    moneyline sub-markets.
+    and Belgian Pro League, and derives 1X2 probabilities from each match's three moneyline
+    sub-markets.
   - `lib/allMarkets.ts` (Discover) sweeps the highest-volume active events across every category,
     with no fixed category list — categories shown are derived from whatever tags Polymarket
     actually returns on the fetched markets.
