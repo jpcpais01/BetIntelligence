@@ -231,11 +231,29 @@ function normalizeHaystack(haystacks: string[]): string {
     .toLowerCase();
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// A handful of exclude keywords end in a digit (e.g. "premier league 2", meant to filter out
+// the youth/reserve "Premier League 2" competition; "la liga 2", the actual second division).
+// Real season series carry a year suffix ("Premier League 2025", "La Liga 2026"), and a plain
+// substring check can't tell "2" (the standalone competition) from "2" as the first digit of
+// "2025" -- so every real top-flight fixture whose series/tags text included a season year was
+// silently excluded by the very keyword meant to filter out an unrelated division. A trailing
+// negative lookahead for another digit fixes that without weakening the exclusion itself.
+function matchesExcludeKeyword(text: string, keyword: string): boolean {
+  if (/\d$/.test(keyword)) {
+    return new RegExp(`${escapeRegExp(keyword)}(?!\\d)`).test(text);
+  }
+  return text.includes(keyword);
+}
+
 export function matchLeague(haystacks: string[]): LeagueConfig | null {
   const text = normalizeHaystack(haystacks);
   for (const league of LEAGUES) {
     if (!league.keywords.some((kw) => text.includes(kw))) continue;
-    if (league.excludeKeywords.some((kw) => text.includes(kw))) continue;
+    if (league.excludeKeywords.some((kw) => matchesExcludeKeyword(text, kw))) continue;
     return league;
   }
   return null;

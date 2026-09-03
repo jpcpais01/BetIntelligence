@@ -19,7 +19,11 @@ const eplMatch = {
     { label: "Soccer", slug: "soccer" },
     { label: "Premier League", slug: "premier-league" },
   ],
-  series: [{ title: "Premier League", slug: "premier-league" }],
+  // Real fixture series carry a season-year suffix ("Premier League 2025") — this must NOT
+  // collide with the "premier league 2" exclude keyword (meant to filter the unrelated
+  // "Premier League 2" youth competition), which is a substring of "Premier League 2025"
+  // and silently excluded every real fixture until fixed with a trailing-digit lookahead.
+  series: [{ title: "Premier League 2025", slug: "premier-league-2025" }],
   markets: [
     {
       question: "Will Arsenal win on 2026-09-05?",
@@ -58,7 +62,9 @@ const laLigaMatch = {
     { label: "Soccer", slug: "soccer" },
     { label: "La Liga", slug: "la-liga" },
   ],
-  series: [],
+  // Same season-year exclude-keyword collision as the EPL fixture above, but for
+  // "la liga 2" (meant to filter the actual Spanish second division).
+  series: [{ title: "La Liga 2025", slug: "la-liga-2025" }],
   markets: [
     {
       question: `Will Real Madrid win on ${iso(5).slice(0, 10)}?`,
