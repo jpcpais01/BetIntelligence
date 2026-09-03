@@ -1,12 +1,32 @@
 # BetIntelligence
 
-AI odds-intelligence for Polymarket football (soccer) markets. BetIntelligence pulls upcoming
-1X2 matches from Polymarket's top 8 European leagues plus Brazil's Brasileirao, and lets an LLM
-form its own opinion before ever seeing the market — then compares the two to flag matches where
-the market might be mispriced.
+AI odds-intelligence for Polymarket prediction markets. **Discover** (the home tab) covers
+*everything* on Polymarket — politics, crypto, business, entertainment, science, sports, anything
+— and lets an LLM independently research and form its own probability read on a market before it
+ever sees Polymarket's price, then compares the two to flag markets that might be mispriced.
+**Sports** is the original, more specialized version of the same idea: upcoming 1X2 matches from
+Polymarket's top 8 European football leagues plus Brazil's Brasileirao, with the same blind-then-
+compare flow.
 
 This is a paper-trading / research tool: there is no real-money betting or wallet integration.
-"Saving a pick" just stores your AI's read on a match in your browser's local storage.
+"Saving a pick" just stores your AI's read in your browser's local storage.
+
+## Discover
+
+The **Discover** tab (`app/page.tsx`) is a trending feed of Polymarket's highest-volume markets
+across every category, refreshed from a live sweep of Polymarket's Gamma API (`lib/allMarkets.ts`)
+— no fixed list of categories or leagues, whatever is actually trending shows up. Tap a category
+chip to filter, or **Analyze** any card to run the same independent-research-then-compare flow
+described below, generalized for markets with anywhere from 2 (Yes/No) to a dozen-plus named
+outcomes (`lib/openrouterMarkets.ts`, `/api/analyze/market/predict`, `/api/analyze/market/compare`).
+Saved analyses live under Discover's own **Saved** tab (`lib/marketPicks.ts`) — a separate store
+from Sports' Picks/Slip, so the two flows never interfere with each other.
+
+## Sports
+
+The **Sports** tab (`app/sports/page.tsx`) is the original football-only experience — see below
+for how its AI analysis, filtering, and caching work. Saved picks from Sports appear in the
+**Picks** and **Slip** tabs.
 
 ## How the AI analysis works
 
@@ -76,7 +96,8 @@ Open [http://localhost:3000](http://localhost:3000).
 | `OPENROUTER_API_KEY` | Yes (for real analysis) | API key from [openrouter.ai/keys](https://openrouter.ai/keys). |
 | `NEXT_PUBLIC_APP_URL` | No | Sent to OpenRouter as the app's referer/title for their dashboards. |
 | `MOCK_GAMES` | No | Set to `1` to serve built-in sample matches instead of calling Polymarket. Useful for local UI work without network access. |
-| `MOCK_AI` | No | Set to `1` to return a canned analysis instead of calling OpenRouter. Useful for testing the full analysis flow without spending API credits. |
+| `MOCK_MARKETS` | No | Set to `1` to serve built-in sample Discover markets instead of calling Polymarket. |
+| `MOCK_AI` | No | Set to `1` to return a canned analysis instead of calling OpenRouter (covers both Sports and Discover's analysis flows). Useful for testing without spending API credits. |
 
 No API key or account is needed to browse games — Polymarket's Gamma API is public. A key is only
 required to run AI analysis.
@@ -84,23 +105,34 @@ required to run AI analysis.
 ## Data sources
 
 - **Odds**: [Polymarket's Gamma API](https://docs.polymarket.com/) (`gamma-api.polymarket.com`), no
-  auth required. `lib/polymarket.ts` fetches upcoming soccer events, matches them against a keyword
-  list for the Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Primeira Liga, Eredivisie,
-  Belgian Pro League, and Brasileirao, and derives 1X2 probabilities from each match's three
-  moneyline sub-markets.
-- **Analysis**: [OpenRouter](https://openrouter.ai/) chat completions, `lib/openrouter.ts`.
+  auth required.
+  - `lib/polymarket.ts` (Sports) fetches upcoming soccer events, matches them against a keyword
+    list for the Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Primeira Liga, Eredivisie,
+    Belgian Pro League, and Brasileirao, and derives 1X2 probabilities from each match's three
+    moneyline sub-markets.
+  - `lib/allMarkets.ts` (Discover) sweeps the highest-volume active events across every category,
+    with no fixed category list — categories shown are derived from whatever tags Polymarket
+    actually returns on the fetched markets.
+- **Analysis**: [OpenRouter](https://openrouter.ai/) chat completions — `lib/openrouter.ts` for
+  Sports' football-specific prompts, `lib/openrouterMarkets.ts` for Discover's generalized
+  any-market prompts (both share the same request/retry/JSON-parsing core in `lib/openrouter.ts`).
 
 ## Project structure
 
 ```
 app/
-  page.tsx                    Game list (home)
-  picks/page.tsx               Saved paper picks
-  api/games/route.ts           Fetches + normalizes Polymarket games
-  api/analyze/predict/route.ts Step 1: independent AI prediction
-  api/analyze/compare/route.ts Step 2: compare prediction against market odds
-components/                    UI components (game cards, analysis sheet, etc.)
-lib/                           Polymarket + OpenRouter integrations, types, formatting, storage
+  page.tsx                            Discover — trending markets across all of Polymarket (home)
+  sports/page.tsx                     Sports — the original football-only game list
+  picks/page.tsx                      Sports' saved paper picks
+  slip/page.tsx                       Sports' bet slip
+  api/markets/route.ts                Fetches + normalizes Discover's trending markets
+  api/analyze/market/predict/route.ts Discover step 1: independent AI prediction (any market)
+  api/analyze/market/compare/route.ts Discover step 2: compare prediction against market odds
+  api/games/route.ts                  Fetches + normalizes Sports' Polymarket games
+  api/analyze/predict/route.ts        Sports step 1: independent AI prediction
+  api/analyze/compare/route.ts        Sports step 2: compare prediction against market odds
+components/                           UI components (game/market cards, analysis sheets, etc.)
+lib/                                  Polymarket + OpenRouter integrations, types, formatting, storage
 ```
 
 ## Tech

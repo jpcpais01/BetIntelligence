@@ -176,3 +176,57 @@ body {
 .safe-top {
   padding-top: max(1.25rem, env(safe-area-inset-top));
 }
+
+/* Discover — the flagship "everything on Polymarket" feed gets its own deliberately louder,
+   more gamified palette so it reads as a distinct mode of the app rather than another list
+   page. Scoped to .discover so nothing outside it is affected. */
+.discover {
+  --d-accent: #ff3d7f;
+  --d-accent-2: #22e6c8;
+  --d-accent-3: #ffb020;
+  --d-violet: #7c5cff;
+  --d-surface: #17131f;
+  --d-surface-2: #1f1a2c;
+  --d-border: #322a44;
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.marquee-track {
+  animation: marquee 28s linear infinite;
+}
+
+@keyframes glow-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px rgba(255, 61, 127, 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(255, 61, 127, 0.45),
+      0 0 18px rgba(255, 61, 127, 0.25);
+  }
+}
+.glow-pulse {
+  animation: glow-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+.pop-in {
+  animation: pop-in 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
+}

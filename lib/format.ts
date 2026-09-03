@@ -22,6 +22,20 @@ export function formatKickoff(iso: string): { label: string; isLive: boolean } {
   return { label: `${dateLabel}, ${time}`, isLive: false };
 }
 
+export function formatEndDate(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = d.getTime() - now.getTime();
+  if (diffMs <= 0) return "Resolving";
+
+  const diffDays = diffMs / 86_400_000;
+  if (diffDays < 1) return "Ends today";
+  if (diffDays < 2) return "Ends tomorrow";
+  if (diffDays < 7) return `Ends in ${Math.round(diffDays)}d`;
+  if (diffDays < 60) return `Ends in ${Math.round(diffDays / 7)}w`;
+  return `Ends ${d.toLocaleDateString([], { month: "short", year: "numeric" })}`;
+}
+
 export function formatRelativeTime(iso: string | null): string {
   if (!iso) return "never";
   const t = new Date(iso).getTime();

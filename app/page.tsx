@@ -1,71 +1,54 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Game, LeagueId } from "@/lib/types";
-import GameCard from "@/components/GameCard";
-import GameCardSkeleton from "@/components/GameCardSkeleton";
-import LeagueFilter from "@/components/LeagueFilter";
-import AnalysisSheet from "@/components/AnalysisSheet";
-import BatchAnalysisSheet from "@/components/BatchAnalysisSheet";
-import { AlertIcon, RefreshIcon, SparkleIcon, ListCheckIcon, CloseIcon } from "@/components/icons";
-import { isTopGame } from "@/lib/topTeams";
-import { useRequestLogos } from "@/components/ClubLogosProvider";
+import type { Market, SavedMarketPick } from "@/lib/types";
+import MarketCard from "@/components/MarketCard";
+import MarketCardSkeleton from "@/components/MarketCardSkeleton";
+import MarketAnalysisSheet from "@/components/MarketAnalysisSheet";
+import SavedMarketPickCard from "@/components/SavedMarketPickCard";
+import { AlertIcon, RefreshIcon, CompassIcon, FlameIcon, BookmarkIcon } from "@/components/icons";
 import { formatRelativeTime } from "@/lib/format";
-import {
-  loadCachedGames,
-  saveCachedGames,
-  isStale,
-  REFRESH_INTERVAL_MS,
-} from "@/lib/gamesCache";
-import { loadSelectedLeagues, saveSelectedLeagues } from "@/lib/leaguePrefs";
+import { loadCachedMarkets, saveCachedMarkets, isStale, REFRESH_INTERVAL_MS } from "@/lib/marketsCache";
+import { loadMarketPicks, removeMarketPick } from "@/lib/marketPicks";
 
-export default function Home() {
-  const [games, setGames] = useState<Game[] | null>(null);
+type Tab = "explore" | "saved";
+
+export default function DiscoverPage() {
+  const [markets, setMarkets] = useState<Market[] | null>(null);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [selectedLeagues, setSelectedLeagues] = useState<LeagueId[]>([]);
-  const [topOnly, setTopOnly] = useState(false);
-  const [analyzeGame, setAnalyzeGame] = useState<Game | null>(null);
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [batchGames, setBatchGames] = useState<Game[] | null>(null);
-  const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
-
-  const MAX_BATCH = 10;
-  const requestLogos = useRequestLogos();
+  const [category, setCategory] = useState("All");
+  const [tab, setTab] = useState<Tab>("explore");
+  const [analyzeMarket, setAnalyzeMarket] = useState<Market | null>(null);
+  const [picks, setPicks] = useState<SavedMarketPick[] | null>(null);
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const res = await fetch("/api/games", { cache: "no-store" });
+      const res = await fetch("/api/markets", { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not load games.");
+      if (!res.ok) throw new Error(data.error || "Could not load markets.");
       const now = new Date().toISOString();
-      setGames(data.games);
+      setMarkets(data.markets);
       setFetchedAt(now);
       setError(null);
-      saveCachedGames(data.games, now);
+      saveCachedMarkets(data.markets, now);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load games.");
+      setError(err instanceof Error ? err.message : "Could not load markets.");
     } finally {
       setIsRefreshing(false);
     }
   }, []);
 
-  // Show cached markets instantly on load, then revalidate in the background if they've aged out.
   useEffect(() => {
-    const cached = loadCachedGames();
+    const cached = loadCachedMarkets();
     if (cached) {
-      /* eslint-disable react-hooks/set-state-in-effect -- hydrating from localStorage, unavailable during SSR */
-      setGames(cached.games);
+      /* eslint-disable-next-line react-hooks/set-state-in-effect -- hydrating from localStorage, unavailable during SSR */
+      setMarkets(cached.markets);
       setFetchedAt(cached.fetchedAt);
     }
-    setSelectedLeagues(loadSelectedLeagues());
-    /* eslint-enable react-hooks/set-state-in-effect */
-    if (!cached || isStale(cached.fetchedAt)) {
-      void refresh();
-    }
+    if (!cached || isStale(cached.fetchedAt)) void refresh();
   }, [refresh]);
 
   useEffect(() => {
@@ -73,15 +56,6 @@ export default function Home() {
     return () => clearInterval(id);
   }, [refresh]);
 
-  // Every team currently listed gets its crest requested — not just a curated "top club" list —
-  // so the whole league, not a handful of elite names, shows real logos.
-  useEffect(() => {
-    if (!games || games.length === 0) return;
-    const names = games.flatMap((g) => [g.homeTeam, g.awayTeam]);
-    requestLogos(names);
-  }, [games, requestLogos]);
-
-  // Coming back to a tab that's been sitting open shouldn't show half-hour-old odds.
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible" && isStale(fetchedAt)) void refresh();
@@ -90,201 +64,278 @@ export default function Home() {
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [fetchedAt, refresh]);
 
-  const toggleLeague = useCallback((id: LeagueId) => {
-    setSelectedLeagues((current) => {
-      const next = current.includes(id) ? current.filter((l) => l !== id) : [...current, id];
-      saveSelectedLeagues(next);
-      return next;
-    });
-  }, []);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is unavailable during SSR/hydration
+    setPicks(loadMarketPicks());
+  }, [tab]);
 
-  const clearLeagues = useCallback(() => {
-    setSelectedLeagues([]);
-    saveSelectedLeagues([]);
-  }, []);
+  const handleRemovePick = (id: string) => setPicks(removeMarketPick(id));
 
-  const toggleSelectMode = useCallback(() => {
-    setSelectMode((v) => !v);
-    setSelectedIds(new Set());
-    setSelectionNotice(null);
-  }, []);
+  const categories = useMemo(() => {
+    if (!markets) return [];
+    const counts = new Map<string, number>();
+    for (const m of markets) counts.set(m.category, (counts.get(m.category) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c).slice(0, 8);
+  }, [markets]);
 
-  const toggleGameSelected = useCallback((game: Game) => {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (next.has(game.id)) {
-        next.delete(game.id);
-        setSelectionNotice(null);
-      } else {
-        if (next.size >= MAX_BATCH) {
-          setSelectionNotice(`You can analyze up to ${MAX_BATCH} games at once.`);
-          return current;
-        }
-        next.add(game.id);
-        setSelectionNotice(null);
-      }
-      return next;
-    });
-  }, []);
+  const filtered = useMemo(() => {
+    if (!markets) return [];
+    return category === "All" ? markets : markets.filter((m) => m.category === category);
+  }, [markets, category]);
 
-  const startBatchAnalysis = useCallback(() => {
-    if (!games || selectedIds.size === 0) return;
-    setBatchGames(games.filter((g) => selectedIds.has(g.id)));
-    setSelectMode(false);
-    setSelectedIds(new Set());
-  }, [games, selectedIds]);
+  const hotIds = useMemo(() => {
+    if (!markets) return new Set<string>();
+    return new Set(
+      [...markets]
+        .sort((a, b) => b.volume - a.volume)
+        .slice(0, 6)
+        .map((m) => m.id)
+    );
+  }, [markets]);
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { all: games?.length ?? 0 };
-    for (const g of games ?? []) c[g.league] = (c[g.league] ?? 0) + 1;
-    return c;
-  }, [games]);
+  const tickerMarkets = useMemo(() => (markets ?? []).slice(0, 10), [markets]);
 
-  const byLeague = useMemo(() => {
-    if (!games) return [];
-    if (selectedLeagues.length === 0) return games;
-    return games.filter((g) => selectedLeagues.includes(g.league));
-  }, [games, selectedLeagues]);
-
-  const topCount = useMemo(() => byLeague.filter(isTopGame).length, [byLeague]);
-
-  const filtered = useMemo(
-    () => (topOnly ? byLeague.filter(isTopGame) : byLeague),
-    [byLeague, topOnly]
-  );
-
-  const showFullError = error !== null && games === null;
+  const showFullError = error !== null && markets === null;
 
   return (
-    <div className="mx-auto max-w-md">
-      <header className="safe-top sticky top-0 z-30 border-b border-border-soft bg-bg/85 px-4 pb-3 backdrop-blur-xl">
-        <div className="flex items-center justify-between gap-3">
+    <div className="discover mx-auto max-w-md" style={{ background: "var(--d-surface)" }}>
+      <header
+        className="safe-top sticky top-0 z-30 overflow-hidden px-4 pb-4"
+        style={{
+          background:
+            "radial-gradient(120% 100% at 0% 0%, rgba(255,61,127,0.28), transparent 60%), radial-gradient(120% 100% at 100% 0%, rgba(124,92,255,0.28), transparent 55%), var(--d-surface)",
+          borderBottom: "1px solid var(--d-border)",
+        }}
+      >
+        <div className="mb-3.5 flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="font-display text-[17px] font-bold tracking-tight">
-              Bet<span className="text-accent">Intelligence</span>
+            <h1 className="flex items-center gap-1.5 font-display text-[19px] font-bold tracking-tight text-text">
+              <CompassIcon className="h-5 w-5" style={{ color: "var(--d-accent-2)" }} />
+              Discover
             </h1>
             <p className="text-[11px] text-text-faint">
-              {isRefreshing ? "Updating odds..." : `Updated ${formatRelativeTime(fetchedAt)}`}
+              {isRefreshing ? "Scanning every market..." : `Updated ${formatRelativeTime(fetchedAt)}`}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              onClick={toggleSelectMode}
-              aria-label={selectMode ? "Cancel selection" : "Select games to analyze"}
-              className={`press rounded-full p-2.5 ring-1 ring-inset ${
-                selectMode
-                  ? "bg-accent/12 text-accent ring-accent/25"
-                  : "bg-surface text-text-dim ring-border-soft"
-              }`}
-            >
-              {selectMode ? <CloseIcon className="h-4 w-4" /> : <ListCheckIcon className="h-4 w-4" />}
-            </button>
-            <button
-              onClick={() => void refresh()}
-              disabled={isRefreshing}
-              aria-label="Refresh odds"
-              className="press rounded-full bg-surface p-2.5 text-text-dim ring-1 ring-inset ring-border-soft disabled:opacity-50"
-            >
-              <RefreshIcon className={`h-4 w-4 ${isRefreshing ? "spin" : ""}`} />
-            </button>
-          </div>
+          <button
+            onClick={() => void refresh()}
+            disabled={isRefreshing}
+            aria-label="Refresh markets"
+            className="press shrink-0 rounded-full p-2.5 text-text-dim ring-1 ring-inset disabled:opacity-50"
+            style={{ background: "var(--d-surface-2)", borderColor: "var(--d-border)" }}
+          >
+            <RefreshIcon className={`h-4 w-4 ${isRefreshing ? "spin" : ""}`} />
+          </button>
         </div>
 
-        <div className="mt-3">
-          <LeagueFilter
-            selected={selectedLeagues}
-            onToggle={toggleLeague}
-            onClear={clearLeagues}
-            counts={counts}
-            topOnly={topOnly}
-            onToggleTop={() => setTopOnly((v) => !v)}
-            topCount={topCount}
+        {tickerMarkets.length > 0 && (
+          <div className="mb-3.5 -mx-4 overflow-hidden px-4">
+            <div className="flex w-max gap-2">
+              <div className="marquee-track flex w-max shrink-0 gap-2">
+                <TickerRow markets={tickerMarkets} />
+              </div>
+              <div className="marquee-track flex w-max shrink-0 gap-2" aria-hidden>
+                <TickerRow markets={tickerMarkets} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-1.5 rounded-full p-1" style={{ background: "var(--d-surface-2)" }}>
+          <TabButton label="Explore" icon={CompassIcon} active={tab === "explore"} onClick={() => setTab("explore")} />
+          <TabButton
+            label={`Saved${picks && picks.length > 0 ? ` (${picks.length})` : ""}`}
+            icon={BookmarkIcon}
+            active={tab === "saved"}
+            onClick={() => setTab("saved")}
           />
         </div>
       </header>
 
       <div className="px-4 pt-4">
-        {error && games !== null && (
-          <div className="mb-3 flex items-center gap-2 rounded-xl bg-accent-3/8 px-3 py-2 ring-1 ring-inset ring-accent-3/20">
-            <AlertIcon className="h-3.5 w-3.5 shrink-0 text-accent-3" />
-            <p className="text-[11px] text-text-dim">
-              Couldn&apos;t refresh &mdash; showing odds from {formatRelativeTime(fetchedAt)}.
-            </p>
-          </div>
+        {tab === "explore" && (
+          <>
+            {categories.length > 0 && (
+              <div className="mb-4 -mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+                <CategoryChip label="All" emoji="✨" active={category === "All"} onClick={() => setCategory("All")} />
+                {categories.map((c) => {
+                  const emoji = markets?.find((m) => m.category === c)?.categoryEmoji ?? "🔮";
+                  return (
+                    <CategoryChip
+                      key={c}
+                      label={c}
+                      emoji={emoji}
+                      active={category === c}
+                      onClick={() => setCategory(c)}
+                    />
+                  );
+                })}
+              </div>
+            )}
+
+            {error && markets !== null && (
+              <div
+                className="mb-3 flex items-center gap-2 rounded-xl px-3 py-2 ring-1 ring-inset"
+                style={{ background: "rgba(255,61,127,0.08)", borderColor: "var(--d-accent)" }}
+              >
+                <AlertIcon className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--d-accent)" }} />
+                <p className="text-[11px] text-text-dim">
+                  Couldn&apos;t refresh &mdash; showing markets from {formatRelativeTime(fetchedAt)}.
+                </p>
+              </div>
+            )}
+
+            {showFullError && (
+              <div
+                className="flex flex-col items-center gap-3 rounded-2xl border px-5 py-12 text-center"
+                style={{ borderColor: "var(--d-border)" }}
+              >
+                <AlertIcon className="h-6 w-6" style={{ color: "var(--d-accent)" }} />
+                <p className="selectable text-[13px] text-text-dim">{error}</p>
+                <button
+                  onClick={() => void refresh()}
+                  className="press mt-1 rounded-full px-4 py-2 text-xs font-semibold"
+                  style={{ background: "rgba(255,61,127,0.12)", color: "var(--d-accent)" }}
+                >
+                  Try again
+                </button>
+              </div>
+            )}
+
+            {!showFullError && markets === null && (
+              <div className="space-y-3">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <MarketCardSkeleton key={i} />
+                ))}
+              </div>
+            )}
+
+            {!showFullError && markets !== null && filtered.length === 0 && (
+              <div
+                className="flex flex-col items-center gap-2.5 rounded-2xl border px-5 py-14 text-center"
+                style={{ borderColor: "var(--d-border)" }}
+              >
+                <CompassIcon className="h-6 w-6 text-text-faint" />
+                <p className="max-w-[240px] text-[13px] text-text-dim">No markets in this category right now.</p>
+              </div>
+            )}
+
+            {!showFullError && filtered.length > 0 && (
+              <div className="space-y-3 pb-4">
+                {filtered.map((market, i) => (
+                  <MarketCard
+                    key={market.id}
+                    market={market}
+                    hot={hotIds.has(market.id)}
+                    onAnalyze={setAnalyzeMarket}
+                    style={{ animationDelay: `${Math.min(i, 6) * 35}ms` }}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
 
-        {showFullError && (
-          <div className="flex flex-col items-center gap-3 rounded-2xl border border-border-soft bg-surface px-5 py-12 text-center">
-            <AlertIcon className="h-6 w-6 text-accent-3" />
-            <p className="selectable text-[13px] text-text-dim">{error}</p>
-            <button
-              onClick={() => void refresh()}
-              className="press mt-1 rounded-full bg-accent/12 px-4 py-2 text-xs font-semibold text-accent ring-1 ring-inset ring-accent/25"
-            >
-              Try again
-            </button>
-          </div>
-        )}
-
-        {!showFullError && games === null && (
-          <div className="space-y-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <GameCardSkeleton key={i} />
-            ))}
-          </div>
-        )}
-
-        {!showFullError && games !== null && filtered.length === 0 && (
-          <div className="flex flex-col items-center gap-2.5 rounded-2xl border border-border-soft bg-surface px-5 py-14 text-center">
-            <SparkleIcon className="h-6 w-6 text-text-faint" />
-            <p className="max-w-[240px] text-[13px] text-text-dim">
-              {topOnly
-                ? "No top-team matches in this selection right now."
-                : "No upcoming matches for the selected leagues right now."}
-            </p>
-          </div>
-        )}
-
-        {!showFullError && filtered.length > 0 && (
-          <div className="space-y-3">
-            {filtered.map((game, i) => (
-              <GameCard
-                key={game.id}
-                game={game}
-                onAnalyze={setAnalyzeGame}
-                style={{ animationDelay: `${Math.min(i, 6) * 35}ms` }}
-                selectMode={selectMode}
-                selected={selectedIds.has(game.id)}
-                onToggleSelect={toggleGameSelected}
-              />
-            ))}
-          </div>
+        {tab === "saved" && (
+          <>
+            {picks === null && <div className="py-16" />}
+            {picks !== null && picks.length === 0 && (
+              <div
+                className="flex flex-col items-center gap-2.5 rounded-2xl border px-5 py-16 text-center"
+                style={{ borderColor: "var(--d-border)" }}
+              >
+                <BookmarkIcon className="h-6 w-6 text-text-faint" />
+                <p className="max-w-[220px] text-[13px] text-text-dim">
+                  Analyze a market and save it here to track your calls.
+                </p>
+              </div>
+            )}
+            {picks !== null && picks.length > 0 && (
+              <div className="space-y-3 pb-4">
+                {picks.map((pick) => (
+                  <SavedMarketPickCard key={pick.id} pick={pick} onRemove={handleRemovePick} />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
-      {selectMode && (
-        <div className="fixed inset-x-0 bottom-[68px] z-30 px-4 pb-2">
-          <div className="mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl border border-border-soft bg-bg-elevated/95 px-4 py-3 shadow-lg backdrop-blur-xl">
-            <div className="min-w-0">
-              <p className="text-[13px] font-medium text-text">
-                {selectedIds.size} of {MAX_BATCH} selected
-              </p>
-              {selectionNotice && <p className="text-[11px] text-accent-3">{selectionNotice}</p>}
-            </div>
-            <button
-              onClick={startBatchAnalysis}
-              disabled={selectedIds.size === 0}
-              className="press inline-flex shrink-0 items-center gap-1.5 rounded-full bg-accent px-4 py-2 text-xs font-semibold text-bg disabled:opacity-40"
-            >
-              <SparkleIcon className="h-3.5 w-3.5" />
-              Analyze {selectedIds.size > 0 ? selectedIds.size : ""}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {analyzeGame && <AnalysisSheet game={analyzeGame} onClose={() => setAnalyzeGame(null)} />}
-      {batchGames && <BatchAnalysisSheet games={batchGames} onClose={() => setBatchGames(null)} />}
+      {analyzeMarket && <MarketAnalysisSheet market={analyzeMarket} onClose={() => setAnalyzeMarket(null)} />}
     </div>
+  );
+}
+
+function TickerRow({ markets }: { markets: Market[] }) {
+  return (
+    <>
+      {markets.map((m) => (
+        <div
+          key={m.id}
+          className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium ring-1 ring-inset"
+          style={{ background: "var(--d-surface-2)", borderColor: "var(--d-border)", color: "var(--text-dim)" }}
+        >
+          <FlameIcon className="h-3 w-3" style={{ color: "var(--d-accent-3)" }} />
+          <span className="max-w-[160px] truncate">{m.title}</span>
+          <span className="font-display font-bold tabular-nums" style={{ color: "var(--d-accent-2)" }}>
+            {Math.round(m.outcomes[0].price * 100)}%
+          </span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function TabButton({
+  label,
+  icon: Icon,
+  active,
+  onClick,
+}: {
+  label: string;
+  icon: (props: { className?: string }) => React.ReactElement;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="press flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-[12px] font-semibold"
+      style={
+        active
+          ? { background: "linear-gradient(135deg, var(--d-accent), var(--d-violet))", color: "var(--bg)" }
+          : { color: "var(--text-faint)" }
+      }
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {label}
+    </button>
+  );
+}
+
+function CategoryChip({
+  label,
+  emoji,
+  active,
+  onClick,
+}: {
+  label: string;
+  emoji: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="press flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[12px] font-semibold ring-1 ring-inset"
+      style={
+        active
+          ? { background: "linear-gradient(135deg, var(--d-accent), var(--d-violet))", color: "var(--bg)", borderColor: "transparent" }
+          : { background: "var(--d-surface-2)", color: "var(--text-dim)", borderColor: "var(--d-border)" }
+      }
+    >
+      <span>{emoji}</span>
+      {label}
+    </button>
   );
 }

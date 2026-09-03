@@ -136,9 +136,9 @@ export function BookmarkIcon({ className, filled }: { className?: string; filled
   );
 }
 
-export function TrendingUpIcon({ className }: { className?: string }) {
+export function TrendingUpIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
+    <svg viewBox="0 0 24 24" fill="none" className={className} style={style}>
       <path
         d="M3 17l6-6 4 4 8-8M15 7h6v6"
         stroke="currentColor"
@@ -150,9 +150,9 @@ export function TrendingUpIcon({ className }: { className?: string }) {
   );
 }
 
-export function AlertIcon({ className }: { className?: string }) {
+export function AlertIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
+    <svg viewBox="0 0 24 24" fill="none" className={className} style={style}>
       <path
         d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"
         stroke="currentColor"
@@ -192,6 +192,32 @@ export function ScaleIcon({ className }: { className?: string }) {
         strokeWidth="1.6"
         strokeLinecap="round"
         strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function CompassIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} style={style}>
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="m15.5 8.5-2 5-5 2 2-5 5-2Z"
+        fill="currentColor"
+        stroke="currentColor"
+        strokeWidth="1"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function FlameIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} style={style}>
+      <path
+        d="M12 2.5c1 2.5-.5 4-1.7 5.4C9 9.2 8 10.6 8 12.5a4 4 0 0 0 8 0c0-1 -.3-1.9-.8-2.7.9.5 1.8 1.6 1.8 3.2a5 5 0 0 1-10 0c0-3.2 2.2-4.8 3.6-6.4C11.6 5.4 12.3 4.2 12 2.5Z"
+        fill="currentColor"
       />
     </svg>
   );

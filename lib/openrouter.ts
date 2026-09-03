@@ -159,7 +159,10 @@ const NUDGE =
 
 // Retries cover the flaky parts: transient provider errors, empty replies, and replies that
 // aren't parseable JSON. On a parse failure the model is nudged to answer in the right shape.
-async function requestJson<T>(
+// Exported so other analysis flows (e.g. lib/openrouterMarkets.ts, for the Discover feed's
+// general-market analysis) can reuse this hardened request/retry/parse loop rather than
+// duplicating it.
+export async function requestJson<T>(
   messages: ChatMessage[],
   online: boolean,
   maxTokens: number
@@ -195,7 +198,7 @@ async function requestJson<T>(
   );
 }
 
-function clampConfidence(value: unknown): Confidence {
+export function clampConfidence(value: unknown): Confidence {
   return value === "low" || value === "medium" || value === "high" ? value : "medium";
 }
 
