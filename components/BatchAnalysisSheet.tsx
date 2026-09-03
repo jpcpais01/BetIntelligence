@@ -7,6 +7,7 @@ import EdgeChip from "./EdgeChip";
 import { CloseIcon, TrendingUpIcon, BookmarkIcon } from "./icons";
 import { formatKickoff } from "@/lib/format";
 import { savePick } from "@/lib/picks";
+import { loadSelectedModel } from "@/lib/models";
 
 type GameStage = "pending" | "predicting" | "comparing" | "done" | "error";
 
@@ -48,6 +49,8 @@ export default function BatchAnalysisSheet({
     if (startedRef.current) return;
     startedRef.current = true;
 
+    const model = loadSelectedModel();
+
     (async () => {
       for (let i = 0; i < games.length; i++) {
         const game = games[i];
@@ -62,6 +65,7 @@ export default function BatchAnalysisSheet({
               awayTeam: game.awayTeam,
               leagueName: game.leagueName,
               startTime: game.startTime,
+              model,
             },
             "Analysis failed."
           );
@@ -75,6 +79,7 @@ export default function BatchAnalysisSheet({
               leagueName: game.leagueName,
               independent: prediction,
               market: game.odds,
+              model,
             },
             "Comparison failed."
           );

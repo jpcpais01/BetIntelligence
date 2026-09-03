@@ -17,6 +17,7 @@ import {
 } from "./icons";
 import { formatKickoff } from "@/lib/format";
 import { savePick } from "@/lib/picks";
+import { loadSelectedModel } from "@/lib/models";
 
 type Stage = "predicting" | "comparing" | "compared" | "error";
 
@@ -68,6 +69,8 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
   useEffect(() => {
     let cancelled = false;
 
+    const model = loadSelectedModel();
+
     (async () => {
       try {
         predictRef.current ??= postJson<{ prediction: IndependentPrediction }>(
@@ -77,6 +80,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
             awayTeam: game.awayTeam,
             leagueName: game.leagueName,
             startTime: game.startTime,
+            model,
           },
           "Analysis failed."
         ).then((d) => d.prediction);
@@ -95,6 +99,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
             leagueName: game.leagueName,
             independent: prediction,
             market: game.odds,
+            model,
           },
           "Comparison failed."
         ).then((d) => d.comparison);

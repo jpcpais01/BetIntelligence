@@ -16,6 +16,7 @@ import {
 } from "./icons";
 import { formatEndDate, toSignedPercent } from "@/lib/format";
 import { saveMarketPick } from "@/lib/marketPicks";
+import { loadSelectedModel } from "@/lib/models";
 
 type Stage = "predicting" | "comparing" | "compared" | "error";
 
@@ -63,6 +64,8 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
   useEffect(() => {
     let cancelled = false;
 
+    const model = loadSelectedModel();
+
     (async () => {
       try {
         predictRef.current ??= postJson<{ prediction: MarketPrediction }>(
@@ -72,6 +75,7 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
             category: market.category,
             endDate: market.endDate,
             outcomeLabels: market.outcomes.map((o) => o.label),
+            model,
           },
           "Analysis failed."
         ).then((d) => d.prediction);
@@ -89,6 +93,7 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
             category: market.category,
             independent: prediction,
             market: market.outcomes,
+            model,
           },
           "Comparison failed."
         ).then((d) => d.comparison);

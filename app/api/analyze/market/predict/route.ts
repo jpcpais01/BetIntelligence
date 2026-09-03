@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getIndependentMarketPrediction } from "@/lib/openrouterMarkets";
 import { getMockMarketPrediction } from "@/lib/mockMarketAnalysis";
+import { resolveOpenRouterModel } from "@/lib/models";
 
 // Web-search-backed research plus retries can run well past a default serverless timeout.
 export const maxDuration = 300;
@@ -8,7 +9,7 @@ export const maxDuration = 300;
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { title, category, endDate, outcomeLabels } = body ?? {};
+    const { title, category, endDate, outcomeLabels, model } = body ?? {};
 
     if (!title || !category || !endDate || !Array.isArray(outcomeLabels) || outcomeLabels.length < 2) {
       return NextResponse.json({ error: "Missing market details." }, { status: 400 });
@@ -17,7 +18,13 @@ export async function POST(request: Request) {
     const prediction =
       process.env.MOCK_AI === "1"
         ? await getMockMarketPrediction({ title, outcomeLabels })
-        : await getIndependentMarketPrediction({ title, category, endDate, outcomeLabels });
+        : await getIndependentMarketPrediction({
+            title,
+            category,
+            endDate,
+            outcomeLabels,
+            model: resolveOpenRouterModel(model),
+          });
 
     return NextResponse.json({ prediction });
   } catch (err) {

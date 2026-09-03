@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { compareToMarket } from "@/lib/openrouter";
 import { getMockComparison } from "@/lib/mockAnalysis";
 import type { IndependentPrediction, Probabilities } from "@/lib/types";
+import { resolveOpenRouterModel } from "@/lib/models";
 
 // Retries mean this can outlive a default serverless timeout too.
 export const maxDuration = 300;
@@ -9,7 +10,7 @@ export const maxDuration = 300;
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { homeTeam, awayTeam, leagueName, independent, market } = body ?? {};
+    const { homeTeam, awayTeam, leagueName, independent, market, model } = body ?? {};
 
     if (!homeTeam || !awayTeam || !leagueName || !independent || !market) {
       return NextResponse.json({ error: "Missing analysis details." }, { status: 400 });
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
             leagueName,
             independent: independent as IndependentPrediction,
             market: market as Probabilities,
+            model: resolveOpenRouterModel(model),
           });
 
     return NextResponse.json({ comparison });

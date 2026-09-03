@@ -7,6 +7,7 @@ import GameCardSkeleton from "@/components/GameCardSkeleton";
 import LeagueFilter from "@/components/LeagueFilter";
 import AnalysisSheet from "@/components/AnalysisSheet";
 import BatchAnalysisSheet from "@/components/BatchAnalysisSheet";
+import ModelPicker from "@/components/ModelPicker";
 import { AlertIcon, RefreshIcon, SparkleIcon, ListCheckIcon, CloseIcon } from "@/components/icons";
 import { isTopGame } from "@/lib/topTeams";
 import { useRequestLogos } from "@/components/ClubLogosProvider";
@@ -168,6 +169,7 @@ export default function Home() {
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <ModelPicker />
             <button
               onClick={toggleSelectMode}
               aria-label={selectMode ? "Cancel selection" : "Select games to analyze"}

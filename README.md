@@ -58,6 +58,16 @@ Tapping **AI Analyze** on a match runs a two-step process against
 
 Both results are shown in the UI as a guided reveal, and the whole thing can be saved to **My Picks**.
 
+### Choosing a model
+
+The **DeepSeek/GLM** button in the header (Discover and Sports both show it — it's one global
+choice, since both feeds run through the same analysis pipeline) lets you pick which model powers
+every analysis: [`deepseek/deepseek-v4-flash-0731`](https://openrouter.ai/deepseek/deepseek-v4-flash-0731)
+(the default) or [`z-ai/glm-5.3-flash`](https://openrouter.ai/z-ai/glm-5.3-flash). The choice is
+remembered in your browser (`lib/models.ts`) and sent with every predict/compare request; the API
+routes resolve it against a small server-side whitelist, so nothing free-text ever reaches
+OpenRouter as a model id.
+
 Tap the select icon in the header to pick up to 10 matches and analyze them all in one batch —
 they run through the same two-step process sequentially (not in parallel, to stay well within
 OpenRouter's rate limits) and each result appears in the sheet as it finishes.

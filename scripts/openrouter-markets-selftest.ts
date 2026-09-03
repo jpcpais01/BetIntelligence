@@ -23,13 +23,16 @@ function mockFetchOnce(body: unknown) {
   globalThis.fetch = (async () => completion(JSON.stringify(body))) as unknown as typeof fetch;
 }
 
-// Captures the max_tokens actually sent in the request body, so the token-budget-scales-with-
-// outcome-count fix can be checked directly rather than trusted on faith.
+// Captures the max_tokens and model actually sent in the request body, so the token-budget-
+// scales-with-outcome-count fix and the user-selectable-model feature can both be checked
+// directly rather than trusted on faith.
 let lastRequestMaxTokens: number | null = null;
+let lastRequestModel: string | null = null;
 function mockFetchCapturing(body: unknown) {
   globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
     const parsedBody = init?.body ? JSON.parse(init.body as string) : {};
     lastRequestMaxTokens = typeof parsedBody.max_tokens === "number" ? parsedBody.max_tokens : null;
+    lastRequestModel = typeof parsedBody.model === "string" ? parsedBody.model : null;
     return completion(JSON.stringify(body));
   }) as unknown as typeof fetch;
 }
@@ -213,6 +216,65 @@ async function run() {
     "compare: token budget for an 8-outcome market exceeds football's fixed 2000",
     (lastRequestMaxTokens ?? 0) > 2000,
     `got ${lastRequestMaxTokens}`
+  );
+
+  // A caller-supplied model id (e.g. the user picking GLM instead of DeepSeek) must actually
+  // reach the OpenRouter request, with the :online suffix applied for the web-search predict step.
+  mockFetchCapturing({
+    outcomes: [
+      { label: "Yes", probability: 0.5 },
+      { label: "No", probability: 0.5 },
+    ],
+    confidence: "medium",
+    keyFactors: ["A"],
+    rationale: "r",
+  });
+  await getIndependentMarketPrediction({
+    title: "Binary market",
+    category: "Business",
+    endDate: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+    outcomeLabels: ["Yes", "No"],
+    model: "z-ai/glm-5.3-flash",
+  });
+  check(
+    "predict: an explicitly chosen model reaches the request, :online suffix included",
+    lastRequestModel === "z-ai/glm-5.3-flash:online",
+    `got ${lastRequestModel}`
+  );
+
+  // Omitting the model (an older caller, or a stale client) must still work rather than send
+  // "undefined" to OpenRouter — it should fall back to the default model.
+  mockFetchCapturing({
+    edges: [
+      { label: "Yes", edge: 0 },
+      { label: "No", edge: 0 },
+    ],
+    bestValue: null,
+    confidence: "medium",
+    agreesWithMarket: true,
+    verdict: "v",
+  });
+  await compareMarketToOdds({
+    title: "Binary market",
+    category: "Business",
+    independent: {
+      outcomes: [
+        { label: "Yes", probability: 0.5 },
+        { label: "No", probability: 0.5 },
+      ],
+      confidence: "medium",
+      keyFactors: [],
+      rationale: "",
+    },
+    market: [
+      { label: "Yes", price: 0.5 },
+      { label: "No", price: 0.5 },
+    ],
+  });
+  check(
+    "compare: an omitted model falls back to a real default rather than sending undefined",
+    typeof lastRequestModel === "string" && lastRequestModel.length > 0,
+    `got ${lastRequestModel}`
   );
 
   if (failures.length > 0) {

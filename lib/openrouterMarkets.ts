@@ -78,6 +78,7 @@ export async function getIndependentMarketPrediction(input: {
   category: string;
   endDate: string;
   outcomeLabels: string[];
+  model?: string;
 }): Promise<MarketPrediction> {
   const resolves = new Date(input.endDate).toUTCString();
   const outcomeList = input.outcomeLabels.map((l) => `"${l}"`).join(", ");
@@ -100,7 +101,8 @@ described.`;
       { role: "user", content: userPrompt },
     ],
     true,
-    predictMaxTokens(input.outcomeLabels.length)
+    predictMaxTokens(input.outcomeLabels.length),
+    input.model
   );
 
   const aligned = alignByLabel(input.outcomeLabels, parsed.outcomes, "probability", 0);
@@ -130,6 +132,7 @@ export async function compareMarketToOdds(input: {
   category: string;
   independent: MarketPrediction;
   market: MarketOutcome[];
+  model?: string;
 }): Promise<MarketComparison> {
   const labels = input.independent.outcomes.map((o) => o.label);
   const independentLines = input.independent.outcomes
@@ -161,7 +164,8 @@ Compare your view to the market and respond with only the JSON object described.
       { role: "user", content: userPrompt },
     ],
     false,
-    compareMaxTokens(labels.length)
+    compareMaxTokens(labels.length),
+    input.model
   );
 
   const alignedEdges = alignByLabel(labels, parsed.edges, "edge", 0);

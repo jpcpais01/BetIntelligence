@@ -6,6 +6,7 @@ import type { Market } from "@/lib/types";
 import MarketCard from "@/components/MarketCard";
 import MarketCardSkeleton from "@/components/MarketCardSkeleton";
 import MarketAnalysisSheet from "@/components/MarketAnalysisSheet";
+import ModelPicker from "@/components/ModelPicker";
 import { AlertIcon, RefreshIcon, CompassIcon, FlameIcon, BookmarkIcon } from "@/components/icons";
 import { formatRelativeTime } from "@/lib/format";
 import { loadCachedMarkets, saveCachedMarkets, isStale, REFRESH_INTERVAL_MS } from "@/lib/marketsCache";
@@ -106,6 +107,7 @@ export default function DiscoverPage() {
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            <ModelPicker variant="discover" />
             <Link
               href="/picks"
               aria-label="View saved picks"

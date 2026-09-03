@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getIndependentPrediction } from "@/lib/openrouter";
 import { getMockIndependentPrediction } from "@/lib/mockAnalysis";
+import { resolveOpenRouterModel } from "@/lib/models";
 
 // Web-search-backed research plus retries can run well past a default serverless timeout.
 export const maxDuration = 300;
@@ -8,7 +9,7 @@ export const maxDuration = 300;
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { homeTeam, awayTeam, leagueName, startTime } = body ?? {};
+    const { homeTeam, awayTeam, leagueName, startTime, model } = body ?? {};
 
     if (!homeTeam || !awayTeam || !leagueName || !startTime) {
       return NextResponse.json({ error: "Missing match details." }, { status: 400 });
@@ -17,7 +18,13 @@ export async function POST(request: Request) {
     const prediction =
       process.env.MOCK_AI === "1"
         ? await getMockIndependentPrediction({ homeTeam, awayTeam })
-        : await getIndependentPrediction({ homeTeam, awayTeam, leagueName, startTime });
+        : await getIndependentPrediction({
+            homeTeam,
+            awayTeam,
+            leagueName,
+            startTime,
+            model: resolveOpenRouterModel(model),
+          });
 
     return NextResponse.json({ prediction });
   } catch (err) {

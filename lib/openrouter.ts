@@ -1,7 +1,7 @@
 import type { ComparisonResult, Confidence, IndependentPrediction, Probabilities } from "./types";
+import { MODELS, DEFAULT_MODEL } from "./models";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "deepseek/deepseek-v4-flash-0731";
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -68,7 +68,8 @@ function messageSources(message: unknown): SourceCitation[] {
 async function callOpenRouter(
   messages: ChatMessage[],
   online: boolean,
-  maxTokens: number
+  maxTokens: number,
+  model: string
 ): Promise<Completion> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -88,7 +89,7 @@ async function callOpenRouter(
         "X-Title": "BetIntelligence",
       },
       body: JSON.stringify({
-        model: online ? `${MODEL}:online` : MODEL,
+        model: online ? `${model}:online` : model,
         messages,
         temperature: 0.4,
         max_tokens: maxTokens,
@@ -165,14 +166,15 @@ const NUDGE =
 export async function requestJson<T>(
   messages: ChatMessage[],
   online: boolean,
-  maxTokens: number
+  maxTokens: number,
+  model: string = MODELS[DEFAULT_MODEL].openrouterId
 ): Promise<{ parsed: T; sources: SourceCitation[] }> {
   let lastError: Error | null = null;
   let attemptMessages = messages;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const completion = await callOpenRouter(attemptMessages, online, maxTokens);
+      const completion = await callOpenRouter(attemptMessages, online, maxTokens, model);
       try {
         return { parsed: extractJson<T>(completion.content), sources: completion.sources };
       } catch (parseError) {
@@ -224,6 +226,7 @@ export async function getIndependentPrediction(input: {
   awayTeam: string;
   leagueName: string;
   startTime: string;
+  model?: string;
 }): Promise<IndependentPrediction> {
   const matchDate = new Date(input.startTime).toUTCString();
   const userPrompt = `Analyze the upcoming ${input.leagueName} match: ${input.homeTeam} (home) vs ${input.awayTeam} (away), \
@@ -243,7 +246,8 @@ history, then give your own independent estimate of the 1X2 outcome probabilitie
       { role: "user", content: userPrompt },
     ],
     true,
-    3000
+    3000,
+    input.model
   );
 
   const probs = normalize(parsed.homeWinProb, parsed.drawProb, parsed.awayWinProb);
@@ -276,6 +280,7 @@ export async function compareToMarket(input: {
   leagueName: string;
   independent: IndependentPrediction;
   market: Probabilities;
+  model?: string;
 }): Promise<ComparisonResult> {
   const userPrompt = `Match: ${input.homeTeam} vs ${input.awayTeam} (${input.leagueName}).
 
@@ -307,7 +312,8 @@ Compare your view to the market and respond with only the JSON object described.
       { role: "user", content: userPrompt },
     ],
     false,
-    2000
+    2000,
+    input.model
   );
 
   const bestValue =
