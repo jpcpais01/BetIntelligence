@@ -219,28 +219,44 @@ async function run() {
   );
 
   // A caller-supplied model id (e.g. the user picking GLM instead of DeepSeek) must actually
-  // reach the OpenRouter request, with the :online suffix applied for the web-search predict step.
-  mockFetchCapturing({
-    outcomes: [
-      { label: "Yes", probability: 0.5 },
-      { label: "No", probability: 0.5 },
-    ],
-    confidence: "medium",
-    keyFactors: ["A"],
-    rationale: "r",
-  });
-  await getIndependentMarketPrediction({
-    title: "Binary market",
-    category: "Business",
-    endDate: new Date(Date.now() + 30 * 86_400_000).toISOString(),
-    outcomeLabels: ["Yes", "No"],
-    model: "z-ai/glm-5.3-flash",
-  });
-  check(
-    "predict: an explicitly chosen model reaches the request, :online suffix included",
-    lastRequestModel === "z-ai/glm-5.3-flash:online",
-    `got ${lastRequestModel}`
-  );
+  // reach both stages of the request — the research call (:online) and the predict call (no
+  // :online, since that stage has no web access of its own).
+  {
+    const models: string[] = [];
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      models.push(body.model);
+      if (models.length === 1) return completion("Some research digest text, no odds mentioned.");
+      return completion(
+        JSON.stringify({
+          outcomes: [
+            { label: "Yes", probability: 0.5 },
+            { label: "No", probability: 0.5 },
+          ],
+          confidence: "medium",
+          keyFactors: ["A"],
+          rationale: "r",
+        })
+      );
+    }) as unknown as typeof fetch;
+    await getIndependentMarketPrediction({
+      title: "Binary market",
+      category: "Business",
+      endDate: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      outcomeLabels: ["Yes", "No"],
+      model: "z-ai/glm-5.3-flash",
+    });
+    check(
+      "predict: the research call carries the chosen model with :online",
+      models[0] === "z-ai/glm-5.3-flash:online",
+      `got ${models[0]}`
+    );
+    check(
+      "predict: the predict call carries the chosen model WITHOUT :online (no web access at that stage)",
+      models[1] === "z-ai/glm-5.3-flash",
+      `got ${models[1]}`
+    );
+  }
 
   // Omitting the model (an older caller, or a stale client) must still work rather than send
   // "undefined" to OpenRouter — it should fall back to the default model.
@@ -277,37 +293,63 @@ async function run() {
     `got ${lastRequestModel}`
   );
 
-  // Same guard as football's predict prompt: a Discover market's title is itself often a real
-  // Polymarket question, so the :online search step is quite likely to surface that market's own
-  // price — the prompt must explicitly tell the model to disregard any odds/prices it finds
-  // rather than let them anchor the "independent" read.
-  let capturedSystemPrompt = "";
-  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
-    const body = init?.body ? JSON.parse(init.body as string) : {};
-    capturedSystemPrompt = body.messages?.find((m: { role: string }) => m.role === "system")?.content ?? "";
-    return completion(
-      JSON.stringify({
-        outcomes: [
-          { label: "Yes", probability: 0.5 },
-          { label: "No", probability: 0.5 },
-        ],
-        confidence: "medium",
-        keyFactors: ["A"],
-        rationale: "r",
-      })
+  // getIndependentMarketPrediction runs a two-stage pipeline, same as football's
+  // getIndependentPrediction: a research call (web access, produces a prose digest) followed by
+  // a predict call (no web access, only ever sees that digest). A Discover market's title is
+  // itself often a real Polymarket question, so the research call's own search is quite likely to
+  // surface that market's own price — these checks verify the separation that protects against it.
+  {
+    const DIGEST = "Recent polling shows a tight race. No major shifts in the last week.";
+    interface CapturedRequest {
+      model: string;
+      messages: { role: string; content: string }[];
+    }
+    const requests: CapturedRequest[] = [];
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(init?.body as string) as CapturedRequest;
+      requests.push(body);
+      if (requests.length === 1) return completion(DIGEST);
+      return completion(
+        JSON.stringify({
+          outcomes: [
+            { label: "Yes", probability: 0.5 },
+            { label: "No", probability: 0.5 },
+          ],
+          confidence: "medium",
+          keyFactors: ["A"],
+          rationale: "r",
+        })
+      );
+    }) as unknown as typeof fetch;
+
+    await getIndependentMarketPrediction({
+      title: "Binary market",
+      category: "Business",
+      endDate: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      outcomeLabels: ["Yes", "No"],
+    });
+
+    check("makes exactly two calls (research, then predict)", requests.length === 2, `made ${requests.length}`);
+
+    const researchSystemPrompt = requests[0]?.messages.find((m) => m.role === "system")?.content ?? "";
+    const predictSystemPrompt = requests[1]?.messages.find((m) => m.role === "system")?.content ?? "";
+
+    check(
+      "the research system prompt forbids ever mentioning odds/prices",
+      /never mention/i.test(researchSystemPrompt) && /odds/i.test(researchSystemPrompt),
+      researchSystemPrompt.slice(0, 120)
     );
-  }) as unknown as typeof fetch;
-  await getIndependentMarketPrediction({
-    title: "Binary market",
-    category: "Business",
-    endDate: new Date(Date.now() + 30 * 86_400_000).toISOString(),
-    outcomeLabels: ["Yes", "No"],
-  });
-  const guardsAgainstOddsAnchoring =
-    /must not.*(anchor|influence)/i.test(capturedSystemPrompt) && /disregard/i.test(capturedSystemPrompt);
-  console.log(`  system prompt instructs the model to disregard odds it finds while researching`);
-  if (!guardsAgainstOddsAnchoring) {
-    failures.push("system prompt is missing the instruction to disregard market odds encountered during web search");
+    check(
+      "the predict system prompt also guards against odds leaking through anyway",
+      /must not/i.test(predictSystemPrompt) && /disregard/i.test(predictSystemPrompt)
+    );
+
+    const predictUserPrompt = requests[1]?.messages.find((m) => m.role === "user")?.content ?? "";
+    check(
+      "stage 1's digest text is what stage 2 actually reasons over",
+      predictUserPrompt.includes(DIGEST),
+      "digest missing from the predict call's prompt"
+    );
   }
 
   if (failures.length > 0) {

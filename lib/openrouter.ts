@@ -200,6 +200,36 @@ export async function requestJson<T>(
   );
 }
 
+// Same retry loop as requestJson, minus the JSON-extraction step — for the research/organize
+// stage of the two-stage independent-read pipeline (see getIndependentPrediction), whose output
+// is free-form prose, not JSON. Exported so lib/openrouterMarkets.ts can reuse it too.
+export async function requestText(
+  messages: ChatMessage[],
+  online: boolean,
+  maxTokens: number,
+  model: string = MODELS[DEFAULT_MODEL].openrouterId
+): Promise<{ text: string; sources: SourceCitation[] }> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const completion = await callOpenRouter(messages, online, maxTokens, model);
+      return { text: completion.content, sources: completion.sources };
+    } catch (err) {
+      if (!(err instanceof RetryableError)) throw err;
+      lastError = err;
+    }
+
+    if (attempt < MAX_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+    }
+  }
+
+  throw new Error(
+    `The AI model failed to return a usable answer after ${MAX_ATTEMPTS} attempts. ${lastError?.message ?? ""}`.trim()
+  );
+}
+
 export function clampConfidence(value: unknown): Confidence {
   return value === "low" || value === "medium" || value === "high" ? value : "medium";
 }
@@ -213,17 +243,33 @@ function normalize(home: number, draw: number, away: number): Probabilities {
   return { home: h / sum, draw: d / sum, away: a / sum };
 }
 
-const PREDICT_SYSTEM_PROMPT = `You are an elite football (soccer) analyst working for BetIntelligence, an AI odds-intelligence app. \
-You independently assess matches using real football knowledge and, when available, current web information: recent form, \
-lineups, injuries and suspensions, head-to-head record, table position and motivation, home/away splits, tactics, and news. \
-You are NOT told any betting or prediction-market odds and must not guess or assume specific market prices. If your own web \
-research happens to surface betting odds, bookmaker lines, or prediction-market prices (including Polymarket) for this match, \
-you MUST NOT let those numbers anchor or influence your estimate in any way — treat them as noise, disregard them entirely, and \
-base your probabilities only on the underlying football facts (form, injuries, lineups, tactics, history). The whole point of \
-this step is a read the market hasn't touched yet. Think like a sharp, disciplined analyst — not a fan. Respond with ONLY a \
-single valid JSON object, no markdown, no commentary, matching exactly this shape: {"homeWinProb": number, "drawProb": number, \
-"awayWinProb": number, "confidence": "low"|"medium"|"high", "keyFactors": string[3..6], "rationale": string}. The three \
-probabilities must be between 0 and 1 and sum to approximately 1.`;
+// Stage 1 of the independent read: pure research and organization, nothing else. This is the
+// only step with web access, so it's the only place odds could leak in — its whole job is to
+// hand stage 2 a clean set of facts with zero trace of what anyone else thinks the odds are.
+const RESEARCH_SYSTEM_PROMPT = `You are a football research assistant for BetIntelligence. Your ONLY job is to research the \
+web for the given match and organize everything relevant to a statistical assessment into clear labeled sections: Form (recent \
+results for both teams), Injuries & Suspensions, Key Players & Lineups, Head-to-Head History, Table Position & Motivation, \
+Tactics, and Other News. Write plain prose or bullet points under each heading — no JSON, no odds talk. \
+CRITICAL RULE: you must NEVER mention, quote, paraphrase, or allude to any betting odds, bookmaker lines, prediction-market \
+prices (including Polymarket), implied win probabilities, or anyone else's numerical prediction, from any source, anywhere in \
+your output — even in passing, even to say a source discussed them. If a source you read mentions odds, silently omit that part \
+and report only the underlying facts (injuries, news, form) it was based on. Never write phrases like "bookmakers favor X" or \
+"the market prices this at Y%". If a section has nothing notable, write "Nothing significant found" under it.`;
+
+// Stage 2: forms the actual probability estimate. Deliberately has NO web access of its own —
+// it only ever sees the digest stage 1 already produced, so even if some search result did
+// mention odds, this step has no independent way to go looking for more.
+const PREDICT_SYSTEM_PROMPT = `You are an elite football (soccer) analyst working for BetIntelligence, an AI odds-intelligence \
+app. You are given a research digest compiled by a separate research step — recent form, lineups, injuries and suspensions, \
+head-to-head record, table position and motivation, tactics, and news — and asked for your own independent 1X2 probability \
+estimate based on it. You were NOT told any betting or prediction-market odds, and the digest was compiled specifically to \
+exclude them — but if any odds/price language somehow appears in it anyway, you MUST NOT let it anchor or influence your \
+estimate in any way; disregard it entirely and base your probabilities only on the underlying football facts. Think like a \
+sharp, disciplined analyst — not a fan. Respond with ONLY a single valid JSON object, no markdown, no commentary, matching \
+exactly this shape: {"homeWinProb": number, "drawProb": number, "awayWinProb": number, "confidence": "low"|"medium"|"high", \
+"keyFactors": string[3..6], "rationale": string}. The three probabilities must be between 0 and 1 and sum to approximately 1.`;
+
+const RESEARCH_MAX_TOKENS = 3000;
 
 export async function getIndependentPrediction(input: {
   homeTeam: string;
@@ -233,11 +279,32 @@ export async function getIndependentPrediction(input: {
   model?: string;
 }): Promise<IndependentPrediction> {
   const matchDate = new Date(input.startTime).toUTCString();
-  const userPrompt = `Analyze the upcoming ${input.leagueName} match: ${input.homeTeam} (home) vs ${input.awayTeam} (away), \
-kicking off ${matchDate}. Research both teams' current form, squad news, injuries/suspensions, key players, and head-to-head \
-history, then give your own independent estimate of the 1X2 outcome probabilities. Respond with only the JSON object described.`;
 
-  const { parsed, sources } = await requestJson<{
+  const researchPrompt = `Research the upcoming ${input.leagueName} match: ${input.homeTeam} (home) vs ${input.awayTeam} \
+(away), kicking off ${matchDate}. Compile a research digest covering both teams' current form, squad news, \
+injuries/suspensions, key players, and head-to-head history, organized into the sections described. Remember: never mention \
+odds, betting lines, or market/implied prices anywhere in your output.`;
+
+  const { text: digest, sources } = await requestText(
+    [
+      { role: "system", content: RESEARCH_SYSTEM_PROMPT },
+      { role: "user", content: researchPrompt },
+    ],
+    true,
+    RESEARCH_MAX_TOKENS,
+    input.model
+  );
+
+  const predictPrompt = `Match: ${input.homeTeam} (home) vs ${input.awayTeam} (away), ${input.leagueName}, kicking off \
+${matchDate}.
+
+Research digest (compiled separately, contains no odds or market prices):
+${digest}
+
+Based only on this digest, give your own independent estimate of the 1X2 outcome probabilities. Respond with only the JSON \
+object described.`;
+
+  const { parsed } = await requestJson<{
     homeWinProb: number;
     drawProb: number;
     awayWinProb: number;
@@ -247,10 +314,10 @@ history, then give your own independent estimate of the 1X2 outcome probabilitie
   }>(
     [
       { role: "system", content: PREDICT_SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
+      { role: "user", content: predictPrompt },
     ],
-    true,
-    3000,
+    false,
+    2000,
     input.model
   );
 

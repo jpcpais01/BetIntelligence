@@ -1,4 +1,4 @@
-import { requestJson, clampConfidence } from "./openrouter";
+import { requestJson, requestText, clampConfidence } from "./openrouter";
 import type { MarketComparison, MarketOutcome, MarketPrediction, OutcomeProbability } from "./types";
 
 // Football's analysis prompts (lib/openrouter.ts) always have exactly 3 fixed-length outcomes
@@ -16,6 +16,9 @@ function predictMaxTokens(outcomeCount: number): number {
 function compareMaxTokens(outcomeCount: number): number {
   return Math.min(6000, 2500 + Math.max(0, outcomeCount - 2) * 250);
 }
+// Stage 1's digest is about the underlying event, not about how many outcome slots stage 2 has
+// to fill — a fixed budget is enough regardless of outcome count.
+const RESEARCH_MAX_TOKENS = 3000;
 
 // Finds which of our known labels a piece of AI-returned text was probably referring to —
 // case-insensitive exact match first, then substring containment either direction. Shared by
@@ -64,14 +67,31 @@ function normalizeProbabilities(labels: string[], values: Map<string, number>): 
   return labels.map((label, i) => ({ label, probability: clamped[i] / sum }));
 }
 
-const PREDICT_SYSTEM_PROMPT = `You are an elite forecaster for BetIntelligence's Discover feed, covering any prediction-market \
-question at all — politics, crypto, business, entertainment, science, world events, sports, anything. You independently research \
-the web and form your own probability estimate for every listed outcome. You are NOT told any betting or prediction-market odds \
-and must not guess or assume specific market prices. This question is itself often a real Polymarket market, so your own web \
-research may surface its current price, or another bookmaker/prediction-market's price for the same question — if it does, you \
-MUST NOT let that number anchor or influence your estimate in any way. Treat it as noise, disregard it entirely, and base your \
-probabilities only on the underlying facts (news, data, expert non-market analysis, historical base rates). The whole point of \
-this step is a read the market hasn't touched yet. Think like a sharp, disciplined forecaster, not a fan or a pundit repeating \
+// Stage 1: pure research and organization, nothing else. This is the only step with web access
+// — the question here is itself often a real Polymarket market, so a search for its exact title
+// is quite likely to surface Polymarket's own price (or another site quoting it). This step's
+// whole job is to hand stage 2 a clean set of facts with zero trace of what anyone thinks the
+// odds are.
+const RESEARCH_SYSTEM_PROMPT = `You are a research assistant for BetIntelligence's Discover feed, covering any prediction- \
+market question at all — politics, crypto, business, entertainment, science, world events, sports, anything. Your ONLY job is \
+to research the web for the given question and organize everything relevant to a statistical assessment into clear labeled \
+sections: Recent News, Relevant Data & Numbers, Expert Analysis, Historical Base Rates, and Other Context. Write plain prose \
+or bullet points under each heading — no JSON, no odds talk. \
+CRITICAL RULE: this question is itself often a real Polymarket market, so you may well encounter its current price (or another \
+bookmaker/prediction-market's price for the same question) while researching — you must NEVER mention, quote, paraphrase, or \
+allude to any betting odds, implied probabilities, or market prices from any source, anywhere in your output, even in passing. \
+If a source you read mentions a price, silently omit that part and report only the underlying facts (news, data) it was based \
+on. Never write phrases like "the market prices this at Y%". If a section has nothing notable, write "Nothing significant \
+found" under it.`;
+
+// Stage 2: forms the actual probability estimate. Deliberately has NO web access of its own —
+// it only ever sees the digest stage 1 already produced.
+const PREDICT_SYSTEM_PROMPT = `You are an elite forecaster for BetIntelligence's Discover feed. You are given a research \
+digest compiled by a separate research step — recent news, relevant data, expert analysis, historical base rates — and asked \
+for your own independent probability estimate for every listed outcome, based on it. You were NOT told any betting or \
+prediction-market odds, and the digest was compiled specifically to exclude them — but if any odds/price language somehow \
+appears in it anyway, you MUST NOT let it anchor or influence your estimate in any way; disregard it entirely and base your \
+probabilities only on the underlying facts. Think like a sharp, disciplined forecaster, not a fan or a pundit repeating \
 headlines. Respond with ONLY a single valid JSON object, no markdown, no commentary, matching exactly this shape: \
 {"outcomes": [{"label": string, "probability": number}], "confidence": "low"|"medium"|"high", "keyFactors": string[3..6], \
 "rationale": string}. The "outcomes" array MUST contain exactly the same outcome labels given to you (same text, same count, any \
@@ -86,15 +106,33 @@ export async function getIndependentMarketPrediction(input: {
 }): Promise<MarketPrediction> {
   const resolves = new Date(input.endDate).toUTCString();
   const outcomeList = input.outcomeLabels.map((l) => `"${l}"`).join(", ");
-  const userPrompt = `Market: "${input.title}" (category: ${input.category}, resolves ${resolves}).
+
+  const researchPrompt = `Research this question on the web: "${input.title}" (category: ${input.category}, resolves \
+${resolves}). Possible outcomes: ${outcomeList}. Compile a research digest covering recent news, relevant data, expert \
+analysis, and historical base rates, organized into the sections described. Remember: never mention odds, betting lines, or \
+market/implied prices anywhere in your output.`;
+
+  const { text: digest, sources } = await requestText(
+    [
+      { role: "system", content: RESEARCH_SYSTEM_PROMPT },
+      { role: "user", content: researchPrompt },
+    ],
+    true,
+    RESEARCH_MAX_TOKENS,
+    input.model
+  );
+
+  const predictPrompt = `Market: "${input.title}" (category: ${input.category}, resolves ${resolves}).
 
 Possible outcomes: ${outcomeList}.
 
-Research this question on the web — recent news, relevant data, expert analysis, historical base rates, anything that bears on \
-it — then give your own independent probability estimate for each of the outcomes listed above. Respond with only the JSON object \
-described.`;
+Research digest (compiled separately, contains no odds or market prices):
+${digest}
 
-  const { parsed, sources } = await requestJson<{
+Based only on this digest, give your own independent probability estimate for each of the outcomes listed above. Respond with \
+only the JSON object described.`;
+
+  const { parsed } = await requestJson<{
     outcomes: { label: string; probability: number }[];
     confidence: string;
     keyFactors: string[];
@@ -102,9 +140,9 @@ described.`;
   }>(
     [
       { role: "system", content: PREDICT_SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
+      { role: "user", content: predictPrompt },
     ],
-    true,
+    false,
     predictMaxTokens(input.outcomeLabels.length),
     input.model
   );

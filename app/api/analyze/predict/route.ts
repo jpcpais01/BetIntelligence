@@ -3,8 +3,10 @@ import { getIndependentPrediction } from "@/lib/openrouter";
 import { getMockIndependentPrediction } from "@/lib/mockAnalysis";
 import { resolveOpenRouterModel } from "@/lib/models";
 
-// Web-search-backed research plus retries can run well past a default serverless timeout.
-export const maxDuration = 300;
+// This now runs two sequential OpenRouter calls (a web-search research pass, then an offline
+// predict pass), each with its own retry budget — worst case is roughly double a single call's,
+// so the timeout budget doubles too.
+export const maxDuration = 600;
 
 export async function POST(request: Request) {
   try {

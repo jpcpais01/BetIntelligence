@@ -1,4 +1,4 @@
-import { getIndependentPrediction } from "../lib/openrouter";
+import { requestJson, getIndependentPrediction } from "../lib/openrouter";
 
 process.env.OPENROUTER_API_KEY = "test-key";
 
@@ -39,6 +39,9 @@ interface Case {
   shouldThrow?: boolean;
 }
 
+// These exercise requestJson's retry/parse machinery directly — it's the same hardened core both
+// getIndependentPrediction (football) and lib/openrouterMarkets.ts build on, so testing it here
+// once, decoupled from any particular caller's prompt shape or call count, covers all of them.
 const CASES: Case[] = [
   {
     name: "plain JSON content",
@@ -131,9 +134,7 @@ const CASES: Case[] = [
   },
 ];
 
-async function run() {
-  const failures: string[] = [];
-
+async function runResilienceCases(failures: string[]) {
   for (const testCase of CASES) {
     let calls = 0;
     globalThis.fetch = (async () => {
@@ -145,14 +146,13 @@ async function run() {
     let threw: Error | null = null;
     let sources = 0;
     try {
-      const result = await getIndependentPrediction({
-        homeTeam: "Arsenal",
-        awayTeam: "Chelsea",
-        leagueName: "Premier League",
-        startTime: new Date().toISOString(),
-      });
+      const result = await requestJson<{
+        homeWinProb: number;
+        drawProb: number;
+        awayWinProb: number;
+      }>([{ role: "system", content: "s" }, { role: "user", content: "u" }], true, 3000);
       sources = result.sources?.length ?? 0;
-      const sum = result.home + result.draw + result.away;
+      const sum = result.parsed.homeWinProb + result.parsed.drawProb + result.parsed.awayWinProb;
       if (Math.abs(sum - 1) > 0.001) failures.push(`${testCase.name}: probs sum to ${sum}`);
     } catch (err) {
       threw = err instanceof Error ? err : new Error(String(err));
@@ -170,29 +170,81 @@ async function run() {
       failures.push(`${testCase.name}: expected ${testCase.expectSources} sources, got ${sources}`);
     }
   }
+}
 
-  // The independent-read prompt must tell the model to disregard any market odds/prices its own
-  // web search happens to surface — otherwise the ":online" search step (which runs before the
-  // model answers and injects results straight into its context) could silently anchor the
-  // "independent" estimate on the very market price this whole feature exists to compare against.
-  let capturedSystemPrompt = "";
+interface CapturedRequest {
+  model: string;
+  messages: { role: string; content: string }[];
+}
+
+// getIndependentPrediction now runs a two-stage pipeline: a research call (web access, produces
+// a prose digest) followed by a predict call (no web access, only ever sees that digest). These
+// checks verify the wiring itself — the separation is the actual defense against the model
+// anchoring its "independent" read on odds its own web search happened to surface.
+async function runTwoStageWiringChecks(failures: string[]) {
+  const check = (name: string, cond: boolean, detail?: string) => {
+    if (!cond) failures.push(detail ? `${name}: ${detail}` : name);
+    console.log(`  ${cond ? "ok" : "FAIL"}  ${name}`);
+  };
+
+  const DIGEST = "Form: Arsenal have won 4 of their last 5 league matches. Injuries: Chelsea missing two starting defenders.";
+  const requests: CapturedRequest[] = [];
   globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
-    const body = init?.body ? JSON.parse(init.body as string) : {};
-    capturedSystemPrompt = body.messages?.find((m: { role: string }) => m.role === "system")?.content ?? "";
+    const body = JSON.parse(init?.body as string) as CapturedRequest;
+    requests.push(body);
+    if (requests.length === 1) {
+      return completion({
+        content: DIGEST,
+        annotations: [{ type: "url_citation", url_citation: { url: "https://news.example/1", title: "Match preview" } }],
+      });
+    }
     return completion({ content: GOOD_JSON });
   }) as unknown as typeof fetch;
-  await getIndependentPrediction({
+
+  const result = await getIndependentPrediction({
     homeTeam: "Arsenal",
     awayTeam: "Chelsea",
     leagueName: "Premier League",
     startTime: new Date().toISOString(),
   });
-  const guardsAgainstOddsAnchoring =
-    /must not.*(anchor|influence)/i.test(capturedSystemPrompt) && /disregard/i.test(capturedSystemPrompt);
-  console.log(`  system prompt instructs the model to disregard odds it finds while researching`);
-  if (!guardsAgainstOddsAnchoring) {
-    failures.push("system prompt is missing the instruction to disregard market odds encountered during web search");
-  }
+
+  check("makes exactly two calls (research, then predict)", requests.length === 2, `made ${requests.length}`);
+
+  const researchSystemPrompt = requests[0]?.messages.find((m) => m.role === "system")?.content ?? "";
+  const predictSystemPrompt = requests[1]?.messages.find((m) => m.role === "system")?.content ?? "";
+
+  check("the research call requests web search (:online)", requests[0]?.model.endsWith(":online") ?? false, requests[0]?.model);
+  check("the predict call does NOT request web search", requests[1]?.model.endsWith(":online") === false, requests[1]?.model);
+
+  check(
+    "the research system prompt forbids ever mentioning odds/prices",
+    /never mention/i.test(researchSystemPrompt) && /odds/i.test(researchSystemPrompt),
+    researchSystemPrompt.slice(0, 120)
+  );
+  check(
+    "the predict system prompt also guards against odds leaking through anyway",
+    /must not/i.test(predictSystemPrompt) && /disregard/i.test(predictSystemPrompt)
+  );
+
+  const predictUserPrompt = requests[1]?.messages.find((m) => m.role === "user")?.content ?? "";
+  check(
+    "stage 1's digest text is what stage 2 actually reasons over",
+    predictUserPrompt.includes(DIGEST),
+    "digest missing from the predict call's prompt"
+  );
+
+  check(
+    "the returned sources are the research call's citations",
+    result.sources?.length === 1 && result.sources[0].url === "https://news.example/1",
+    JSON.stringify(result.sources)
+  );
+}
+
+async function run() {
+  const failures: string[] = [];
+
+  await runResilienceCases(failures);
+  await runTwoStageWiringChecks(failures);
 
   if (failures.length > 0) {
     console.log("\nFAILURES:");

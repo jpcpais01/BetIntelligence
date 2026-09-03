@@ -51,28 +51,34 @@ Every analysis you save, whether it came from Discover or Sports, shows up toget
 
 ## How the AI analysis works
 
-Tapping **AI Analyze** on a match runs a two-step process against
-[`deepseek/deepseek-v4-flash-0731`](https://openrouter.ai/deepseek/deepseek-v4-flash-0731) via OpenRouter:
+Tapping **AI Analyze** on a match runs a three-step process against
+[`deepseek/deepseek-v4-flash-0731`](https://openrouter.ai/deepseek/deepseek-v4-flash-0731) (or whichever model is selected)
+via OpenRouter:
 
-1. **Independent read** — the model is given only the two teams, the league, and kickoff time. It
-   searches the web (via OpenRouter's `:online` web plugin) for current form, injuries/suspensions,
-   key players, head-to-head history, and other context, then produces its own 1X2 probability
-   estimate. At this point it has not been told Polymarket's odds.
-2. **Market comparison** — the app then reveals Polymarket's implied probabilities for the same
-   match and asks the model to compare its independent view against the market, explain any
-   disagreement, and flag whether it thinks a specific outcome looks mispriced.
+1. **Research** — a call with web access (OpenRouter's `:online` plugin) that does nothing but research the match and
+   organize what it finds into a plain-text digest: form, injuries/suspensions, key players, head-to-head history, and other
+   context. This step's system prompt explicitly forbids it from ever mentioning betting odds, bookmaker lines, or
+   prediction-market prices anywhere in that digest — if a source it reads mentions a price, it's instructed to silently
+   omit that part and keep only the underlying facts.
+2. **Independent read** — a *separate* call, with no web access of its own, that only ever sees the digest from step 1 (never
+   the raw web) and produces the 1X2 probability estimate from it.
+3. **Market comparison** — the app then reveals Polymarket's implied probabilities for the same match and asks the model to
+   compare its independent view against the market, explain any disagreement, and flag whether it thinks a specific outcome
+   looks mispriced.
 
-Both results are shown in the UI as a guided reveal, and the whole thing can be saved to **My Picks**.
+All three results are shown in the UI as a guided reveal, and the whole thing can be saved to **My Picks**.
 
-**On "independent":** the `:online` step isn't an isolated browsing session — it's a single search
-pass that runs before the model answers, and whatever it finds is merged straight into the same
-context the model then writes its estimate from. That means it's entirely possible for a search to
-surface the real odds themselves (a betting aggregator, a news piece citing the market price, or,
-for Discover, the very Polymarket market being asked about). Rather than assume that never happens,
-the independent-read prompts (`lib/openrouter.ts`, `lib/openrouterMarkets.ts`) explicitly instruct
-the model to disregard any market prices or odds it encounters while researching and base its
-estimate only on the underlying facts — a mitigation, not a guarantee, since nothing can force an
-LLM to ignore text that's sitting in its own context.
+**Why two calls instead of one for the "independent" read:** OpenRouter's `:online` step isn't an isolated browsing session —
+it's a single search pass that runs before the model answers, and whatever it finds is merged straight into the same context
+the model then writes its estimate from. A single model doing both "search the web" and "form an opinion" in one call could
+plausibly see the real odds mid-search (a betting aggregator, a news piece citing the market price, or, for Discover, the
+very Polymarket market being asked about) and have them sitting right there in context while it writes a number it's
+supposed to have reached independently. Splitting research and judgment into two separate calls (`lib/openrouter.ts`,
+`lib/openrouterMarkets.ts`) means the step that forms the actual estimate has no web access at all — it can only ever see
+what the research step chose to hand it, and that step's entire job is a summary with the odds already stripped out. It's
+still not a mathematical guarantee (the digest step could in principle slip up), so both steps carry an explicit
+"never mention/disregard odds" instruction as defense in depth, but it's a meaningfully stronger boundary than trusting one
+model to browse and then talk itself out of what it just saw.
 
 ### Running research more than once
 
