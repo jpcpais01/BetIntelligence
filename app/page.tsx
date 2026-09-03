@@ -98,12 +98,12 @@ export default function DiscoverPage() {
   const showFullError = error !== null && markets === null;
 
   return (
-    <div className="discover mx-auto max-w-md" style={{ background: "var(--d-surface)" }}>
+    <div className="discover crt-scanlines mx-auto max-w-md" style={{ background: "var(--d-surface)" }}>
       <header
-        className="safe-top sticky top-0 z-30 overflow-hidden px-4 pb-4"
+        className="discover-grid safe-top sticky top-0 z-30 overflow-hidden px-4 pb-4"
         style={{
           background:
-            "radial-gradient(120% 100% at 0% 0%, rgba(255,61,127,0.28), transparent 60%), radial-gradient(120% 100% at 100% 0%, rgba(124,92,255,0.28), transparent 55%), var(--d-surface)",
+            "radial-gradient(120% 100% at 0% 0%, rgba(var(--d-accent-rgb),0.28), transparent 60%), radial-gradient(120% 100% at 100% 0%, rgba(var(--d-violet-rgb), 0.22), transparent 55%), var(--d-surface)",
           borderBottom: "1px solid var(--d-border)",
         }}
       >
@@ -121,7 +121,7 @@ export default function DiscoverPage() {
             onClick={() => void refresh()}
             disabled={isRefreshing}
             aria-label="Refresh markets"
-            className="press shrink-0 rounded-full p-2.5 text-text-dim ring-1 ring-inset disabled:opacity-50"
+            className="press shrink-0 rounded-sm p-2.5 text-text-dim ring-1 ring-inset disabled:opacity-50"
             style={{ background: "var(--d-surface-2)", borderColor: "var(--d-border)" }}
           >
             <RefreshIcon className={`h-4 w-4 ${isRefreshing ? "spin" : ""}`} />
@@ -141,7 +141,7 @@ export default function DiscoverPage() {
           </div>
         )}
 
-        <div className="flex gap-1.5 rounded-full p-1" style={{ background: "var(--d-surface-2)" }}>
+        <div className="flex gap-1.5 rounded-sm p-1" style={{ background: "var(--d-surface-2)" }}>
           <TabButton label="Explore" icon={CompassIcon} active={tab === "explore"} onClick={() => setTab("explore")} />
           <TabButton
             label={`Saved${picks && picks.length > 0 ? ` (${picks.length})` : ""}`}
@@ -175,10 +175,10 @@ export default function DiscoverPage() {
 
             {error && markets !== null && (
               <div
-                className="mb-3 flex items-center gap-2 rounded-xl px-3 py-2 ring-1 ring-inset"
-                style={{ background: "rgba(255,61,127,0.08)", borderColor: "var(--d-accent)" }}
+                className="mb-3 flex items-center gap-2 rounded-sm px-3 py-2 ring-1 ring-inset"
+                style={{ background: "rgba(var(--d-accent-2-rgb), 0.08)", borderColor: "var(--d-accent-2)" }}
               >
-                <AlertIcon className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--d-accent)" }} />
+                <AlertIcon className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--d-accent-2)" }} />
                 <p className="text-[11px] text-text-dim">
                   Couldn&apos;t refresh &mdash; showing markets from {formatRelativeTime(fetchedAt)}.
                 </p>
@@ -187,15 +187,15 @@ export default function DiscoverPage() {
 
             {showFullError && (
               <div
-                className="flex flex-col items-center gap-3 rounded-2xl border px-5 py-12 text-center"
+                className="flex flex-col items-center gap-3 rounded-md border px-5 py-12 text-center"
                 style={{ borderColor: "var(--d-border)" }}
               >
-                <AlertIcon className="h-6 w-6" style={{ color: "var(--d-accent)" }} />
+                <AlertIcon className="h-6 w-6" style={{ color: "var(--d-accent-2)" }} />
                 <p className="selectable text-[13px] text-text-dim">{error}</p>
                 <button
                   onClick={() => void refresh()}
-                  className="press mt-1 rounded-full px-4 py-2 text-xs font-semibold"
-                  style={{ background: "rgba(255,61,127,0.12)", color: "var(--d-accent)" }}
+                  className="press mt-1 rounded-sm px-4 py-2 text-xs font-semibold"
+                  style={{ background: "rgba(var(--d-accent-2-rgb), 0.12)", color: "var(--d-accent-2)" }}
                 >
                   Try again
                 </button>
@@ -212,7 +212,7 @@ export default function DiscoverPage() {
 
             {!showFullError && markets !== null && filtered.length === 0 && (
               <div
-                className="flex flex-col items-center gap-2.5 rounded-2xl border px-5 py-14 text-center"
+                className="flex flex-col items-center gap-2.5 rounded-md border px-5 py-14 text-center"
                 style={{ borderColor: "var(--d-border)" }}
               >
                 <CompassIcon className="h-6 w-6 text-text-faint" />
@@ -241,7 +241,7 @@ export default function DiscoverPage() {
             {picks === null && <div className="py-16" />}
             {picks !== null && picks.length === 0 && (
               <div
-                className="flex flex-col items-center gap-2.5 rounded-2xl border px-5 py-16 text-center"
+                className="flex flex-col items-center gap-2.5 rounded-md border px-5 py-16 text-center"
                 style={{ borderColor: "var(--d-border)" }}
               >
                 <BookmarkIcon className="h-6 w-6 text-text-faint" />
@@ -272,10 +272,10 @@ function TickerRow({ markets }: { markets: Market[] }) {
       {markets.map((m) => (
         <div
           key={m.id}
-          className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium ring-1 ring-inset"
+          className="flex shrink-0 items-center gap-1.5 rounded-sm px-3 py-1.5 text-[11px] font-medium ring-1 ring-inset"
           style={{ background: "var(--d-surface-2)", borderColor: "var(--d-border)", color: "var(--text-dim)" }}
         >
-          <FlameIcon className="h-3 w-3" style={{ color: "var(--d-accent-3)" }} />
+          <FlameIcon className="h-3 w-3" style={{ color: "var(--d-accent-2)" }} />
           <span className="max-w-[160px] truncate">{m.title}</span>
           <span className="font-display font-bold tabular-nums" style={{ color: "var(--d-accent-2)" }}>
             {Math.round(m.outcomes[0].price * 100)}%
@@ -300,7 +300,7 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className="press flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-[12px] font-semibold"
+      className="press flex flex-1 items-center justify-center gap-1.5 rounded-sm py-2 text-[12px] font-semibold"
       style={
         active
           ? { background: "linear-gradient(135deg, var(--d-accent), var(--d-violet))", color: "var(--bg)" }
@@ -327,7 +327,7 @@ function CategoryChip({
   return (
     <button
       onClick={onClick}
-      className="press flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[12px] font-semibold ring-1 ring-inset"
+      className="press flex shrink-0 items-center gap-1.5 rounded-sm px-3.5 py-2 text-[12px] font-semibold ring-1 ring-inset"
       style={
         active
           ? { background: "linear-gradient(135deg, var(--d-accent), var(--d-violet))", color: "var(--bg)", borderColor: "transparent" }

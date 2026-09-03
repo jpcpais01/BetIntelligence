@@ -177,17 +177,83 @@ body {
   padding-top: max(1.25rem, env(safe-area-inset-top));
 }
 
-/* Discover — the flagship "everything on Polymarket" feed gets its own deliberately louder,
-   more gamified palette so it reads as a distinct mode of the app rather than another list
-   page. Scoped to .discover so nothing outside it is affected. */
+/* Discover — the flagship "everything on Polymarket" feed gets its own deliberately distinct
+   look: a serious instrument-panel / 1980s spacecraft-console read (phosphor monochrome,
+   scanlines, HUD corner brackets, monospace) rather than the calmer sans-serif palette the
+   rest of the app uses. Scoped to .discover so nothing outside it is affected. */
 .discover {
-  --d-accent: #ff3d7f;
-  --d-accent-2: #22e6c8;
-  --d-accent-3: #ffb020;
-  --d-violet: #7c5cff;
-  --d-surface: #17131f;
-  --d-surface-2: #1f1a2c;
-  --d-border: #322a44;
+  --d-accent: #35ff8f; /* phosphor green — primary readout color */
+  --d-accent-rgb: 53, 255, 143;
+  --d-accent-2: #ffb020; /* amber — secondary/warning readout */
+  --d-accent-2-rgb: 255, 176, 32;
+  --d-violet: #4fd6e0; /* dim cyan — tertiary outcome color */
+  --d-violet-rgb: 79, 214, 224;
+  --d-surface: #0a0d0a;
+  --d-surface-2: #10140f;
+  --d-border: #22301f;
+  font-family: var(--font-jetbrains-mono), ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.discover .font-display {
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+}
+
+/* A faint fixed grid, like a targeting or telemetry overlay. */
+.discover-grid {
+  background-image:
+    linear-gradient(rgba(var(--d-accent-rgb), 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--d-accent-rgb), 0.07) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* CRT scanlines — a thin repeating overlay, subtle enough not to hurt legibility. */
+.crt-scanlines {
+  position: relative;
+}
+.crt-scanlines::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0px,
+    rgba(0, 0, 0, 0) 2px,
+    rgba(0, 0, 0, 0.18) 3px
+  );
+  pointer-events: none;
+  mix-blend-mode: multiply;
+}
+
+.glow-text {
+  text-shadow: 0 0 10px currentColor;
+}
+
+/* HUD corner brackets, like a targeting reticle framing a readout panel. */
+.hud-corners {
+  position: relative;
+}
+.hud-corners::before,
+.hud-corners::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  pointer-events: none;
+}
+/* Color is inlined directly in each border-side shorthand rather than set once via
+   border-color: a shorthand with no color resets to currentColor, which would silently
+   override an earlier border-color declaration regardless of source order. */
+.hud-corners::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid var(--hud-color, var(--d-accent));
+  border-left: 2px solid var(--hud-color, var(--d-accent));
+}
+.hud-corners::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 2px solid var(--hud-color, var(--d-accent));
+  border-right: 2px solid var(--hud-color, var(--d-accent));
 }
 
 @keyframes marquee {
@@ -199,22 +265,34 @@ body {
   }
 }
 .marquee-track {
-  animation: marquee 28s linear infinite;
+  animation: marquee 32s linear infinite;
 }
 
 @keyframes glow-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 1px rgba(255, 61, 127, 0.25);
+    box-shadow: 0 0 0 1px rgba(var(--d-accent-2-rgb), 0.3);
   }
   50% {
     box-shadow:
-      0 0 0 1px rgba(255, 61, 127, 0.45),
-      0 0 18px rgba(255, 61, 127, 0.25);
+      0 0 0 1px rgba(var(--d-accent-2-rgb), 0.55),
+      0 0 14px rgba(var(--d-accent-2-rgb), 0.25);
   }
 }
 .glow-pulse {
   animation: glow-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes scan-sweep {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100%);
+  }
+}
+.scan-sweep {
+  animation: scan-sweep 3.5s linear infinite;
 }
 
 @keyframes pop-in {

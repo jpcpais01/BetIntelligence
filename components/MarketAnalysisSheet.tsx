@@ -12,6 +12,7 @@ import {
   TrendingUpIcon,
   GlobeIcon,
   RefreshIcon,
+  ExternalLinkIcon,
 } from "./icons";
 import { formatEndDate, toSignedPercent } from "@/lib/format";
 import { saveMarketPick } from "@/lib/marketPicks";
@@ -32,7 +33,7 @@ const COMPARE_STEPS = [
   "Judging whether the difference is real",
 ];
 
-const OUTCOME_COLORS = ["var(--d-accent)", "var(--d-accent-2)", "var(--d-violet)", "var(--d-accent-3)", "#5cc9ff", "#ff8a5c"];
+const OUTCOME_COLORS = ["var(--d-accent)", "var(--d-violet)", "var(--d-accent-2)", "#8f9dff", "#ff8a5c", "#5cc9ff"];
 const colorFor = (i: number) => OUTCOME_COLORS[i % OUTCOME_COLORS.length];
 
 async function postJson<T>(url: string, body: unknown, errorLabel: string): Promise<T> {
@@ -159,28 +160,40 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
 
       <div
-        className="sheet-up relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-3xl border-t sm:max-w-lg sm:rounded-3xl sm:border"
+        className="sheet-up relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-lg border-t sm:max-w-lg sm:rounded-lg sm:border"
         style={{ background: "var(--d-surface)", borderColor: "var(--d-border)" }}
       >
         <div className="shrink-0 border-b px-5 pb-3.5 pt-3" style={{ borderColor: "var(--d-border)" }}>
           <div className="mx-auto mb-3 h-1 w-9 rounded-full bg-border sm:hidden" />
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-[11px] text-text-faint">
+              <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-text-faint">
                 <span>{market.categoryEmoji}</span>
                 <span className="truncate">
                   {market.category} &middot; {formatEndDate(market.endDate)}
                 </span>
               </div>
-              <div className="truncate font-display text-[15px] font-semibold text-text">{market.title}</div>
+              <div className="truncate text-[15px] font-semibold text-text">{market.title}</div>
             </div>
-            <button
-              onClick={onClose}
-              aria-label="Close"
-              className="press -mr-1 shrink-0 rounded-full p-2 text-text-faint hover:bg-white/5"
-            >
-              <CloseIcon className="h-4.5 w-4.5" />
-            </button>
+            <div className="flex shrink-0 items-center gap-1">
+              <a
+                href={market.polymarketUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open on Polymarket"
+                className="press rounded-sm p-2 text-text-faint ring-1 ring-inset hover:text-text"
+                style={{ borderColor: "var(--d-border)" }}
+              >
+                <ExternalLinkIcon className="h-3.5 w-3.5" />
+              </a>
+              <button
+                onClick={onClose}
+                aria-label="Close"
+                className="press rounded-sm p-2 text-text-faint hover:bg-white/5"
+              >
+                <CloseIcon className="h-4.5 w-4.5" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -197,20 +210,20 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
 
           {stage === "error" && (
             <div className="flex flex-col items-center gap-3 py-10 text-center">
-              <AlertIcon className="h-7 w-7" style={{ color: "var(--d-accent)" }} />
+              <AlertIcon className="h-7 w-7" style={{ color: "var(--d-accent-2)" }} />
               <p className="selectable max-w-xs text-sm text-text-dim">{error}</p>
               <div className="mt-1 flex gap-2">
                 <button
                   onClick={handleRetry}
-                  className="press inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold"
-                  style={{ background: "rgba(255,61,127,0.12)", color: "var(--d-accent)" }}
+                  className="press inline-flex items-center gap-1.5 rounded-sm px-4 py-2 text-xs font-semibold"
+                  style={{ background: "rgba(var(--d-accent-2-rgb), 0.12)", color: "var(--d-accent-2)" }}
                 >
                   <RefreshIcon className="h-3.5 w-3.5" />
                   Try again
                 </button>
                 <button
                   onClick={onClose}
-                  className="press rounded-full px-4 py-2 text-xs font-semibold text-text-dim"
+                  className="press rounded-sm px-4 py-2 text-xs font-semibold text-text-dim"
                   style={{ background: "var(--d-surface-2)" }}
                 >
                   Close
@@ -223,7 +236,7 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
             <div className="rise-in space-y-4">
               <SectionHeader icon={BrainIcon} step={1} title="Independent read" subtitle="Formed before seeing any market odds" />
 
-              <div className="space-y-3.5 rounded-2xl border p-4" style={{ borderColor: "var(--d-border)", background: "var(--d-surface-2)" }}>
+              <div className="space-y-3.5 rounded-md border p-4" style={{ borderColor: "var(--d-border)", background: "var(--d-surface-2)" }}>
                 {independent.outcomes.map((o, i) => (
                   <OutcomeMeter key={o.label} label={o.label} pct={o.probability} color={colorFor(i)} size="lg" />
                 ))}
@@ -251,7 +264,7 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
           )}
 
           {stage === "comparing" && (
-            <div className="rise-in mt-5 rounded-2xl border p-4" style={{ borderColor: "var(--d-border)", background: "var(--d-surface-2)" }}>
+            <div className="rise-in mt-5 rounded-md border p-4" style={{ borderColor: "var(--d-border)", background: "var(--d-surface-2)" }}>
               <div className="mb-2.5 flex items-center justify-between gap-2">
                 <p className="text-[13px] font-medium text-text">Comparing against the market</p>
                 <span className="shrink-0 font-display text-[11px] tabular-nums text-text-faint">
@@ -266,7 +279,7 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
             <div className="rise-in mt-6 space-y-4">
               <SectionHeader icon={ScaleIcon} step={2} title="Market comparison" subtitle="Polymarket odds revealed" />
 
-              <div className="space-y-3.5 rounded-2xl border p-4" style={{ borderColor: "var(--d-border)", background: "var(--d-surface-2)" }}>
+              <div className="space-y-3.5 rounded-md border p-4" style={{ borderColor: "var(--d-border)", background: "var(--d-surface-2)" }}>
                 {market.outcomes.map((o, i) => {
                   const aiEst = independent.outcomes.find((p) => p.label === o.label)?.probability;
                   return (
@@ -293,8 +306,8 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
 
               {comparison.bestValue ? (
                 <div
-                  className="flex items-start gap-2.5 rounded-2xl p-3.5 ring-1 ring-inset"
-                  style={{ background: "rgba(255,61,127,0.08)", borderColor: "var(--d-accent)" }}
+                  className="flex items-start gap-2.5 rounded-md p-3.5 ring-1 ring-inset"
+                  style={{ background: "rgba(var(--d-accent-rgb),0.08)", borderColor: "var(--d-accent)" }}
                 >
                   <TrendingUpIcon className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--d-accent)" }} />
                   <div>
@@ -308,7 +321,7 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
                   </div>
                 </div>
               ) : (
-                <div className="flex items-start gap-2.5 rounded-2xl border p-3.5" style={{ borderColor: "var(--d-border)" }}>
+                <div className="flex items-start gap-2.5 rounded-md border p-3.5" style={{ borderColor: "var(--d-border)" }}>
                   <ScaleIcon className="mt-0.5 h-4 w-4 shrink-0 text-text-faint" />
                   <div>
                     <p className="text-[13px] font-semibold text-text">Market looks efficient</p>
@@ -326,7 +339,7 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
               <button
                 onClick={handleSave}
                 disabled={saved}
-                className="press flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-[13px] font-bold text-bg disabled:opacity-60"
+                className="press flex w-full items-center justify-center gap-2 rounded-md py-3.5 text-[13px] font-bold text-bg disabled:opacity-60"
                 style={{ background: saved ? "var(--d-surface-2)" : "linear-gradient(135deg, var(--d-accent), var(--d-violet))" }}
               >
                 <BookmarkIcon className="h-4 w-4" filled={saved} />
@@ -363,8 +376,8 @@ function ResearchPanel({
     <div className="py-2">
       <div className="mb-4 flex items-start gap-3">
         <div
-          className="breathe flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
-          style={{ background: "rgba(255,61,127,0.14)", color: "var(--d-accent)" }}
+          className="breathe flex h-9 w-9 shrink-0 items-center justify-center rounded-sm"
+          style={{ background: "rgba(var(--d-accent-rgb),0.14)", color: "var(--d-accent)" }}
         >
           <GlobeIcon className="h-4.5 w-4.5" />
         </div>
@@ -379,7 +392,7 @@ function ResearchPanel({
         </div>
       </div>
 
-      <div className="rounded-2xl border p-4" style={{ borderColor: "var(--d-border)", background: "var(--d-surface-2)" }}>
+      <div className="rounded-md border p-4" style={{ borderColor: "var(--d-border)", background: "var(--d-surface-2)" }}>
         <StepList steps={steps} activeIdx={activeIdx} />
       </div>
 
@@ -407,7 +420,7 @@ function StepList({ steps, activeIdx }: { steps: string[]; activeIdx: number }) 
             <span
               className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
               style={{
-                background: done || active ? "rgba(255,61,127,0.15)" : "var(--d-surface)",
+                background: done || active ? "rgba(var(--d-accent-rgb),0.15)" : "var(--d-surface)",
                 color: done ? "var(--d-accent)" : undefined,
               }}
             >
@@ -433,7 +446,7 @@ function SourceList({ sources }: { sources: SourceCitation[] }) {
   if (sources.length === 0) return null;
 
   return (
-    <div className="rounded-2xl border p-3.5" style={{ borderColor: "var(--d-border)" }}>
+    <div className="rounded-md border p-3.5" style={{ borderColor: "var(--d-border)" }}>
       <p className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-text-faint">
         <GlobeIcon className="h-3 w-3" />
         {sources.length} source{sources.length === 1 ? "" : "s"} consulted
@@ -469,7 +482,7 @@ function SectionHeader({
 }) {
   return (
     <div className="flex items-center gap-2.5">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-text-dim" style={{ background: "var(--d-surface-2)" }}>
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-text-dim" style={{ background: "var(--d-surface-2)" }}>
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0">
@@ -490,10 +503,10 @@ function SectionHeader({
 
 function DiscoverConfidence({ level }: { level: Confidence }) {
   const label = level === "high" ? "High confidence" : level === "medium" ? "Medium confidence" : "Low confidence";
-  const color = level === "high" ? "var(--d-accent-2)" : level === "medium" ? "var(--d-accent-3)" : "var(--text-faint)";
+  const color = level === "high" ? "var(--d-accent)" : level === "medium" ? "var(--d-accent-2)" : "var(--text-faint)";
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ring-1 ring-inset"
+      className="inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-[11px] font-medium ring-1 ring-inset"
       style={{ color, borderColor: color, background: "transparent" }}
     >
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
@@ -505,10 +518,10 @@ function DiscoverConfidence({ level }: { level: Confidence }) {
 function DiscoverEdgeChip({ label, edge }: { label: string; edge: number }) {
   const positive = edge > 0.005;
   const negative = edge < -0.005;
-  const color = positive ? "var(--d-accent-2)" : negative ? "var(--d-accent)" : "var(--text-faint)";
+  const color = positive ? "var(--d-accent)" : negative ? "var(--d-accent-2)" : "var(--text-faint)";
   return (
     <div
-      className="flex flex-col items-center gap-0.5 rounded-xl px-2 py-2.5 ring-1 ring-inset"
+      className="flex flex-col items-center gap-0.5 rounded-sm px-2 py-2.5 ring-1 ring-inset"
       style={{ color, borderColor: `${color}33`, background: `${color}14` }}
     >
       <span className="max-w-full truncate text-[10px] opacity-80">{label}</span>
