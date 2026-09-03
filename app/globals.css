@@ -350,3 +350,106 @@ body {
 .pop-in {
   animation: pop-in 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+
+/* Flying-money easter egg (components/FlyingMoney.tsx). Left-to-right and right-to-left variants
+   so the coin can enter from either edge; each bobs up and down along the way rather than flying
+   in a flat line, and fades in/out at the very start/end so it never pops at the screen edge. */
+@keyframes fly-across-ltr {
+  0% {
+    transform: translateX(-15vw) translateY(0) rotate(var(--fm-tilt));
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  25% {
+    transform: translateX(25vw) translateY(-22px) rotate(var(--fm-tilt));
+  }
+  50% {
+    transform: translateX(55vw) translateY(14px) rotate(var(--fm-tilt));
+  }
+  75% {
+    transform: translateX(85vw) translateY(-18px) rotate(var(--fm-tilt));
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(115vw) translateY(0) rotate(var(--fm-tilt));
+    opacity: 0;
+  }
+}
+@keyframes fly-across-rtl {
+  0% {
+    transform: translateX(115vw) translateY(0) rotate(var(--fm-tilt));
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  25% {
+    transform: translateX(75vw) translateY(-22px) rotate(var(--fm-tilt));
+  }
+  50% {
+    transform: translateX(45vw) translateY(14px) rotate(var(--fm-tilt));
+  }
+  75% {
+    transform: translateX(15vw) translateY(-18px) rotate(var(--fm-tilt));
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-15vw) translateY(0) rotate(var(--fm-tilt));
+    opacity: 0;
+  }
+}
+.flying-money {
+  animation-timing-function: ease-in-out;
+  animation-fill-mode: forwards;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+@keyframes fm-wing-flap-left {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(30deg);
+  }
+}
+@keyframes fm-wing-flap-right {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-30deg);
+  }
+}
+.fm-wing-left {
+  animation: fm-wing-flap-left 0.32s ease-in-out infinite;
+}
+.fm-wing-right {
+  animation: fm-wing-flap-right 0.32s ease-in-out infinite;
+}
+
+@keyframes reward-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.reward-pop {
+  animation: reward-pop 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+}

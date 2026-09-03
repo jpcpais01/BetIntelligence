@@ -88,12 +88,15 @@ async function run() {
   }
 
   // Mock history generator: deterministic per label, and always lands on the real current price.
+  // `now` is pinned so two calls can't land on different sides of a millisecond boundary and
+  // produce different timestamps despite an identical underlying walk.
   {
-    const a = generateMockHistory("Arsenal", 0.62);
-    const b = generateMockHistory("Arsenal", 0.62);
+    const now = Date.now();
+    const a = generateMockHistory("Arsenal", 0.62, now);
+    const b = generateMockHistory("Arsenal", 0.62, now);
     check("same label + price generates an identical series (deterministic seed)", JSON.stringify(a) === JSON.stringify(b));
 
-    const other = generateMockHistory("Chelsea", 0.62);
+    const other = generateMockHistory("Chelsea", 0.62, now);
     check("a different label generates a different series", JSON.stringify(a) !== JSON.stringify(other));
 
     check("the series ends exactly on the real current price", a[a.length - 1].p === 0.62, String(a[a.length - 1].p));

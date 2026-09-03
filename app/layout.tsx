@@ -4,6 +4,7 @@ import "./globals.css";
 import BottomNav from "@/components/BottomNav";
 import ServiceWorker from "@/components/ServiceWorker";
 import ClubLogosProvider from "@/components/ClubLogosProvider";
+import FlyingMoney from "@/components/FlyingMoney";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -67,6 +68,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <BottomNav />
         </ClubLogosProvider>
         <ServiceWorker />
+        <FlyingMoney />
       </body>
     </html>
   );

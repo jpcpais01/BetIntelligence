@@ -28,10 +28,10 @@ function mulberry32(seed: number): () => number {
 
 // Walks backward from today's real price so the series always lands exactly on the price the
 // card is already showing, then reverses — a fabricated history that at least agrees with the
-// one real number the app actually knows.
-export function generateMockHistory(label: string, currentPrice: number): HistoryPoint[] {
+// one real number the app actually knows. `now` is injectable (defaults to the real clock) so a
+// test can assert determinism without two calls racing across a millisecond boundary.
+export function generateMockHistory(label: string, currentPrice: number, now: number = Date.now()): HistoryPoint[] {
   const rand = mulberry32(seedFromString(label));
-  const now = Date.now();
   const start = now - WINDOW_MS;
   const step = WINDOW_MS / (POINT_COUNT - 1);
 
