@@ -225,36 +225,50 @@ interface RawSeries {
   title?: string;
 }
 
-interface RawSportMeta {
-  sport?: string;
-  tags?: string[];
-  series?: RawSeries[];
+const MAX_SERIES_PAGES = 15;
+
+// Real /series objects have proper {id, slug, title} fields — confirmed against Polymarket's
+// own API docs (github.com/Polymarket/agent-skills) and a third-party Go client's typed
+// struct definitions, since gamma-api.polymarket.com itself isn't reachable to verify directly
+// in this environment. The previous approach (parsing /sports' embedded "series" field) was
+// silently broken: that field is a STRING on that endpoint, not an array of series objects —
+// `Array.isArray(s.series)` was always false, so it found zero matches every time, no matter
+// what shape the caller assumed. /series is the dedicated, documented endpoint instead.
+async function fetchAllSeries(): Promise<{ series: RawSeries[]; errors: string[] }> {
+  const errors: string[] = [];
+  const collected: RawSeries[] = [];
+
+  for (let page = 0; page < MAX_SERIES_PAGES; page++) {
+    const { data, error } = await gate.run(() =>
+      getJson<unknown>(
+        "/series",
+        new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(page * PAGE_SIZE), closed: "false" })
+      )
+    );
+    if (error) {
+      errors.push(error);
+      break;
+    }
+    const batch = Array.isArray(data) ? (data as RawSeries[]) : [];
+    collected.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+  }
+
+  return { series: collected, errors };
 }
 
-// Premier League, La Liga, and Serie A are official Polymarket partner leagues (separate deals
-// announced through 2026), and Polymarket's own site serves them from distinct routes
-// (polymarket.com/sports/epl/games, /sports/bkseriea/games) rather than the generic community
-// tag system — the leagues that generate the most events and therefore have needed the most
-// pagination all along. Their real match-by-match events plausibly live under a series_id
-// (gamma-api.polymarket.com/events?series_id=..., documented for exactly this purpose) rather
-// than any tag_slug we can guess, so this discovers each league's series id directly from
-// /sports metadata instead of guessing a slug.
+// Premier League, La Liga, and Serie A are official Polymarket partner leagues, and their
+// real match-by-match events live under a series_id (gamma-api.polymarket.com/events?series_id=...)
+// rather than any tag_slug we can guess — confirmed by live debug data showing these three
+// leagues' tag_slug results are ENTIRELY season-long futures/props (Top Goalscorer, 2027
+// Champion, promotion odds, etc.) with zero actual fixtures. This discovers each league's
+// series id from the real /series endpoint instead.
 async function fetchLeaguesBySeries(): Promise<{
   events: RawEvent[];
   matchedLeagues: string[];
   errors: string[];
 }> {
-  const errors: string[] = [];
-  const { data, error } = await getJson<unknown>("/sports", new URLSearchParams());
-  if (error) errors.push(error);
-
-  const sports: RawSportMeta[] = Array.isArray(data)
-    ? (data as RawSportMeta[])
-    : Array.isArray((data as { sports?: unknown })?.sports)
-      ? (data as { sports: RawSportMeta[] }).sports
-      : [];
-
-  const allSeries: RawSeries[] = sports.flatMap((s) => (Array.isArray(s.series) ? s.series : []));
+  const { series: allSeries, errors } = await fetchAllSeries();
 
   const matches: { leagueId: string; series: RawSeries }[] = [];
   for (const series of allSeries) {

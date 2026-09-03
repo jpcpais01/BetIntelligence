@@ -267,12 +267,11 @@ const laLiga1X2Match = {
   ],
 };
 
-const SPORTS_METADATA = [
-  {
-    sport: "Soccer",
-    series: [{ id: 555, slug: "serie-a-2026", title: "Serie A" }],
-  },
-];
+// Real shape confirmed against Polymarket's own docs and a third-party typed Go client:
+// /series returns a flat array of {id, slug, title, ...} objects directly — NOT nested under
+// a /sports endpoint's "series" field, which turned out to be a plain string on that endpoint
+// (always failing an Array.isArray check, however that data was interpreted).
+const SERIES_LIST = [{ id: 555, slug: "serie-a-2026", title: "Serie A" }];
 
 // Deliberately excludes eplMatch/halftimeCompanion: those are served ONLY on page 2 of the
 // Premier League tag, so the EPL match can only be found if per-league paging actually works.
@@ -288,7 +287,7 @@ globalThis.fetch = (async (url: string | URL) => {
   const tagSlug = parsed.searchParams.get("tag_slug");
   const seriesId = parsed.searchParams.get("series_id");
 
-  if (parsed.pathname.endsWith("/sports")) return okResponse(SPORTS_METADATA);
+  if (parsed.pathname.endsWith("/series")) return okResponse(offset === 0 ? SERIES_LIST : []);
 
   if (seriesId === "555") {
     return okResponse(offset === 0 ? [serieAMatchViaSeries] : []);
@@ -367,7 +366,7 @@ async function main() {
     failures.push("missing Bundesliga match — a permanently rate-limited page 0 wrongly stopped pagination before page 1");
   }
   if (!titles.includes("Inter Milan vs AC Milan")) {
-    failures.push("missing Serie A match reachable only via series_id — /sports discovery isn't finding/using it");
+    failures.push("missing Serie A match reachable only via series_id — /series discovery isn't finding/using it");
   }
   if (!titles.includes("Sevilla vs Valencia")) {
     failures.push("missing single-market 1X2 La Liga match — bare \"X\" draw label isn't being recognized");
