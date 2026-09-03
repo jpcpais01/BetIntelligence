@@ -201,6 +201,51 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
   const { label: kickoffLabel } = formatKickoff(game.startTime);
   const steps = stage === "comparing" ? COMPARE_STEPS : RESEARCH_STEPS;
 
+  // While actively researching or comparing, this is a small centered popup with no way to
+  // dismiss it — not a full sheet you can swipe or tap away, since walking away mid-analysis
+  // would strand the in-flight request with nothing showing its result.
+  if (running) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+        <div className="pop-in relative flex max-h-[85dvh] w-full max-w-xs flex-col overflow-hidden rounded-3xl border border-border-soft bg-bg-elevated shadow-2xl">
+          <div className="border-b border-border-soft px-4 pb-2.5 pt-3.5 text-center">
+            <div className="flex items-center justify-center gap-1.5 text-[11px] text-text-faint">
+              <span>{game.leagueFlag}</span>
+              <span className="truncate">{game.leagueName}</span>
+            </div>
+            <div className="truncate font-display text-[13px] font-semibold">
+              {game.homeTeam} <span className="text-text-faint">v</span> {game.awayTeam}
+            </div>
+          </div>
+          <div className="min-h-0 overflow-y-auto px-3">
+            {stage === "predicting" ? (
+              <ResearchOverlay
+                icon={GlobeIcon}
+                title="Researching the match"
+                subtitle="Reading the web for form, team news and injuries — no market odds seen yet."
+                stepLabel={steps[stepIdx]}
+                elapsed={elapsed}
+                runIndex={runIdx}
+                runCount={plannedRuns}
+              />
+            ) : (
+              <ResearchOverlay
+                icon={ScaleIcon}
+                title="Comparing against the market"
+                subtitle="Reading Polymarket's implied odds and measuring the gap."
+                stepLabel={COMPARE_STEPS[stepIdx]}
+                elapsed={elapsed}
+                runIndex={0}
+                runCount={1}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
@@ -231,18 +276,6 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-          {stage === "predicting" && (
-            <ResearchOverlay
-              icon={GlobeIcon}
-              title="Researching the match"
-              subtitle="Reading the web for form, team news and injuries — no market odds seen yet."
-              stepLabel={steps[stepIdx]}
-              elapsed={elapsed}
-              runIndex={runIdx}
-              runCount={plannedRuns}
-            />
-          )}
-
           {stage === "error" && (
             <div className="flex flex-col items-center gap-3 py-10 text-center">
               <AlertIcon className="h-7 w-7 text-accent-3" />
@@ -265,7 +298,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
             </div>
           )}
 
-          {(stage === "comparing" || stage === "compared") && independent && (
+          {stage === "compared" && independent && (
             <div className="rise-in space-y-4">
               <SectionHeader
                 icon={BrainIcon}
@@ -310,18 +343,6 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
 
               <SourceList sources={independent.sources ?? []} />
             </div>
-          )}
-
-          {stage === "comparing" && (
-            <ResearchOverlay
-              icon={ScaleIcon}
-              title="Comparing against the market"
-              subtitle="Reading Polymarket's implied odds and measuring the gap."
-              stepLabel={COMPARE_STEPS[stepIdx]}
-              elapsed={elapsed}
-              runIndex={0}
-              runCount={1}
-            />
           )}
 
           {stage === "compared" && comparison && independent && (

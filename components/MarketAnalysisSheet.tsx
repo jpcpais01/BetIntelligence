@@ -198,6 +198,54 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
 
   const steps = stage === "comparing" ? COMPARE_STEPS : RESEARCH_STEPS;
 
+  // While actively researching or comparing, this is a small centered popup with no way to
+  // dismiss it — not a full sheet you can swipe or tap away, since walking away mid-analysis
+  // would strand the in-flight request with nothing showing its result.
+  if (running) {
+    return (
+      <div className="discover fixed inset-0 z-50 flex items-center justify-center p-6">
+        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+        <div
+          className="pop-in relative flex max-h-[85dvh] w-full max-w-xs flex-col overflow-hidden rounded-lg border shadow-2xl"
+          style={{ background: "var(--d-surface)", borderColor: "var(--d-border)" }}
+        >
+          <div className="border-b px-4 pb-2.5 pt-3.5 text-center" style={{ borderColor: "var(--d-border)" }}>
+            <div className="flex items-center justify-center gap-1.5 text-[11px] uppercase tracking-wide text-text-faint">
+              <span>{market.categoryEmoji}</span>
+              <span className="truncate">{market.category}</span>
+            </div>
+            <div className="truncate text-[13px] font-semibold text-text">{market.title}</div>
+          </div>
+          <div className="min-h-0 overflow-y-auto px-3">
+            {stage === "predicting" ? (
+              <ResearchOverlay
+                variant="discover"
+                icon={GlobeIcon}
+                title="Researching this market"
+                subtitle="Reading the web for news, data and expert takes — no market odds seen yet."
+                stepLabel={steps[stepIdx]}
+                elapsed={elapsed}
+                runIndex={runIdx}
+                runCount={plannedRuns}
+              />
+            ) : (
+              <ResearchOverlay
+                variant="discover"
+                icon={ScaleIcon}
+                title="Comparing against the market"
+                subtitle="Reading Polymarket's implied odds and measuring the gap."
+                stepLabel={COMPARE_STEPS[stepIdx]}
+                elapsed={elapsed}
+                runIndex={0}
+                runCount={1}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="discover fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
@@ -241,19 +289,6 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-          {stage === "predicting" && (
-            <ResearchOverlay
-              variant="discover"
-              icon={GlobeIcon}
-              title="Researching this market"
-              subtitle="Reading the web for news, data and expert takes — no market odds seen yet."
-              stepLabel={steps[stepIdx]}
-              elapsed={elapsed}
-              runIndex={runIdx}
-              runCount={plannedRuns}
-            />
-          )}
-
           {stage === "error" && (
             <div className="flex flex-col items-center gap-3 py-10 text-center">
               <AlertIcon className="h-7 w-7" style={{ color: "var(--d-accent-2)" }} />
@@ -278,7 +313,7 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
             </div>
           )}
 
-          {(stage === "comparing" || stage === "compared") && independent && (
+          {stage === "compared" && independent && (
             <div className="rise-in space-y-4">
               <SectionHeader icon={BrainIcon} step={1} title="Independent read" subtitle="Formed before seeing any market odds" />
 
@@ -309,19 +344,6 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
 
               <SourceList sources={independent.sources ?? []} />
             </div>
-          )}
-
-          {stage === "comparing" && (
-            <ResearchOverlay
-              variant="discover"
-              icon={ScaleIcon}
-              title="Comparing against the market"
-              subtitle="Reading Polymarket's implied odds and measuring the gap."
-              stepLabel={COMPARE_STEPS[stepIdx]}
-              elapsed={elapsed}
-              runIndex={0}
-              runCount={1}
-            />
           )}
 
           {stage === "compared" && comparison && independent && (
