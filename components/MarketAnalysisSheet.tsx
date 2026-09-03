@@ -65,7 +65,7 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
   const [comparison, setComparison] = useState<MarketComparison | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
-  const [runIdx, setRunIdx] = useState(0);
+  const [completedRuns, setCompletedRuns] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [saved, setSaved] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
@@ -82,12 +82,9 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
 
     (async () => {
       try {
-        runsRef.current ??= (async () => {
-          const collected: MarketPrediction[] = [];
-          for (let i = 0; i < plannedRuns; i++) {
-            setRunIdx(i);
-            setStepIdx(0);
-            const prediction = await postJson<{ prediction: MarketPrediction }>(
+        runsRef.current ??= Promise.all(
+          Array.from({ length: plannedRuns }, () =>
+            postJson<{ prediction: MarketPrediction }>(
               "/api/analyze/market/predict",
               {
                 title: market.title,
@@ -97,11 +94,12 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
                 model,
               },
               "Analysis failed."
-            ).then((d) => d.prediction);
-            collected.push(prediction);
-          }
-          return collected;
-        })();
+            ).then((d) => {
+              setCompletedRuns((c) => c + 1);
+              return d.prediction;
+            })
+          )
+        );
 
         const collected = await runsRef.current;
         if (cancelled) return;
@@ -163,7 +161,7 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
     setComparison(null);
     setError(null);
     setStepIdx(0);
-    setRunIdx(0);
+    setCompletedRuns(0);
     setElapsed(0);
     setStage("predicting");
     setRetryKey((k) => k + 1);
@@ -225,8 +223,8 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
                 subtitle="Reading the web for news, data and expert takes — no market odds seen yet."
                 stepLabel={steps[stepIdx]}
                 elapsed={elapsed}
-                runIndex={runIdx}
-                runCount={plannedRuns}
+                completedRuns={completedRuns}
+                totalRuns={plannedRuns}
               />
             ) : (
               <ResearchOverlay
@@ -236,8 +234,8 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
                 subtitle="Reading Polymarket's implied odds and measuring the gap."
                 stepLabel={COMPARE_STEPS[stepIdx]}
                 elapsed={elapsed}
-                runIndex={0}
-                runCount={1}
+                completedRuns={0}
+                totalRuns={1}
               />
             )}
           </div>

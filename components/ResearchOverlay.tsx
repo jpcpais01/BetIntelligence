@@ -4,8 +4,10 @@ import type { ComponentType } from "react";
 
 // Replaces the old step-checklist card while an analysis is in flight: a centered pulsing radar
 // orb, a single rotating status line instead of a full list, an elapsed timer, and — when more
-// than one independent research run was requested — a row of progress pips showing which run is
-// currently in flight. Used by both AnalysisSheet (football) and MarketAnalysisSheet (Discover).
+// than one independent research run was requested — a row of progress pips. All requested runs
+// fire at once (they're fully independent of each other), so the pips fill in as each one
+// finishes rather than lighting up one at a time. Used by both AnalysisSheet (football) and
+// MarketAnalysisSheet (Discover).
 export default function ResearchOverlay({
   variant = "standard",
   icon: Icon,
@@ -13,8 +15,8 @@ export default function ResearchOverlay({
   subtitle,
   stepLabel,
   elapsed,
-  runIndex,
-  runCount,
+  completedRuns,
+  totalRuns,
 }: {
   variant?: "standard" | "discover";
   icon: ComponentType<{ className?: string }>;
@@ -22,8 +24,8 @@ export default function ResearchOverlay({
   subtitle: string;
   stepLabel: string;
   elapsed: number;
-  runIndex: number;
-  runCount: number;
+  completedRuns: number;
+  totalRuns: number;
 }) {
   const discover = variant === "discover";
   const ovRgb = discover ? "var(--d-accent-rgb)" : "var(--accent-rgb)";
@@ -49,22 +51,25 @@ export default function ResearchOverlay({
       <p className="font-display text-[15px] font-semibold text-text">{title}</p>
       <p className="mt-1 max-w-[280px] text-xs leading-relaxed text-text-faint">{subtitle}</p>
 
-      {runCount > 1 && (
+      {totalRuns > 1 && (
         <div className="mt-4 flex flex-col items-center gap-1.5">
           <div className="flex items-center gap-1.5">
-            {Array.from({ length: runCount }).map((_, i) => (
-              <span
-                key={i}
-                className={`h-1.5 rounded-full transition-all ${i === runIndex ? "pulse-dot w-4" : "w-1.5"}`}
-                style={{
-                  background: i <= runIndex ? accentColor : discover ? "var(--d-border)" : "var(--border)",
-                  opacity: i < runIndex ? 0.5 : 1,
-                }}
-              />
-            ))}
+            {Array.from({ length: totalRuns }).map((_, i) => {
+              const done = i < completedRuns;
+              return (
+                <span
+                  key={i}
+                  className={`h-1.5 w-1.5 rounded-full ${done ? "" : "pulse-dot"}`}
+                  style={{
+                    background: done ? accentColor : discover ? "var(--d-border)" : "var(--border)",
+                    opacity: done ? 1 : 0.7,
+                  }}
+                />
+              );
+            })}
           </div>
           <p className="text-[11px] font-medium text-text-faint">
-            Run {runIndex + 1} of {runCount}
+            {completedRuns} of {totalRuns} runs done
           </p>
         </div>
       )}
@@ -83,8 +88,9 @@ export default function ResearchOverlay({
       </p>
 
       <p className="mt-5 max-w-[260px] text-[11px] leading-relaxed text-text-faint">
-        Deep research can take a while, more so with multiple runs. You&apos;ll see the AI&apos;s
-        own estimate first, then how it compares to the market.
+        {totalRuns > 1
+          ? "All runs research independently at the same time. You'll see the AI's own estimate first, then how it compares to the market."
+          : "Deep research can take a while. You'll see the AI's own estimate first, then how it compares to the market."}
       </p>
     </div>
   );

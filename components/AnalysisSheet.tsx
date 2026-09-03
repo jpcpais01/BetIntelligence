@@ -58,7 +58,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
-  const [runIdx, setRunIdx] = useState(0);
+  const [completedRuns, setCompletedRuns] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [saved, setSaved] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
@@ -73,8 +73,9 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
   const runsRef = useRef<Promise<IndependentPrediction[]> | null>(null);
   const compareRef = useRef<Promise<ComparisonResult> | null>(null);
 
-  // All planned runs complete back to back, then the aggregated (or single) result is compared
-  // against the market. Nothing here needs a tap in between.
+  // All planned runs are independent of each other (nothing about run 2 depends on run 1), so
+  // they fire at once and the UI just waits for every one to land, then the aggregated (or
+  // single) result is compared against the market. Nothing here needs a tap in between.
   useEffect(() => {
     let cancelled = false;
 
@@ -82,12 +83,9 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
 
     (async () => {
       try {
-        runsRef.current ??= (async () => {
-          const collected: IndependentPrediction[] = [];
-          for (let i = 0; i < plannedRuns; i++) {
-            setRunIdx(i);
-            setStepIdx(0);
-            const prediction = await postJson<{ prediction: IndependentPrediction }>(
+        runsRef.current ??= Promise.all(
+          Array.from({ length: plannedRuns }, () =>
+            postJson<{ prediction: IndependentPrediction }>(
               "/api/analyze/predict",
               {
                 homeTeam: game.homeTeam,
@@ -97,11 +95,12 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
                 model,
               },
               "Analysis failed."
-            ).then((d) => d.prediction);
-            collected.push(prediction);
-          }
-          return collected;
-        })();
+            ).then((d) => {
+              setCompletedRuns((c) => c + 1);
+              return d.prediction;
+            })
+          )
+        );
 
         const collected = await runsRef.current;
         if (cancelled) return;
@@ -165,7 +164,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
     setComparison(null);
     setError(null);
     setStepIdx(0);
-    setRunIdx(0);
+    setCompletedRuns(0);
     setElapsed(0);
     setStage("predicting");
     setRetryKey((k) => k + 1);
@@ -226,8 +225,8 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
                 subtitle="Reading the web for form, team news and injuries — no market odds seen yet."
                 stepLabel={steps[stepIdx]}
                 elapsed={elapsed}
-                runIndex={runIdx}
-                runCount={plannedRuns}
+                completedRuns={completedRuns}
+                totalRuns={plannedRuns}
               />
             ) : (
               <ResearchOverlay
@@ -236,8 +235,8 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
                 subtitle="Reading Polymarket's implied odds and measuring the gap."
                 stepLabel={COMPARE_STEPS[stepIdx]}
                 elapsed={elapsed}
-                runIndex={0}
-                runCount={1}
+                completedRuns={0}
+                totalRuns={1}
               />
             )}
           </div>
