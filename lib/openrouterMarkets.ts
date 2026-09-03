@@ -1,10 +1,22 @@
 import { requestJson, clampConfidence } from "./openrouter";
 import type { MarketComparison, MarketOutcome, MarketPrediction, OutcomeProbability } from "./types";
 
-// Matches the AI's returned outcomes back onto the exact labels we asked about — the model is
-// asked to echo the same label set, but LLMs occasionally reorder, retrim, or paraphrase them.
-// Case-insensitive exact match first, then substring containment, then (rarely) a shared
-// fallback value so no known outcome is ever silently dropped from the UI.
+// Finds which of our known labels a piece of AI-returned text was probably referring to —
+// case-insensitive exact match first, then substring containment either direction. Shared by
+// every place the model echoes back one of the outcome labels we gave it (probabilities, edges,
+// bestValue), since LLMs occasionally reorder, retrim, or paraphrase them despite instructions
+// to echo the label verbatim, and a compound/named-entity label (a candidate or team name) has
+// more room to drift than a plain "Yes"/"No" ever does.
+function resolveLabel(labels: string[], raw: string): string | null {
+  const key = raw.trim().toLowerCase();
+  const exact = labels.find((l) => l.trim().toLowerCase() === key);
+  if (exact) return exact;
+  return labels.find((l) => {
+    const lKey = l.trim().toLowerCase();
+    return lKey.includes(key) || key.includes(lKey);
+  }) ?? null;
+}
+
 function alignByLabel(
   labels: string[],
   returned: unknown,
@@ -12,25 +24,17 @@ function alignByLabel(
   fallback: number
 ): Map<string, number> {
   const entries = Array.isArray(returned) ? (returned as Record<string, unknown>[]) : [];
-  const byNormalized = new Map<string, number>();
+  const byLabel = new Map<string, number>();
   for (const e of entries) {
-    const label = typeof e.label === "string" ? e.label : "";
+    const rawLabel = typeof e.label === "string" ? e.label : "";
     const value = e[valueKey];
-    if (label && typeof value === "number" && Number.isFinite(value)) {
-      byNormalized.set(label.trim().toLowerCase(), value);
-    }
+    if (!rawLabel || typeof value !== "number" || !Number.isFinite(value)) continue;
+    const resolved = resolveLabel(labels, rawLabel);
+    if (resolved && !byLabel.has(resolved)) byLabel.set(resolved, value);
   }
 
   const result = new Map<string, number>();
-  for (const label of labels) {
-    const key = label.trim().toLowerCase();
-    if (byNormalized.has(key)) {
-      result.set(label, byNormalized.get(key)!);
-      continue;
-    }
-    const partial = [...byNormalized.entries()].find(([k]) => k.includes(key) || key.includes(k));
-    result.set(label, partial ? partial[1] : fallback);
-  }
+  for (const label of labels) result.set(label, byLabel.get(label) ?? fallback);
   return result;
 }
 
@@ -147,10 +151,7 @@ Compare your view to the market and respond with only the JSON object described.
   const alignedEdges = alignByLabel(labels, parsed.edges, "edge", 0);
   const edges = labels.map((label) => ({ label, edge: alignedEdges.get(label) ?? 0 }));
 
-  const bestValueLabel =
-    typeof parsed.bestValue === "string"
-      ? labels.find((l) => l.toLowerCase() === parsed.bestValue!.trim().toLowerCase()) ?? null
-      : null;
+  const bestValueLabel = typeof parsed.bestValue === "string" ? resolveLabel(labels, parsed.bestValue) : null;
 
   return {
     edges,

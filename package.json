@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "selftest": "tsx scripts/parser-selftest.ts && tsx scripts/openrouter-selftest.ts",
+    "selftest": "tsx scripts/parser-selftest.ts && tsx scripts/openrouter-selftest.ts && tsx scripts/openrouter-markets-selftest.ts",
     "icons": "tsx scripts/generate-icons.ts"
   },
   "dependencies": {
