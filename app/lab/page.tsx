@@ -17,10 +17,13 @@ import {
 import { toPercent, toSignedPercent, toDecimalOdds } from "@/lib/format";
 import SlipPickRow from "@/components/SlipPickRow";
 import MarketPickRow from "@/components/MarketPickRow";
+import PickDetailSheet from "@/components/PickDetailSheet";
+import MarketPickDetailSheet from "@/components/MarketPickDetailSheet";
 import { useRequestLogos } from "@/components/ClubLogosProvider";
 import { SearchIcon, XCircleIcon, TicketIcon, ScaleIcon } from "@/components/icons";
 
 type Mode = "single" | "multi";
+type Filter = "all" | "football";
 
 type AnyPick =
   | { kind: "sports"; savedAt: string; pick: SavedPick }
@@ -32,6 +35,8 @@ export default function LabPage() {
   const [legs, setLegs] = useState<SlipLeg[]>([]);
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<Mode>("single");
+  const [filter, setFilter] = useState<Filter>("all");
+  const [openPick, setOpenPick] = useState<AnyPick | null>(null);
   const requestLogos = useRequestLogos();
 
   useEffect(() => {
@@ -58,16 +63,17 @@ export default function LabPage() {
 
   const filteredPicks = useMemo(() => {
     if (!picks) return [];
+    const byKind = filter === "football" ? picks.filter((p) => p.kind === "sports") : picks;
     const q = query.trim().toLowerCase();
-    if (!q) return picks;
-    return picks.filter((item) =>
+    if (!q) return byKind;
+    return byKind.filter((item) =>
       item.kind === "sports"
         ? item.pick.homeTeam.toLowerCase().includes(q) ||
           item.pick.awayTeam.toLowerCase().includes(q) ||
           item.pick.leagueName.toLowerCase().includes(q)
         : item.pick.title.toLowerCase().includes(q) || item.pick.category.toLowerCase().includes(q)
     );
-  }, [picks, query]);
+  }, [picks, query, filter]);
 
   const legByPickId = useMemo(() => {
     const map = new Map<string, string>();
@@ -129,6 +135,13 @@ export default function LabPage() {
             className="w-full rounded-full bg-surface py-2.5 pl-9 pr-3 text-[13px] text-text placeholder:text-text-faint ring-1 ring-inset ring-border-soft focus:outline-none focus:ring-accent/40"
           />
         </div>
+
+        {picks && picks.length > 0 && (
+          <div className="mt-3 flex gap-1.5 rounded-full bg-surface-2 p-1">
+            <ModeButton label="All" active={filter === "all"} onClick={() => setFilter("all")} />
+            <ModeButton label="Football" active={filter === "football"} onClick={() => setFilter("football")} />
+          </div>
+        )}
       </header>
 
       <div className="px-4 pt-4">
@@ -217,7 +230,9 @@ export default function LabPage() {
         )}
 
         {picks !== null && picks.length > 0 && filteredPicks.length === 0 && (
-          <p className="py-10 text-center text-[13px] text-text-faint">No analyzed picks match &quot;{query}&quot;.</p>
+          <p className="py-10 text-center text-[13px] text-text-faint">
+            {query ? `No analyzed picks match "${query}".` : "No football picks saved yet."}
+          </p>
         )}
 
         {filteredPicks.length > 0 && (
@@ -229,6 +244,7 @@ export default function LabPage() {
                   pick={item.pick}
                   selectedOutcome={legByPickId.get(item.pick.id) ?? null}
                   onPick={(outcome) => handlePickSports(item.pick, outcome)}
+                  onOpen={() => setOpenPick(item)}
                 />
               ) : (
                 <MarketPickRow
@@ -236,12 +252,20 @@ export default function LabPage() {
                   pick={item.pick}
                   selectedOutcomeLabel={legByPickId.get(item.pick.id) ?? null}
                   onPick={(outcomeLabel) => handlePickMarket(item.pick, outcomeLabel)}
+                  onOpen={() => setOpenPick(item)}
                 />
               )
             )}
           </div>
         )}
       </div>
+
+      {openPick?.kind === "sports" && (
+        <PickDetailSheet pick={openPick.pick} onClose={() => setOpenPick(null)} />
+      )}
+      {openPick?.kind === "market" && (
+        <MarketPickDetailSheet pick={openPick.pick} onClose={() => setOpenPick(null)} />
+      )}
     </div>
   );
 }

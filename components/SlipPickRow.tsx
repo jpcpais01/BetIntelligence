@@ -2,6 +2,7 @@ import type { SavedPick } from "@/lib/types";
 import type { Outcome } from "@/lib/betslip";
 import { toPercent } from "@/lib/format";
 import Avatar from "./Avatar";
+import { ChevronRightIcon } from "./icons";
 
 const OUTCOME_COLOR: Record<Outcome, string> = {
   home: "var(--home)",
@@ -13,6 +14,7 @@ export default function SlipPickRow({
   pick,
   selectedOutcome,
   onPick,
+  onOpen,
 }: {
   pick: SavedPick;
   // The slip stores the resolved display label (team name / "Draw"), not the raw enum — this
@@ -21,6 +23,7 @@ export default function SlipPickRow({
   // pick.market/pick.independent.
   selectedOutcome: string | null;
   onPick: (outcome: Outcome) => void;
+  onOpen: () => void;
 }) {
   return (
     <div className="rounded-2xl border border-border-soft bg-surface p-3.5">
@@ -29,13 +32,14 @@ export default function SlipPickRow({
         <span className="truncate">{pick.leagueName}</span>
       </div>
 
-      <div className="mb-3 flex items-center gap-2">
+      <button onClick={onOpen} className="press mb-3 flex w-full items-center gap-2 text-left">
         <Avatar name={pick.homeTeam} size={20} />
         <span className="truncate text-[13px] font-medium">{pick.homeTeam}</span>
         <span className="shrink-0 text-[11px] text-text-faint">v</span>
         <span className="truncate text-[13px] font-medium">{pick.awayTeam}</span>
         <Avatar name={pick.awayTeam} size={20} />
-      </div>
+        <ChevronRightIcon className="ml-auto h-3.5 w-3.5 shrink-0 text-text-faint" />
+      </button>
 
       <div className="grid grid-cols-3 gap-1.5">
         <OutcomeButton

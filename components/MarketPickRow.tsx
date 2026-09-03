@@ -1,14 +1,17 @@
 import type { SavedMarketPick } from "@/lib/types";
 import { toPercent } from "@/lib/format";
+import { ChevronRightIcon } from "./icons";
 
 export default function MarketPickRow({
   pick,
   selectedOutcomeLabel,
   onPick,
+  onOpen,
 }: {
   pick: SavedMarketPick;
   selectedOutcomeLabel: string | null;
   onPick: (outcomeLabel: string) => void;
+  onOpen: () => void;
 }) {
   return (
     <div className="rounded-2xl border border-border-soft bg-surface p-3.5">
@@ -17,7 +20,10 @@ export default function MarketPickRow({
         <span className="truncate">{pick.category}</span>
       </div>
 
-      <p className="mb-3 truncate text-[13px] font-medium">{pick.title}</p>
+      <button onClick={onOpen} className="press mb-3 flex w-full items-center gap-1.5 text-left">
+        <p className="min-w-0 flex-1 truncate text-[13px] font-medium">{pick.title}</p>
+        <ChevronRightIcon className="h-3.5 w-3.5 shrink-0 text-text-faint" />
+      </button>
 
       <div className="flex flex-wrap gap-1.5">
         {pick.independent.outcomes.map((o) => {

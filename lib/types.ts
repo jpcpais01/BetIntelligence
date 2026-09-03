@@ -57,6 +57,17 @@ export interface ComparisonResult {
   verdict: string;
 }
 
+// Present only when a pick was analyzed with more than one independent research run — the
+// per-run probabilities plus how much those runs agreed with each other. `runs` mirrors whatever
+// outcome shape the pick itself uses (home/draw/away for football, OutcomeProbability[] for
+// Discover markets) so each run's own read can still be shown alongside the merged average.
+export interface ResearchSummary<TRun> {
+  runCount: number;
+  agreementPct: number;
+  spread: number;
+  runs: TRun[];
+}
+
 export interface SavedPick {
   id: string;
   savedAt: string;
@@ -68,6 +79,7 @@ export interface SavedPick {
   market: Probabilities;
   independent: IndependentPrediction;
   comparison: ComparisonResult;
+  research?: ResearchSummary<Probabilities>;
 }
 
 // Generalized versions of the above for the Discover feed — any Polymarket market, not just
@@ -130,4 +142,5 @@ export interface SavedMarketPick {
   independent: MarketPrediction;
   comparison: MarketComparison;
   polymarketUrl: string;
+  research?: ResearchSummary<OutcomeProbability[]>;
 }

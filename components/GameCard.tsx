@@ -3,6 +3,7 @@ import { formatCompactNumber, formatKickoff } from "@/lib/format";
 import { isTopGame } from "@/lib/topTeams";
 import Avatar from "./Avatar";
 import OutcomeBar from "./OutcomeBar";
+import ResearchRunsStepper from "./ResearchRunsStepper";
 import { SparkleIcon, StarIcon, CheckIcon } from "./icons";
 
 export default function GameCard({
@@ -90,13 +91,16 @@ export default function GameCard({
           ${formatCompactNumber(game.volume)} vol
         </span>
         {!selectMode && (
-          <button
-            onClick={() => onAnalyze(game)}
-            className="press inline-flex items-center gap-1.5 rounded-full bg-accent/12 px-3.5 py-2 text-xs font-semibold text-accent ring-1 ring-inset ring-accent/25 hover:bg-accent/18"
-          >
-            <SparkleIcon className="h-3.5 w-3.5" />
-            Analyze
-          </button>
+          <div className="flex items-center gap-1.5">
+            <ResearchRunsStepper />
+            <button
+              onClick={() => onAnalyze(game)}
+              className="press inline-flex items-center gap-1.5 rounded-full bg-accent/12 px-3.5 py-2 text-xs font-semibold text-accent ring-1 ring-inset ring-accent/25 hover:bg-accent/18"
+            >
+              <SparkleIcon className="h-3.5 w-3.5" />
+              Analyze
+            </button>
+          </div>
         )}
       </div>
     </div>

@@ -5,6 +5,7 @@ import type { Market } from "@/lib/types";
 import { formatCompactNumber, formatEndDate } from "@/lib/format";
 import { ChevronDownIcon, ExternalLinkIcon, FlameIcon, SparkleIcon } from "./icons";
 import OutcomeMeter from "./OutcomeMeter";
+import ResearchRunsStepper from "./ResearchRunsStepper";
 
 const OUTCOME_COLORS = ["var(--d-accent)", "var(--d-violet)", "var(--d-accent-2)", "#8f9dff", "#ff8a5c", "#5cc9ff"];
 
@@ -118,14 +119,17 @@ export default function MarketCard({
           <span className="mx-1.5">&middot;</span>
           <span>{formatEndDate(market.endDate)}</span>
         </div>
-        <button
-          onClick={() => onAnalyze(market)}
-          className="press inline-flex shrink-0 items-center gap-1.5 rounded-sm px-3.5 py-2 text-[11px] font-bold uppercase tracking-wide"
-          style={{ background: "var(--d-accent)", color: "var(--bg)" }}
-        >
-          <SparkleIcon className="h-3.5 w-3.5" />
-          Analyze
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <ResearchRunsStepper variant="discover" />
+          <button
+            onClick={() => onAnalyze(market)}
+            className="press inline-flex items-center gap-1.5 rounded-sm px-3.5 py-2 text-[11px] font-bold uppercase tracking-wide"
+            style={{ background: "var(--d-accent)", color: "var(--bg)" }}
+          >
+            <SparkleIcon className="h-3.5 w-3.5" />
+            Analyze
+          </button>
+        </div>
       </div>
     </div>
   );

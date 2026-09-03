@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Game, IndependentPrediction, ComparisonResult, SourceCitation } from "@/lib/types";
+import type { Game, IndependentPrediction, ComparisonResult, SourceCitation, Probabilities } from "@/lib/types";
 import OutcomeBar from "./OutcomeBar";
 import ConfidenceBadge from "./ConfidenceBadge";
 import EdgeChip from "./EdgeChip";
+import ResearchOverlay from "./ResearchOverlay";
 import {
   CloseIcon,
   BrainIcon,
@@ -15,13 +16,15 @@ import {
   GlobeIcon,
   RefreshIcon,
 } from "./icons";
-import { formatKickoff } from "@/lib/format";
+import { formatKickoff, toPercent } from "@/lib/format";
 import { savePick } from "@/lib/picks";
 import { loadSelectedModel } from "@/lib/models";
+import { clampResearchRuns, loadResearchRuns } from "@/lib/researchRuns";
+import { aggregateFootballRuns, synthesizeFootballIndependent, agreementLabel, agreementTone } from "@/lib/aggregate";
 
 type Stage = "predicting" | "comparing" | "compared" | "error";
 
-// Shown while step 1 runs. These describe what the model was actually asked to research.
+// Cycled as a single rotating status line in the research overlay, not a checklist anymore.
 const RESEARCH_STEPS = [
   "Searching for recent form and results",
   "Checking injuries and suspensions",
@@ -51,21 +54,27 @@ async function postJson<T>(url: string, body: unknown, errorLabel: string): Prom
 export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: () => void }) {
   const [stage, setStage] = useState<Stage>("predicting");
   const [independent, setIndependent] = useState<IndependentPrediction | null>(null);
+  const [runs, setRuns] = useState<IndependentPrediction[]>([]);
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
+  const [runIdx, setRunIdx] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [saved, setSaved] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
 
-  // Each request is kicked off once and its promise cached on a ref, so React's dev-mode
-  // double-invoked effect re-subscribes to the same in-flight call rather than paying for a
-  // second web-search-backed prediction. Results are applied by whichever run is still live.
-  const predictRef = useRef<Promise<IndependentPrediction> | null>(null);
+  // The planned run count is fixed for the lifetime of this sheet instance — chosen on the card
+  // before Analyze was tapped, read once here rather than mid-flight.
+  const [plannedRuns] = useState(() => clampResearchRuns(loadResearchRuns()));
+
+  // Each request sequence is kicked off once and its promise cached on a ref, so React's dev-mode
+  // double-invoked effect re-subscribes to the same in-flight work rather than paying for a
+  // second (or Nth) web-search-backed prediction. Results are applied by whichever run is live.
+  const runsRef = useRef<Promise<IndependentPrediction[]> | null>(null);
   const compareRef = useRef<Promise<ComparisonResult> | null>(null);
 
-  // Both steps run back to back on open. Step 1's result is rendered as soon as it lands,
-  // then step 2 starts on its own and streams in underneath it — no tap needed in between.
+  // All planned runs complete back to back, then the aggregated (or single) result is compared
+  // against the market. Nothing here needs a tap in between.
   useEffect(() => {
     let cancelled = false;
 
@@ -73,21 +82,33 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
 
     (async () => {
       try {
-        predictRef.current ??= postJson<{ prediction: IndependentPrediction }>(
-          "/api/analyze/predict",
-          {
-            homeTeam: game.homeTeam,
-            awayTeam: game.awayTeam,
-            leagueName: game.leagueName,
-            startTime: game.startTime,
-            model,
-          },
-          "Analysis failed."
-        ).then((d) => d.prediction);
+        runsRef.current ??= (async () => {
+          const collected: IndependentPrediction[] = [];
+          for (let i = 0; i < plannedRuns; i++) {
+            setRunIdx(i);
+            setStepIdx(0);
+            const prediction = await postJson<{ prediction: IndependentPrediction }>(
+              "/api/analyze/predict",
+              {
+                homeTeam: game.homeTeam,
+                awayTeam: game.awayTeam,
+                leagueName: game.leagueName,
+                startTime: game.startTime,
+                model,
+              },
+              "Analysis failed."
+            ).then((d) => d.prediction);
+            collected.push(prediction);
+          }
+          return collected;
+        })();
 
-        const prediction = await predictRef.current;
+        const collected = await runsRef.current;
         if (cancelled) return;
-        setIndependent(prediction);
+        const finalIndependent =
+          collected.length > 1 ? synthesizeFootballIndependent(collected) : collected[0];
+        setRuns(collected);
+        setIndependent(finalIndependent);
         setStage("comparing");
         setStepIdx(0);
 
@@ -97,7 +118,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
             homeTeam: game.homeTeam,
             awayTeam: game.awayTeam,
             leagueName: game.leagueName,
-            independent: prediction,
+            independent: finalIndependent,
             market: game.odds,
             model,
           },
@@ -118,14 +139,14 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
     return () => {
       cancelled = true;
     };
-  }, [game, retryKey]);
+  }, [game, retryKey, plannedRuns]);
 
   const running = stage === "predicting" || stage === "comparing";
 
   useEffect(() => {
     if (!running) return;
     const steps = stage === "comparing" ? COMPARE_STEPS : RESEARCH_STEPS;
-    const id = setInterval(() => setStepIdx((i) => Math.min(i + 1, steps.length - 1)), 4000);
+    const id = setInterval(() => setStepIdx((i) => (i + 1) % steps.length), 4000);
     return () => clearInterval(id);
   }, [running, stage]);
 
@@ -137,16 +158,20 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
   }, [running]);
 
   const handleRetry = () => {
-    predictRef.current = null;
+    runsRef.current = null;
     compareRef.current = null;
     setIndependent(null);
+    setRuns([]);
     setComparison(null);
     setError(null);
     setStepIdx(0);
+    setRunIdx(0);
     setElapsed(0);
     setStage("predicting");
     setRetryKey((k) => k + 1);
   };
+
+  const research = runs.length > 1 ? aggregateFootballRuns(runs) : null;
 
   const handleSave = () => {
     if (!independent || !comparison) return;
@@ -161,6 +186,14 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
       market: game.odds,
       independent,
       comparison,
+      research: research
+        ? {
+            runCount: research.agreement.runCount,
+            agreementPct: research.agreement.agreementPct,
+            spread: research.agreement.spread,
+            runs: runs.map((r): Probabilities => ({ home: r.home, draw: r.draw, away: r.away })),
+          }
+        : undefined,
     });
     setSaved(true);
   };
@@ -199,12 +232,14 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
           {stage === "predicting" && (
-            <ResearchPanel
+            <ResearchOverlay
+              icon={GlobeIcon}
               title="Researching the match"
               subtitle="Reading the web for form, team news and injuries — no market odds seen yet."
-              steps={steps}
-              activeIdx={stepIdx}
+              stepLabel={steps[stepIdx]}
               elapsed={elapsed}
+              runIndex={runIdx}
+              runCount={plannedRuns}
             />
           )}
 
@@ -245,6 +280,15 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
                 <OutcomeBar label={game.awayTeam} pct={independent.away} color="away" size="lg" />
               </div>
 
+              {research && (
+                <RunsBreakdown
+                  runs={runs}
+                  homeTeam={game.homeTeam}
+                  awayTeam={game.awayTeam}
+                  agreement={research.agreement}
+                />
+              )}
+
               <ConfidenceBadge level={independent.confidence} />
 
               {independent.keyFactors.length > 0 && (
@@ -269,15 +313,15 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
           )}
 
           {stage === "comparing" && (
-            <div className="rise-in mt-5 rounded-2xl border border-border-soft bg-surface p-4">
-              <div className="mb-2.5 flex items-center justify-between gap-2">
-                <p className="text-[13px] font-medium text-text">Comparing against the market</p>
-                <span className="shrink-0 font-display text-[11px] tabular-nums text-text-faint">
-                  {formatElapsed(elapsed)}
-                </span>
-              </div>
-              <StepList steps={COMPARE_STEPS} activeIdx={stepIdx} />
-            </div>
+            <ResearchOverlay
+              icon={ScaleIcon}
+              title="Comparing against the market"
+              subtitle="Reading Polymarket's implied odds and measuring the gap."
+              stepLabel={COMPARE_STEPS[stepIdx]}
+              elapsed={elapsed}
+              runIndex={0}
+              runCount={1}
+            />
           )}
 
           {stage === "compared" && comparison && independent && (
@@ -378,93 +422,35 @@ function firstWord(name: string): string {
   return name.split(" ")[0];
 }
 
-function formatElapsed(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
-function ResearchPanel({
-  title,
-  subtitle,
-  steps,
-  activeIdx,
-  elapsed,
+function RunsBreakdown({
+  runs,
+  homeTeam,
+  awayTeam,
+  agreement,
 }: {
-  title: string;
-  subtitle: string;
-  steps: string[];
-  activeIdx: number;
-  elapsed: number;
+  runs: IndependentPrediction[];
+  homeTeam: string;
+  awayTeam: string;
+  agreement: ReturnType<typeof aggregateFootballRuns>["agreement"];
 }) {
+  const tone = agreementTone(agreement);
+  const toneColor = tone === "high" ? "text-accent" : tone === "medium" ? "text-warn" : "text-accent-3";
+
   return (
-    <div className="py-2">
-      <div className="mb-4 flex items-start gap-3">
-        <div className="breathe flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/12 text-accent">
-          <GlobeIcon className="h-4.5 w-4.5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-text">{title}</p>
-            <span className="shrink-0 font-display text-[11px] tabular-nums text-text-faint">
-              {formatElapsed(elapsed)}
+    <div className="rounded-2xl border border-border-soft bg-surface p-4">
+      <p className={`text-[12px] font-medium ${toneColor}`}>{agreementLabel(agreement)}</p>
+      <div className="mt-3 space-y-1.5">
+        {runs.map((r, i) => (
+          <div key={i} className="flex items-center gap-2 text-[11px] tabular-nums text-text-faint">
+            <span className="w-11 shrink-0 text-text-dim">Run {i + 1}</span>
+            <span className="flex-1 truncate" title={`${homeTeam} v ${awayTeam}`}>
+              {toPercent(r.home)} / {toPercent(r.draw)} / {toPercent(r.away)}
             </span>
           </div>
-          <p className="mt-0.5 text-xs leading-relaxed text-text-faint">{subtitle}</p>
-        </div>
+        ))}
       </div>
-
-      <div className="rounded-2xl border border-border-soft bg-surface p-4">
-        <StepList steps={steps} activeIdx={activeIdx} />
-      </div>
-
-      <p className="mt-3 px-1 text-[11px] leading-relaxed text-text-faint">
-        Deep research can take up to a minute. You&apos;ll see the AI&apos;s own estimate first,
-        then how it compares to the market.
-      </p>
+      <p className="mt-2.5 text-[10px] text-text-faint">Home / Draw / Away, one row per independent run.</p>
     </div>
-  );
-}
-
-function StepList({ steps, activeIdx }: { steps: string[]; activeIdx: number }) {
-  return (
-    <ul className="space-y-2.5">
-      {steps.map((step, i) => {
-        const done = i < activeIdx;
-        const active = i === activeIdx;
-        return (
-          <li
-            key={step}
-            className={`flex items-center gap-2.5 text-[13px] ${
-              active ? "text-text" : done ? "text-text-faint" : "text-text-faint/50"
-            }`}
-          >
-            <span
-              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${
-                done ? "bg-accent/15 text-accent" : active ? "bg-accent/15" : "bg-surface-2"
-              }`}
-            >
-              {done ? (
-                <svg viewBox="0 0 24 24" fill="none" className="h-2.5 w-2.5">
-                  <path
-                    d="M5 13l4 4L19 7"
-                    stroke="currentColor"
-                    strokeWidth="3.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              ) : active ? (
-                <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-accent" />
-              ) : (
-                <span className="h-1 w-1 rounded-full bg-text-faint/40" />
-              )}
-            </span>
-            {step}
-          </li>
-        );
-      })}
-    </ul>
   );
 }
 

@@ -1,44 +1,60 @@
 import type { SavedMarketPick } from "@/lib/types";
 import { formatEndDate, toSignedPercent } from "@/lib/format";
-import { TrendingUpIcon, ScaleIcon, CloseIcon, ExternalLinkIcon } from "./icons";
+import { TrendingUpIcon, ScaleIcon, CloseIcon, ExternalLinkIcon, ChevronRightIcon } from "./icons";
 
 export default function SavedMarketPickCard({
   pick,
   onRemove,
+  onOpen,
 }: {
   pick: SavedMarketPick;
   onRemove: (id: string) => void;
+  onOpen: (pick: SavedMarketPick) => void;
 }) {
   const bestEdge = pick.comparison.bestValue
     ? pick.comparison.edges.find((e) => e.label === pick.comparison.bestValue)
     : null;
 
   return (
-    <div className="rise-in rounded-2xl border border-border-soft bg-surface p-4">
+    <div
+      onClick={() => onOpen(pick)}
+      className="press rise-in cursor-pointer rounded-2xl border border-border-soft bg-surface p-4"
+    >
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2 text-[11px] text-text-faint">
           <span className="text-xs leading-none">{pick.categoryEmoji}</span>
           <span className="truncate">{pick.category}</span>
           <span className="opacity-50">&middot;</span>
           <span className="shrink-0">{formatEndDate(pick.endDate)}</span>
+          {pick.research && pick.research.runCount > 1 && (
+            <>
+              <span className="opacity-50">&middot;</span>
+              <span className="shrink-0 text-accent">{pick.research.runCount}&times; researched</span>
+            </>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <a
             href={pick.polymarketUrl}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
             aria-label="Open on Polymarket"
             className="press rounded-full p-1.5 text-text-faint hover:bg-surface-2 hover:text-accent"
           >
             <ExternalLinkIcon className="h-3 w-3" />
           </a>
           <button
-            onClick={() => onRemove(pick.id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove(pick.id);
+            }}
             aria-label="Remove pick"
             className="press rounded-full p-1.5 text-text-faint hover:bg-surface-2 hover:text-accent-3"
           >
             <CloseIcon className="h-3 w-3" />
           </button>
+          <ChevronRightIcon className="h-3.5 w-3.5 text-text-faint" />
         </div>
       </div>
 

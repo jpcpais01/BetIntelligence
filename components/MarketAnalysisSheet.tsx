@@ -1,8 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Market, MarketPrediction, MarketComparison, SourceCitation, Confidence } from "@/lib/types";
+import type {
+  Market,
+  MarketPrediction,
+  MarketComparison,
+  SourceCitation,
+  Confidence,
+  OutcomeProbability,
+} from "@/lib/types";
 import OutcomeMeter from "./OutcomeMeter";
+import ResearchOverlay from "./ResearchOverlay";
 import {
   CloseIcon,
   BrainIcon,
@@ -14,9 +22,11 @@ import {
   RefreshIcon,
   ExternalLinkIcon,
 } from "./icons";
-import { formatEndDate, toSignedPercent } from "@/lib/format";
+import { formatEndDate, toSignedPercent, toPercent } from "@/lib/format";
 import { saveMarketPick } from "@/lib/marketPicks";
 import { loadSelectedModel } from "@/lib/models";
+import { clampResearchRuns, loadResearchRuns } from "@/lib/researchRuns";
+import { aggregateMarketRuns, synthesizeMarketIndependent, agreementLabel, agreementTone } from "@/lib/aggregate";
 
 type Stage = "predicting" | "comparing" | "compared" | "error";
 
@@ -51,14 +61,18 @@ async function postJson<T>(url: string, body: unknown, errorLabel: string): Prom
 export default function MarketAnalysisSheet({ market, onClose }: { market: Market; onClose: () => void }) {
   const [stage, setStage] = useState<Stage>("predicting");
   const [independent, setIndependent] = useState<MarketPrediction | null>(null);
+  const [runs, setRuns] = useState<MarketPrediction[]>([]);
   const [comparison, setComparison] = useState<MarketComparison | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
+  const [runIdx, setRunIdx] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [saved, setSaved] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
 
-  const predictRef = useRef<Promise<MarketPrediction> | null>(null);
+  const [plannedRuns] = useState(() => clampResearchRuns(loadResearchRuns()));
+
+  const runsRef = useRef<Promise<MarketPrediction[]> | null>(null);
   const compareRef = useRef<Promise<MarketComparison> | null>(null);
 
   useEffect(() => {
@@ -68,21 +82,33 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
 
     (async () => {
       try {
-        predictRef.current ??= postJson<{ prediction: MarketPrediction }>(
-          "/api/analyze/market/predict",
-          {
-            title: market.title,
-            category: market.category,
-            endDate: market.endDate,
-            outcomeLabels: market.outcomes.map((o) => o.label),
-            model,
-          },
-          "Analysis failed."
-        ).then((d) => d.prediction);
+        runsRef.current ??= (async () => {
+          const collected: MarketPrediction[] = [];
+          for (let i = 0; i < plannedRuns; i++) {
+            setRunIdx(i);
+            setStepIdx(0);
+            const prediction = await postJson<{ prediction: MarketPrediction }>(
+              "/api/analyze/market/predict",
+              {
+                title: market.title,
+                category: market.category,
+                endDate: market.endDate,
+                outcomeLabels: market.outcomes.map((o) => o.label),
+                model,
+              },
+              "Analysis failed."
+            ).then((d) => d.prediction);
+            collected.push(prediction);
+          }
+          return collected;
+        })();
 
-        const prediction = await predictRef.current;
+        const collected = await runsRef.current;
         if (cancelled) return;
-        setIndependent(prediction);
+        const finalIndependent =
+          collected.length > 1 ? synthesizeMarketIndependent(collected) : collected[0];
+        setRuns(collected);
+        setIndependent(finalIndependent);
         setStage("comparing");
         setStepIdx(0);
 
@@ -91,7 +117,7 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
           {
             title: market.title,
             category: market.category,
-            independent: prediction,
+            independent: finalIndependent,
             market: market.outcomes,
             model,
           },
@@ -112,14 +138,14 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
     return () => {
       cancelled = true;
     };
-  }, [market, retryKey]);
+  }, [market, retryKey, plannedRuns]);
 
   const running = stage === "predicting" || stage === "comparing";
 
   useEffect(() => {
     if (!running) return;
     const steps = stage === "comparing" ? COMPARE_STEPS : RESEARCH_STEPS;
-    const id = setInterval(() => setStepIdx((i) => Math.min(i + 1, steps.length - 1)), 4000);
+    const id = setInterval(() => setStepIdx((i) => (i + 1) % steps.length), 4000);
     return () => clearInterval(id);
   }, [running, stage]);
 
@@ -130,16 +156,20 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
   }, [running]);
 
   const handleRetry = () => {
-    predictRef.current = null;
+    runsRef.current = null;
     compareRef.current = null;
     setIndependent(null);
+    setRuns([]);
     setComparison(null);
     setError(null);
     setStepIdx(0);
+    setRunIdx(0);
     setElapsed(0);
     setStage("predicting");
     setRetryKey((k) => k + 1);
   };
+
+  const research = runs.length > 1 ? aggregateMarketRuns(runs) : null;
 
   const handleSave = () => {
     if (!independent || !comparison) return;
@@ -154,6 +184,14 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
       market: market.outcomes,
       independent,
       comparison,
+      research: research
+        ? {
+            runCount: research.agreement.runCount,
+            agreementPct: research.agreement.agreementPct,
+            spread: research.agreement.spread,
+            runs: runs.map((r): OutcomeProbability[] => r.outcomes),
+          }
+        : undefined,
     });
     setSaved(true);
   };
@@ -204,12 +242,15 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
           {stage === "predicting" && (
-            <ResearchPanel
+            <ResearchOverlay
+              variant="discover"
+              icon={GlobeIcon}
               title="Researching this market"
               subtitle="Reading the web for news, data and expert takes — no market odds seen yet."
-              steps={steps}
-              activeIdx={stepIdx}
+              stepLabel={steps[stepIdx]}
               elapsed={elapsed}
+              runIndex={runIdx}
+              runCount={plannedRuns}
             />
           )}
 
@@ -247,6 +288,8 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
                 ))}
               </div>
 
+              {research && <RunsBreakdown runs={runs} agreement={research.agreement} />}
+
               <DiscoverConfidence level={independent.confidence} />
 
               {independent.keyFactors.length > 0 && (
@@ -269,15 +312,16 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
           )}
 
           {stage === "comparing" && (
-            <div className="rise-in mt-5 rounded-md border p-4" style={{ borderColor: "var(--d-border)", background: "var(--d-surface-2)" }}>
-              <div className="mb-2.5 flex items-center justify-between gap-2">
-                <p className="text-[13px] font-medium text-text">Comparing against the market</p>
-                <span className="shrink-0 font-display text-[11px] tabular-nums text-text-faint">
-                  {formatElapsed(elapsed)}
-                </span>
-              </div>
-              <StepList steps={COMPARE_STEPS} activeIdx={stepIdx} />
-            </div>
+            <ResearchOverlay
+              variant="discover"
+              icon={ScaleIcon}
+              title="Comparing against the market"
+              subtitle="Reading Polymarket's implied odds and measuring the gap."
+              stepLabel={COMPARE_STEPS[stepIdx]}
+              elapsed={elapsed}
+              runIndex={0}
+              runCount={1}
+            />
           )}
 
           {stage === "compared" && comparison && independent && (
@@ -358,92 +402,37 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
   );
 }
 
-function formatElapsed(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
-function ResearchPanel({
-  title,
-  subtitle,
-  steps,
-  activeIdx,
-  elapsed,
+function RunsBreakdown({
+  runs,
+  agreement,
 }: {
-  title: string;
-  subtitle: string;
-  steps: string[];
-  activeIdx: number;
-  elapsed: number;
+  runs: MarketPrediction[];
+  agreement: ReturnType<typeof aggregateMarketRuns>["agreement"];
 }) {
+  const tone = agreementTone(agreement);
+  const toneColor =
+    tone === "high" ? "var(--d-accent)" : tone === "medium" ? "var(--d-accent-2)" : "#ff6b6b";
+
   return (
-    <div className="py-2">
-      <div className="mb-4 flex items-start gap-3">
-        <div
-          className="breathe flex h-9 w-9 shrink-0 items-center justify-center rounded-sm"
-          style={{ background: "rgba(var(--d-accent-rgb),0.14)", color: "var(--d-accent)" }}
-        >
-          <GlobeIcon className="h-4.5 w-4.5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-text">{title}</p>
-            <span className="shrink-0 font-display text-[11px] tabular-nums text-text-faint">
-              {formatElapsed(elapsed)}
-            </span>
-          </div>
-          <p className="mt-0.5 text-xs leading-relaxed text-text-faint">{subtitle}</p>
-        </div>
-      </div>
-
-      <div className="rounded-md border p-4" style={{ borderColor: "var(--d-border)", background: "var(--d-surface-2)" }}>
-        <StepList steps={steps} activeIdx={activeIdx} />
-      </div>
-
-      <p className="mt-3 px-1 text-[11px] leading-relaxed text-text-faint">
-        Deep research can take up to a minute. You&apos;ll see the AI&apos;s own estimate first, then how it compares to
-        the market.
+    <div className="rounded-md border p-4" style={{ borderColor: "var(--d-border)", background: "var(--d-surface-2)" }}>
+      <p className="text-[12px] font-medium" style={{ color: toneColor }}>
+        {agreementLabel(agreement)}
       </p>
+      <div className="mt-3 space-y-2">
+        {runs.map((r, i) => (
+          <div key={i} className="text-[11px] text-text-faint">
+            <span className="text-text-dim">Run {i + 1}:</span>{" "}
+            {r.outcomes
+              .slice()
+              .sort((a, b) => b.probability - a.probability)
+              .slice(0, 3)
+              .map((o) => `${o.label} ${toPercent(o.probability)}`)
+              .join(" · ")}
+          </div>
+        ))}
+      </div>
+      <p className="mt-2.5 text-[10px] text-text-faint">Top outcomes per independent run.</p>
     </div>
-  );
-}
-
-function StepList({ steps, activeIdx }: { steps: string[]; activeIdx: number }) {
-  return (
-    <ul className="space-y-2.5">
-      {steps.map((step, i) => {
-        const done = i < activeIdx;
-        const active = i === activeIdx;
-        return (
-          <li
-            key={step}
-            className={`flex items-center gap-2.5 text-[13px] ${
-              active ? "text-text" : done ? "text-text-faint" : "text-text-faint/50"
-            }`}
-          >
-            <span
-              className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
-              style={{
-                background: done || active ? "rgba(var(--d-accent-rgb),0.15)" : "var(--d-surface)",
-                color: done ? "var(--d-accent)" : undefined,
-              }}
-            >
-              {done ? (
-                <svg viewBox="0 0 24 24" fill="none" className="h-2.5 w-2.5">
-                  <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              ) : active ? (
-                <span className="pulse-dot h-1.5 w-1.5 rounded-full" style={{ background: "var(--d-accent)" }} />
-              ) : (
-                <span className="h-1 w-1 rounded-full bg-text-faint/40" />
-              )}
-            </span>
-            {step}
-          </li>
-        );
-      })}
-    </ul>
   );
 }
 

@@ -33,10 +33,16 @@ for how its AI analysis, filtering, and caching work.
 Every analysis you save, whether it came from Discover or Sports, shows up together:
 
 - **Picks** lists every saved analysis — football and any other market — sorted by when you saved
-  it, each rendered with its own card style but in one merged, chronological feed.
+  it, each rendered with its own card style but in one merged, chronological feed. An **All /
+  Football** filter narrows the feed to just football picks; tapping any card reopens its full
+  analysis report (independent read, key factors, sources, market comparison, verdict — everything
+  shown live while it was analyzing, plus the multi-run breakdown if it was researched more than
+  once) in a read-only detail sheet (`components/PickDetailSheet.tsx` /
+  `components/MarketPickDetailSheet.tsx`).
 - **Lab** (formerly "Slip") builds a single or multi-leg (parlay) bet from any combination of your
-  saved picks, football and Discover markets alike: search across all of them, tap an outcome on
-  each to add it as a leg. In **Multi** mode with 2+ legs, the combined market probability and
+  saved picks, football and Discover markets alike: search across all of them (with the same
+  All/Football filter as Picks), tap an outcome on each to add it as a leg, or tap the pick's own
+  title/teams to open its full analysis report instead. In **Multi** mode with 2+ legs, the combined market probability and
   combined AI probability are each the product of every leg's own probability for its chosen
   outcome (`lib/betslip.ts`) — the gap between the two is how much more, or less, likely the AI
   thinks the whole parlay is than the market's pricing implies. This math doesn't care what kind
@@ -57,6 +63,21 @@ Tapping **AI Analyze** on a match runs a two-step process against
    disagreement, and flag whether it thinks a specific outcome looks mispriced.
 
 Both results are shown in the UI as a guided reveal, and the whole thing can be saved to **My Picks**.
+
+### Running research more than once
+
+Next to each card's **Analyze** button is a small stepper (1&times;-5&times;) for how many times to
+run the independent-research step before comparing to the market (`lib/researchRuns.ts`, one
+global preference like the model choice). At 1&times; nothing changes. Above that, the app fires
+that many independent, from-scratch research passes in sequence, then averages them
+(`lib/aggregate.ts`) into the single read that gets compared against the market — the result shows
+each run's own numbers plus how much they agreed with each other (a plain-language agreement label
+plus the per-run breakdown), so you can tell a stable read from one that's basically a coin flip.
+That merged, multi-run read is what gets saved with the pick.
+
+The "researching" screen itself is a centered animation rather than a checklist now
+(`components/ResearchOverlay.tsx`), with a run-progress indicator ("Run 2 of 3") when more than
+one pass is in flight.
 
 ### Choosing a model
 

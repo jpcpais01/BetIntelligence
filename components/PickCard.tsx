@@ -1,14 +1,16 @@
 import type { SavedPick } from "@/lib/types";
 import { formatKickoff, toSignedPercent } from "@/lib/format";
 import Avatar from "./Avatar";
-import { TrendingUpIcon, ScaleIcon, CloseIcon } from "./icons";
+import { TrendingUpIcon, ScaleIcon, CloseIcon, ChevronRightIcon } from "./icons";
 
 export default function PickCard({
   pick,
   onRemove,
+  onOpen,
 }: {
   pick: SavedPick;
   onRemove: (id: string) => void;
+  onOpen: (pick: SavedPick) => void;
 }) {
   const { label: kickoffLabel } = formatKickoff(pick.startTime);
 
@@ -25,21 +27,36 @@ export default function PickCard({
     pick.comparison.bestValue === "none" ? 0 : pick.comparison.edges[pick.comparison.bestValue];
 
   return (
-    <div className="rise-in rounded-2xl border border-border-soft bg-surface p-4">
+    <div
+      onClick={() => onOpen(pick)}
+      className="press rise-in cursor-pointer rounded-2xl border border-border-soft bg-surface p-4"
+    >
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2 text-[11px] text-text-faint">
           <span className="text-xs leading-none">{pick.leagueFlag}</span>
           <span className="truncate">{pick.leagueName}</span>
           <span className="opacity-50">&middot;</span>
           <span className="shrink-0">{kickoffLabel}</span>
+          {pick.research && pick.research.runCount > 1 && (
+            <>
+              <span className="opacity-50">&middot;</span>
+              <span className="shrink-0 text-accent">{pick.research.runCount}&times; researched</span>
+            </>
+          )}
         </div>
-        <button
-          onClick={() => onRemove(pick.id)}
-          aria-label="Remove pick"
-          className="press -mr-1 shrink-0 rounded-full p-1.5 text-text-faint hover:bg-surface-2 hover:text-accent-3"
-        >
-          <CloseIcon className="h-3 w-3" />
-        </button>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove(pick.id);
+            }}
+            aria-label="Remove pick"
+            className="press -mr-1 rounded-full p-1.5 text-text-faint hover:bg-surface-2 hover:text-accent-3"
+          >
+            <CloseIcon className="h-3 w-3" />
+          </button>
+          <ChevronRightIcon className="h-3.5 w-3.5 text-text-faint" />
+        </div>
       </div>
 
       <div className="mb-3.5 flex items-center gap-2">
