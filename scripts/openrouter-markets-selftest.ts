@@ -277,6 +277,39 @@ async function run() {
     `got ${lastRequestModel}`
   );
 
+  // Same guard as football's predict prompt: a Discover market's title is itself often a real
+  // Polymarket question, so the :online search step is quite likely to surface that market's own
+  // price — the prompt must explicitly tell the model to disregard any odds/prices it finds
+  // rather than let them anchor the "independent" read.
+  let capturedSystemPrompt = "";
+  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    const body = init?.body ? JSON.parse(init.body as string) : {};
+    capturedSystemPrompt = body.messages?.find((m: { role: string }) => m.role === "system")?.content ?? "";
+    return completion(
+      JSON.stringify({
+        outcomes: [
+          { label: "Yes", probability: 0.5 },
+          { label: "No", probability: 0.5 },
+        ],
+        confidence: "medium",
+        keyFactors: ["A"],
+        rationale: "r",
+      })
+    );
+  }) as unknown as typeof fetch;
+  await getIndependentMarketPrediction({
+    title: "Binary market",
+    category: "Business",
+    endDate: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+    outcomeLabels: ["Yes", "No"],
+  });
+  const guardsAgainstOddsAnchoring =
+    /must not.*(anchor|influence)/i.test(capturedSystemPrompt) && /disregard/i.test(capturedSystemPrompt);
+  console.log(`  system prompt instructs the model to disregard odds it finds while researching`);
+  if (!guardsAgainstOddsAnchoring) {
+    failures.push("system prompt is missing the instruction to disregard market odds encountered during web search");
+  }
+
   if (failures.length > 0) {
     console.log("\nFAILURES:");
     for (const f of failures) console.log(`  - ${f}`);

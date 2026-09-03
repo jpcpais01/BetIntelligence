@@ -171,6 +171,29 @@ async function run() {
     }
   }
 
+  // The independent-read prompt must tell the model to disregard any market odds/prices its own
+  // web search happens to surface — otherwise the ":online" search step (which runs before the
+  // model answers and injects results straight into its context) could silently anchor the
+  // "independent" estimate on the very market price this whole feature exists to compare against.
+  let capturedSystemPrompt = "";
+  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    const body = init?.body ? JSON.parse(init.body as string) : {};
+    capturedSystemPrompt = body.messages?.find((m: { role: string }) => m.role === "system")?.content ?? "";
+    return completion({ content: GOOD_JSON });
+  }) as unknown as typeof fetch;
+  await getIndependentPrediction({
+    homeTeam: "Arsenal",
+    awayTeam: "Chelsea",
+    leagueName: "Premier League",
+    startTime: new Date().toISOString(),
+  });
+  const guardsAgainstOddsAnchoring =
+    /must not.*(anchor|influence)/i.test(capturedSystemPrompt) && /disregard/i.test(capturedSystemPrompt);
+  console.log(`  system prompt instructs the model to disregard odds it finds while researching`);
+  if (!guardsAgainstOddsAnchoring) {
+    failures.push("system prompt is missing the instruction to disregard market odds encountered during web search");
+  }
+
   if (failures.length > 0) {
     console.log("\nFAILURES:");
     for (const f of failures) console.log(`  - ${f}`);

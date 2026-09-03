@@ -57,12 +57,22 @@ Tapping **AI Analyze** on a match runs a two-step process against
 1. **Independent read** — the model is given only the two teams, the league, and kickoff time. It
    searches the web (via OpenRouter's `:online` web plugin) for current form, injuries/suspensions,
    key players, head-to-head history, and other context, then produces its own 1X2 probability
-   estimate. At this point it has not seen Polymarket's odds.
+   estimate. At this point it has not been told Polymarket's odds.
 2. **Market comparison** — the app then reveals Polymarket's implied probabilities for the same
    match and asks the model to compare its independent view against the market, explain any
    disagreement, and flag whether it thinks a specific outcome looks mispriced.
 
 Both results are shown in the UI as a guided reveal, and the whole thing can be saved to **My Picks**.
+
+**On "independent":** the `:online` step isn't an isolated browsing session — it's a single search
+pass that runs before the model answers, and whatever it finds is merged straight into the same
+context the model then writes its estimate from. That means it's entirely possible for a search to
+surface the real odds themselves (a betting aggregator, a news piece citing the market price, or,
+for Discover, the very Polymarket market being asked about). Rather than assume that never happens,
+the independent-read prompts (`lib/openrouter.ts`, `lib/openrouterMarkets.ts`) explicitly instruct
+the model to disregard any market prices or odds it encounters while researching and base its
+estimate only on the underlying facts — a mitigation, not a guarantee, since nothing can force an
+LLM to ignore text that's sitting in its own context.
 
 ### Running research more than once
 
