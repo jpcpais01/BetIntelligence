@@ -1,5 +1,5 @@
 import { matchLeague, LEAGUES } from "./leagues";
-import { normalizeTeamName } from "./topTeams";
+import { normalizeTeamName, getTopTeamNames } from "./topTeams";
 import type { Game } from "./types";
 
 const GAMMA_BASE = "https://gamma-api.polymarket.com";
@@ -59,6 +59,10 @@ export interface FetchDiagnostics {
   // round trip through a human pasting debug output.
   seriesFetched: number;
   sampleSeries: { id?: string | number; slug?: string; title?: string }[];
+  // Match-like-titled events naming two known premier-league/la-liga/serie-a clubs that
+  // matchLeague() could NOT assign to any league at all (no identifying tag/series text) —
+  // rules in or out whether a real fixture is hiding untagged in the raw pool entirely.
+  unmatchedPartnerLeagueFixtures: { title: string; tags: string[]; series: string[] }[];
 }
 
 function parseArrayField(field: string | string[] | undefined): string[] {
@@ -641,11 +645,54 @@ const MATCH_LIKE_TITLE = /\bvs\.?\b|\bv\.?\b|@/i;
 // these three keep coming back with real events matched but zero games parsed.
 const PARTNER_LEAGUE_IDS = new Set(["premier-league", "la-liga", "serie-a"]);
 
+// Confirmed real premier-league/la-liga/serie-a tag-matched events carry an EMPTY series
+// array and are entirely season-long futures/props — no real fixture-titled event was found
+// among them. But that only rules out events matchLeague() already assigned to one of these
+// leagues. If a real "Arsenal vs. Chelsea" fixture exists in the raw pool WITHOUT any
+// league-identifying tag/series text at all (unlike every other league checked so far,
+// including a minor one — Canadian Premier League — which does carry one), matchLeague()
+// would silently drop it before it ever reached eventsMatchingLeague, invisible to every
+// diagnostic above. This scans the FULL raw pool (not just league-matched events) for
+// match-like titles naming two known top-flight clubs from these three leagues specifically,
+// to rule that possibility in or out directly instead of continuing to infer from what
+// league-matching already excluded.
+function findUnmatchedPartnerLeagueFixtures(events: RawEvent[]): RawEvent[] {
+  const clubNames = [
+    ...getTopTeamNames("premier-league"),
+    ...getTopTeamNames("la-liga"),
+    ...getTopTeamNames("serie-a"),
+  ]
+    .map((n) => normalizeTeamName(n))
+    .filter((n) => n.length >= 4);
+
+  const mentionsTwoClubs = (title: string): boolean => {
+    const norm = normalizeTeamName(title);
+    let count = 0;
+    for (const club of clubNames) {
+      if (norm.includes(club)) count++;
+      if (count >= 2) return true;
+    }
+    return false;
+  };
+
+  return events.filter(
+    (e) => MATCH_LIKE_TITLE.test(e.title) && !matchLeague(eventLeagueFields(e)) && mentionsTwoClubs(e.title)
+  );
+}
+
 export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
   const { events, strategy, errors, seriesFetched, sampleSeries } = await fetchSoccerEvents();
   const eventsWithMarkets = events.filter((e) => (e.markets?.length ?? 0) > 0);
 
   const eventsMatchingLeague = eventsWithMarkets.filter(eventMatchesTargetLeague);
+
+  const unmatchedPartnerLeagueFixtures = findUnmatchedPartnerLeagueFixtures(eventsWithMarkets).slice(0, 10).map(
+    (e) => ({
+      title: e.title,
+      tags: (e.tags ?? []).map((t) => `${t.label ?? ""}/${t.slug ?? ""}`),
+      series: (e.series ?? []).map((s) => `${s.title ?? ""}/${s.slug ?? ""}`),
+    })
+  );
 
   const parsedGames = eventsMatchingLeague
     .map((e) => ({ event: e, game: parseEvent(e) }))
@@ -723,6 +770,7 @@ export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
     requestErrors: errors,
     seriesFetched,
     sampleSeries,
+    unmatchedPartnerLeagueFixtures,
   };
 }
 

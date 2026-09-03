@@ -112,6 +112,9 @@ export const LEAGUES: LeagueConfig[] = [
       "bahrain",
       "qatar",
       "premier league 2",
+      "canada",
+      "canadian",
+      "canpl",
     ],
     // Premier League is an official Polymarket partner league — its actual match-by-match
     // events may route through a series_id rather than any generic tag_slug (see
