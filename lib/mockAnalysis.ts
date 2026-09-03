@@ -26,6 +26,7 @@ export async function getMockIndependentPrediction(input: {
       { url: "https://example.com/form-guide", title: "Form guide — last six matches" },
       { url: "https://example.com/head-to-head", title: "Head-to-head record and recent meetings" },
     ],
+    costUsd: 0.0023,
   };
 }
 
@@ -51,5 +52,6 @@ export async function getMockComparison(input: {
       Math.abs(bestEdge) >= 0.05
         ? `The market is pricing this ${bestKey === "draw" ? "draw" : bestKey + " win"} noticeably lower than my independent read, mainly due to the injury news the market may be underweighting. This looks like a mock value spot — connect a real OPENROUTER_API_KEY to get live analysis.`
         : "My independent estimate lines up closely with Polymarket's pricing here — the market looks efficient on this one. This is mock data — connect a real OPENROUTER_API_KEY to get live analysis.",
+    costUsd: 0.0012,
   };
 }

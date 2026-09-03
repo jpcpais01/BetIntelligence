@@ -107,6 +107,25 @@ market for every outcome, confidence, the verdict, and the multi-run agreement b
 researched more than once. Re-analyzing overwrites the cached entry; each cache is capped at the
 150 most recently analyzed matches/markets to keep it from growing unbounded.
 
+### Cost tracking
+
+Every analysis shows what it actually cost. OpenRouter's usage-accounting opt-in
+(`usage: { include: true }` on every request, `lib/openrouter.ts`) returns a real dollar figure per
+call, and since the research and predict calls are two separate API calls, the app sums their costs
+rather than reporting just one side. A wasted attempt still costs money too — if a call comes back
+empty or truncated and gets retried, that attempt's cost is added to the total rather than
+discarded, so the number reflects everything OpenRouter actually billed for that analysis, not just
+the call that finally succeeded. Running research more than once sums across all runs, since each
+one is its own independent research+predict pair (`lib/aggregate.ts`) — unlike the probability
+estimates, cost is never averaged.
+
+The figure appears everywhere an analysis does: in the results sheet once comparison finishes, on
+the card's cached last-analysis summary, and on a saved pick's detail view. It's formatted with
+however many decimals actually show something (`formatCostUsd`, `lib/format.ts`) — analyses
+typically cost a fraction of a cent, so a flat two-decimal format would round almost everything to
+"$0.00". A provider that doesn't report cost (or local mock-data mode) simply shows nothing rather
+than a placeholder.
+
 ### Choosing a model
 
 The **DeepSeek/GLM** button in the header (Discover and Sports both show it — it's one global

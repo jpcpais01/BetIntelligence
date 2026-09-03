@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { Market, Confidence } from "@/lib/types";
 import type { LastMarketAnalysisEntry } from "@/lib/lastMarketAnalysis";
-import { formatCompactNumber, formatEndDate, formatRelativeTime, toPercent, toSignedPercent } from "@/lib/format";
+import { formatCompactNumber, formatEndDate, formatRelativeTime, toPercent, toSignedPercent, formatCostUsd } from "@/lib/format";
 import { agreementLabel, agreementTone } from "@/lib/aggregate";
 import { ChevronDownIcon, ExternalLinkIcon, FlameIcon, SparkleIcon, BrainIcon } from "./icons";
 import OutcomeMeter from "./OutcomeMeter";
@@ -170,8 +170,9 @@ function LastAnalysisPanel({ entry }: { entry: LastMarketAnalysisEntry }) {
             )}
           </span>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5 text-[10px] text-text-faint">
-          {formatRelativeTime(entry.analyzedAt)}
+        <div className="flex shrink-0 items-center gap-1.5 text-[10px] tabular-nums text-text-faint">
+          {formatCostUsd(entry.totalCostUsd) && <span>{formatCostUsd(entry.totalCostUsd)}</span>}
+          <span>{formatRelativeTime(entry.analyzedAt)}</span>
           <ChevronDownIcon className={`h-3 w-3 transition-transform ${expanded ? "rotate-180" : ""}`} />
         </div>
       </button>

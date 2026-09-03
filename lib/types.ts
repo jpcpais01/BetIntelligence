@@ -45,6 +45,10 @@ export interface IndependentPrediction {
   keyFactors: string[];
   rationale: string;
   sources?: SourceCitation[];
+  // In USD, from OpenRouter's usage accounting — the sum of every OpenRouter call this read
+  // took to produce (the research call plus the predict call, and across every independent run
+  // if more than one was requested). Undefined when the provider didn't return cost data.
+  costUsd?: number;
 }
 
 export type ValueSide = "home" | "draw" | "away" | "none";
@@ -55,6 +59,7 @@ export interface ComparisonResult {
   confidence: Confidence;
   agreesWithMarket: boolean;
   verdict: string;
+  costUsd?: number;
 }
 
 // Present only when a pick was analyzed with more than one independent research run — the
@@ -80,6 +85,8 @@ export interface SavedPick {
   independent: IndependentPrediction;
   comparison: ComparisonResult;
   research?: ResearchSummary<Probabilities>;
+  // independent.costUsd + comparison.costUsd, precomputed at save time for convenient display.
+  totalCostUsd?: number;
 }
 
 // Generalized versions of the above for the Discover feed — any Polymarket market, not just
@@ -116,6 +123,7 @@ export interface MarketPrediction {
   keyFactors: string[];
   rationale: string;
   sources?: SourceCitation[];
+  costUsd?: number;
 }
 
 export interface OutcomeEdge {
@@ -129,6 +137,7 @@ export interface MarketComparison {
   confidence: Confidence;
   agreesWithMarket: boolean;
   verdict: string;
+  costUsd?: number;
 }
 
 export interface SavedMarketPick {
@@ -143,4 +152,5 @@ export interface SavedMarketPick {
   comparison: MarketComparison;
   polymarketUrl: string;
   research?: ResearchSummary<OutcomeProbability[]>;
+  totalCostUsd?: number;
 }

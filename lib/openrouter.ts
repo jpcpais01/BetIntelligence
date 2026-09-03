@@ -17,12 +17,22 @@ interface Completion {
   content: string;
   sources: SourceCitation[];
   finishReason: string | null;
+  costUsd: number | null;
 }
 
 const MAX_ATTEMPTS = 3;
 const REQUEST_TIMEOUT_MS = 120_000;
 
-class RetryableError extends Error {}
+// Carries cost when it's known — an attempt that gets retried (an empty reply, a truncated
+// answer) can still have burned real tokens and money, so that cost shouldn't just vanish from
+// the total because the attempt didn't produce a usable answer.
+class RetryableError extends Error {
+  costUsd: number | null;
+  constructor(message: string, costUsd: number | null = null) {
+    super(message);
+    this.costUsd = costUsd;
+  }
+}
 
 function messageText(message: unknown): string {
   if (!message || typeof message !== "object") return "";
@@ -65,6 +75,16 @@ function messageSources(message: unknown): SourceCitation[] {
   return sources.slice(0, 10);
 }
 
+// OpenRouter only includes the dollar cost of a completion when asked to via `usage.include` in
+// the request body; the field can come back as either a number or a numeric string depending on
+// provider, so this is defensive about both and about it being entirely absent.
+function usageCost(data: unknown): number | null {
+  const usage = (data as Record<string, unknown>)?.usage as Record<string, unknown> | undefined;
+  const raw = usage?.cost;
+  const cost = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
+  return Number.isFinite(cost) ? cost : null;
+}
+
 async function callOpenRouter(
   messages: ChatMessage[],
   online: boolean,
@@ -93,6 +113,7 @@ async function callOpenRouter(
         messages,
         temperature: 0.4,
         max_tokens: maxTokens,
+        usage: { include: true },
       }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
@@ -121,7 +142,7 @@ async function callOpenRouter(
       typeof errorPayload === "object" && errorPayload !== null
         ? String((errorPayload as Record<string, unknown>).message ?? JSON.stringify(errorPayload))
         : String(errorPayload);
-    throw new RetryableError(`OpenRouter error: ${message.slice(0, 300)}`);
+    throw new RetryableError(`OpenRouter error: ${message.slice(0, 300)}`, usageCost(data));
   }
 
   const choice = (data as Record<string, unknown>)?.choices;
@@ -131,16 +152,18 @@ async function callOpenRouter(
   const content = messageText(message);
 
   if (!content) {
+    const costSoFar = usageCost(data);
     // Reasoning models can burn the whole budget before emitting an answer.
     if (finishReason === "length") {
       throw new RetryableError(
-        "The model hit its output limit before answering. Retrying with a shorter brief."
+        "The model hit its output limit before answering. Retrying with a shorter brief.",
+        costSoFar
       );
     }
-    throw new RetryableError("OpenRouter returned an empty response.");
+    throw new RetryableError("OpenRouter returned an empty response.", costSoFar);
   }
 
-  return { content, sources: messageSources(message), finishReason };
+  return { content, sources: messageSources(message), finishReason, costUsd: usageCost(data) };
 }
 
 function extractJson<T>(raw: string): T {
@@ -168,15 +191,23 @@ export async function requestJson<T>(
   online: boolean,
   maxTokens: number,
   model: string = MODELS[DEFAULT_MODEL].openrouterId
-): Promise<{ parsed: T; sources: SourceCitation[] }> {
+): Promise<{ parsed: T; sources: SourceCitation[]; costUsd: number | null }> {
   let lastError: Error | null = null;
   let attemptMessages = messages;
+  // Every attempt that actually reached OpenRouter can have cost real money, whether or not it
+  // produced a usable answer — this accumulates across retries rather than only keeping the
+  // successful attempt's cost.
+  let totalCost: number | null = null;
+  const addCost = (cost: number | null) => {
+    if (cost !== null) totalCost = (totalCost ?? 0) + cost;
+  };
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const completion = await callOpenRouter(attemptMessages, online, maxTokens, model);
+      addCost(completion.costUsd);
       try {
-        return { parsed: extractJson<T>(completion.content), sources: completion.sources };
+        return { parsed: extractJson<T>(completion.content), sources: completion.sources, costUsd: totalCost };
       } catch (parseError) {
         lastError = parseError instanceof Error ? parseError : new Error(String(parseError));
         attemptMessages = [
@@ -187,6 +218,7 @@ export async function requestJson<T>(
       }
     } catch (err) {
       if (!(err instanceof RetryableError)) throw err;
+      addCost(err.costUsd);
       lastError = err;
     }
 
@@ -208,15 +240,21 @@ export async function requestText(
   online: boolean,
   maxTokens: number,
   model: string = MODELS[DEFAULT_MODEL].openrouterId
-): Promise<{ text: string; sources: SourceCitation[] }> {
+): Promise<{ text: string; sources: SourceCitation[]; costUsd: number | null }> {
   let lastError: Error | null = null;
+  let totalCost: number | null = null;
+  const addCost = (cost: number | null) => {
+    if (cost !== null) totalCost = (totalCost ?? 0) + cost;
+  };
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const completion = await callOpenRouter(messages, online, maxTokens, model);
-      return { text: completion.content, sources: completion.sources };
+      addCost(completion.costUsd);
+      return { text: completion.content, sources: completion.sources, costUsd: totalCost };
     } catch (err) {
       if (!(err instanceof RetryableError)) throw err;
+      addCost(err.costUsd);
       lastError = err;
     }
 
@@ -285,7 +323,7 @@ export async function getIndependentPrediction(input: {
 injuries/suspensions, key players, and head-to-head history, organized into the sections described. Remember: never mention \
 odds, betting lines, or market/implied prices anywhere in your output.`;
 
-  const { text: digest, sources } = await requestText(
+  const { text: digest, sources, costUsd: researchCostUsd } = await requestText(
     [
       { role: "system", content: RESEARCH_SYSTEM_PROMPT },
       { role: "user", content: researchPrompt },
@@ -304,7 +342,7 @@ ${digest}
 Based only on this digest, give your own independent estimate of the 1X2 outcome probabilities. Respond with only the JSON \
 object described.`;
 
-  const { parsed } = await requestJson<{
+  const { parsed, costUsd: predictCostUsd } = await requestJson<{
     homeWinProb: number;
     drawProb: number;
     awayWinProb: number;
@@ -331,6 +369,7 @@ object described.`;
     keyFactors: Array.isArray(parsed.keyFactors) ? parsed.keyFactors.slice(0, 6) : [],
     rationale: typeof parsed.rationale === "string" ? parsed.rationale : "",
     sources,
+    costUsd: researchCostUsd !== null || predictCostUsd !== null ? (researchCostUsd ?? 0) + (predictCostUsd ?? 0) : undefined,
   };
 }
 
@@ -369,7 +408,7 @@ Now revealed — Polymarket's current implied probabilities for this exact match
 
 Compare your view to the market and respond with only the JSON object described.`;
 
-  const { parsed } = await requestJson<{
+  const { parsed, costUsd } = await requestJson<{
     homeEdge: number;
     drawEdge: number;
     awayEdge: number;
@@ -402,5 +441,6 @@ Compare your view to the market and respond with only the JSON object described.
     confidence: clampConfidence(parsed.confidence),
     agreesWithMarket: Boolean(parsed.agreesWithMarket),
     verdict: typeof parsed.verdict === "string" ? parsed.verdict : "",
+    costUsd: costUsd ?? undefined,
   };
 }

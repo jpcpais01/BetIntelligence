@@ -69,3 +69,15 @@ export function toDecimalOdds(p: number): string {
   if (p <= 0) return "—";
   return (1 / p).toFixed(2);
 }
+
+// Analysis costs are typically fractions of a cent, so a flat 2-decimal format would round
+// almost everything to "$0.00" — scale precision to the size of the number instead. Returns
+// null when there's nothing to show (no cost data, e.g. a provider that doesn't report it, or
+// mock mode) so callers can render nothing rather than "$undefined".
+export function formatCostUsd(cost: number | undefined): string | null {
+  if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) return null;
+  if (cost === 0) return "$0.00";
+  if (cost < 0.01) return `$${cost.toFixed(4)}`;
+  if (cost < 1) return `$${cost.toFixed(3)}`;
+  return `$${cost.toFixed(2)}`;
+}

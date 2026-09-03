@@ -139,6 +139,40 @@ async function run() {
     check("agreementLabel for low tone mentions split", agreementLabel(low).toLowerCase().includes("split"));
   }
 
+  // 9. Cost sums across runs rather than averaging — every run is its own real API call that
+  //    cost its own money, unlike probabilities which genuinely should average.
+  {
+    const runs = [
+      football(0.5, 0.3, 0.2, { costUsd: 0.001 }),
+      football(0.5, 0.3, 0.2, { costUsd: 0.0015 }),
+      football(0.5, 0.3, 0.2 /* no costUsd */),
+    ];
+    const merged = synthesizeFootballIndependent(runs);
+    check(
+      "football: merged cost is the SUM of known per-run costs, not an average",
+      Math.abs((merged.costUsd ?? 0) - 0.0025) < 0.00001,
+      `got ${merged.costUsd}`
+    );
+  }
+  {
+    const runs = [football(0.5, 0.3, 0.2), football(0.5, 0.3, 0.2)]; // neither run has cost data
+    const merged = synthesizeFootballIndependent(runs);
+    check("football: merged cost is undefined when no run has cost data (not 0)", merged.costUsd === undefined, `got ${merged.costUsd}`);
+  }
+  {
+    const labels = ["Yes", "No"];
+    const runs = [
+      market(labels.map((l, i) => ({ label: l, probability: [0.6, 0.4][i] })), { costUsd: 0.002 }),
+      market(labels.map((l, i) => ({ label: l, probability: [0.55, 0.45][i] })), { costUsd: 0.0018 }),
+    ];
+    const merged = synthesizeMarketIndependent(runs);
+    check(
+      "market: merged cost is the SUM of per-run costs",
+      Math.abs((merged.costUsd ?? 0) - 0.0038) < 0.00001,
+      `got ${merged.costUsd}`
+    );
+  }
+
   if (failures.length > 0) {
     console.log("\nFAILURES:");
     for (const f of failures) console.log(`  - ${f}`);

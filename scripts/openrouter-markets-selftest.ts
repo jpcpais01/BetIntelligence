@@ -9,12 +9,12 @@ process.env.OPENROUTER_API_KEY = "test-key";
 // for correctness, not just avoid crashing.
 const LABELS = ["Brazil", "France", "Argentina", "England", "Spain", "Other"];
 
-function completion(content: string) {
+function completion(content: string, usage?: unknown) {
   return {
     ok: true,
     status: 200,
     statusText: "OK",
-    json: async () => ({ choices: [{ message: { content }, finish_reason: "stop" }] }),
+    json: async () => ({ choices: [{ message: { content }, finish_reason: "stop" }], ...(usage ? { usage } : {}) }),
     text: async () => "",
   };
 }
@@ -308,7 +308,7 @@ async function run() {
     globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
       const body = JSON.parse(init?.body as string) as CapturedRequest;
       requests.push(body);
-      if (requests.length === 1) return completion(DIGEST);
+      if (requests.length === 1) return completion(DIGEST, { cost: 0.0014 });
       return completion(
         JSON.stringify({
           outcomes: [
@@ -318,16 +318,23 @@ async function run() {
           confidence: "medium",
           keyFactors: ["A"],
           rationale: "r",
-        })
+        }),
+        { cost: 0.0011 }
       );
     }) as unknown as typeof fetch;
 
-    await getIndependentMarketPrediction({
+    const prediction = await getIndependentMarketPrediction({
       title: "Binary market",
       category: "Business",
       endDate: new Date(Date.now() + 30 * 86_400_000).toISOString(),
       outcomeLabels: ["Yes", "No"],
     });
+
+    check(
+      "the returned cost is the sum of the research and predict calls",
+      Math.abs((prediction.costUsd ?? 0) - 0.0025) < 0.00001,
+      `got ${prediction.costUsd}`
+    );
 
     check("makes exactly two calls (research, then predict)", requests.length === 2, `made ${requests.length}`);
 

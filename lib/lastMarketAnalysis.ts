@@ -9,6 +9,7 @@ export interface LastMarketAnalysisEntry {
   independent: MarketPrediction;
   comparison: MarketComparison;
   research?: ResearchSummary<OutcomeProbability[]>;
+  totalCostUsd?: number;
 }
 
 const STORAGE_KEY = "betintelligence.lastMarketAnalysis.v1";

@@ -11,6 +11,7 @@ export interface LastAnalysisEntry {
   independent: IndependentPrediction;
   comparison: ComparisonResult;
   research?: ResearchSummary<Probabilities>;
+  totalCostUsd?: number;
 }
 
 const STORAGE_KEY = "betintelligence.lastAnalysis.v1";

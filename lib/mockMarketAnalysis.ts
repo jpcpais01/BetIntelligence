@@ -29,6 +29,7 @@ export async function getMockMarketPrediction(input: {
       { url: "https://example.com/coverage", title: "Recent coverage and analysis" },
       { url: "https://example.com/background", title: "Background and historical context" },
     ],
+    costUsd: 0.0031,
   };
 }
 
@@ -53,5 +54,6 @@ export async function getMockMarketComparison(input: {
     verdict: hasEdge
       ? `The market is pricing "${best.label}" noticeably differently from my independent read. This looks like a mock value spot — connect a real OPENROUTER_API_KEY to get live analysis.`
       : "My independent estimate lines up closely with the market's pricing here. This is mock data — connect a real OPENROUTER_API_KEY to get live analysis.",
+    costUsd: 0.0017,
   };
 }

@@ -15,7 +15,7 @@ import {
   RefreshIcon,
   ExternalLinkIcon,
 } from "./icons";
-import { formatEndDate, toSignedPercent, toPercent } from "@/lib/format";
+import { formatEndDate, toSignedPercent, toPercent, formatCostUsd } from "@/lib/format";
 import { saveMarketPick } from "@/lib/marketPicks";
 import { saveLastMarketAnalysis } from "@/lib/lastMarketAnalysis";
 import { loadSelectedModel } from "@/lib/models";
@@ -46,6 +46,13 @@ const COMPARE_STEPS = [
 
 const OUTCOME_COLORS = ["var(--d-accent)", "var(--d-violet)", "var(--d-accent-2)", "#8f9dff", "#ff8a5c", "#5cc9ff"];
 const colorFor = (i: number) => OUTCOME_COLORS[i % OUTCOME_COLORS.length];
+
+// Both sides can be missing (mock mode, or a provider that doesn't report cost) — only treat the
+// total as "unknown" when neither side has a real number, rather than silently showing $0.00.
+function totalCost(a?: number, b?: number): number | undefined {
+  if (a === undefined && b === undefined) return undefined;
+  return (a ?? 0) + (b ?? 0);
+}
 
 async function postJson<T>(url: string, body: unknown, errorLabel: string): Promise<T> {
   const res = await fetch(url, {
@@ -135,6 +142,7 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
           independent: finalIndependent,
           comparison: result,
           research: toMarketResearchSummary(collected),
+          totalCostUsd: totalCost(finalIndependent.costUsd, result.costUsd),
         });
       } catch (err) {
         if (cancelled) return;
@@ -193,6 +201,7 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
       independent,
       comparison,
       research: toMarketResearchSummary(runs),
+      totalCostUsd: totalCost(independent.costUsd, comparison.costUsd),
     });
     setSaved(true);
   };
@@ -406,6 +415,12 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
 
               {comparison.verdict && (
                 <p className="selectable text-[13px] leading-relaxed text-text-dim">{comparison.verdict}</p>
+              )}
+
+              {formatCostUsd(totalCost(independent.costUsd, comparison.costUsd)) && (
+                <p className="text-center text-[11px] tabular-nums text-text-faint">
+                  Analysis cost: {formatCostUsd(totalCost(independent.costUsd, comparison.costUsd))}
+                </p>
               )}
 
               <button

@@ -3,7 +3,7 @@ import OutcomeBar from "./OutcomeBar";
 import ConfidenceBadge from "./ConfidenceBadge";
 import EdgeChip from "./EdgeChip";
 import { CloseIcon, BrainIcon, ScaleIcon, TrendingUpIcon, GlobeIcon } from "./icons";
-import { formatKickoff, toPercent } from "@/lib/format";
+import { formatKickoff, toPercent, formatCostUsd } from "@/lib/format";
 import { agreementLabel, agreementTone } from "@/lib/aggregate";
 
 // A read-only view of a saved pick's full analysis — the same independent-read and
@@ -123,6 +123,12 @@ export default function PickDetailSheet({ pick, onClose }: { pick: SavedPick; on
 
             {comparison.verdict && (
               <p className="selectable text-[13px] leading-relaxed text-text-dim">{comparison.verdict}</p>
+            )}
+
+            {formatCostUsd(pick.totalCostUsd) && (
+              <p className="text-center text-[11px] tabular-nums text-text-faint">
+                Analysis cost: {formatCostUsd(pick.totalCostUsd)}
+              </p>
             )}
           </div>
         </div>

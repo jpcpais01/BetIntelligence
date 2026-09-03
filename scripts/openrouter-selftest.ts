@@ -11,12 +11,12 @@ const GOOD_JSON = JSON.stringify({
   rationale: "Home side edges it.",
 });
 
-function completion(message: unknown, finishReason: string | null = "stop") {
+function completion(message: unknown, finishReason: string | null = "stop", usage?: unknown) {
   return {
     ok: true,
     status: 200,
     statusText: "OK",
-    json: async () => ({ choices: [{ message, finish_reason: finishReason }] }),
+    json: async () => ({ choices: [{ message, finish_reason: finishReason }], ...(usage ? { usage } : {}) }),
     text: async () => "",
   };
 }
@@ -193,12 +193,16 @@ async function runTwoStageWiringChecks(failures: string[]) {
     const body = JSON.parse(init?.body as string) as CapturedRequest;
     requests.push(body);
     if (requests.length === 1) {
-      return completion({
-        content: DIGEST,
-        annotations: [{ type: "url_citation", url_citation: { url: "https://news.example/1", title: "Match preview" } }],
-      });
+      return completion(
+        {
+          content: DIGEST,
+          annotations: [{ type: "url_citation", url_citation: { url: "https://news.example/1", title: "Match preview" } }],
+        },
+        "stop",
+        { cost: 0.0018 }
+      );
     }
-    return completion({ content: GOOD_JSON });
+    return completion({ content: GOOD_JSON }, "stop", { cost: 0.0009 });
   }) as unknown as typeof fetch;
 
   const result = await getIndependentPrediction({
@@ -238,6 +242,77 @@ async function runTwoStageWiringChecks(failures: string[]) {
     result.sources?.length === 1 && result.sources[0].url === "https://news.example/1",
     JSON.stringify(result.sources)
   );
+
+  check(
+    "the returned cost is the sum of the research and predict calls",
+    Math.abs((result.costUsd ?? 0) - 0.0027) < 0.00001,
+    `got ${result.costUsd}`
+  );
+}
+
+// Cost tracking: OpenRouter only returns a dollar cost when asked via `usage: { include: true }`
+// in the request body, and the field can come back as a number or a numeric string depending on
+// provider — these checks cover the request flag, both response shapes, cost accumulating across
+// a retried attempt (a wasted call can still have cost real money), and the two-stage pipeline
+// summing both of its calls' costs into one total.
+async function runCostTrackingChecks(failures: string[]) {
+  const check = (name: string, cond: boolean, detail?: string) => {
+    if (!cond) failures.push(detail ? `${name}: ${detail}` : name);
+    console.log(`  ${cond ? "ok" : "FAIL"}  ${name}`);
+  };
+
+  let capturedBody: Record<string, unknown> = {};
+  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    capturedBody = JSON.parse(init?.body as string);
+    return completion({ content: GOOD_JSON }, "stop", { cost: 0.0021 });
+  }) as unknown as typeof fetch;
+  const numeric = await requestJson<{ homeWinProb: number }>(
+    [{ role: "system", content: "s" }, { role: "user", content: "u" }],
+    true,
+    3000
+  );
+  check("the request body asks OpenRouter to include usage/cost", (capturedBody.usage as { include?: boolean })?.include === true);
+  check("cost comes back as a number when the API returns one", numeric.costUsd === 0.0021, `got ${numeric.costUsd}`);
+
+  globalThis.fetch = (async () =>
+    completion({ content: GOOD_JSON }, "stop", { cost: "0.0034" })) as unknown as typeof fetch;
+  const stringCost = await requestJson<{ homeWinProb: number }>(
+    [{ role: "system", content: "s" }, { role: "user", content: "u" }],
+    true,
+    3000
+  );
+  check(
+    "cost is coerced to a number when the API returns a numeric string",
+    stringCost.costUsd === 0.0034,
+    `got ${stringCost.costUsd} (${typeof stringCost.costUsd})`
+  );
+
+  globalThis.fetch = (async () => completion({ content: GOOD_JSON })) as unknown as typeof fetch;
+  const noCost = await requestJson<{ homeWinProb: number }>(
+    [{ role: "system", content: "s" }, { role: "user", content: "u" }],
+    true,
+    3000
+  );
+  check("cost is null (not NaN or 0) when the API doesn't report it", noCost.costUsd === null, `got ${noCost.costUsd}`);
+
+  // A first attempt that returns empty content still burned real tokens/money — its cost must
+  // carry through to the total even though that attempt never produced a usable answer.
+  let attempt = 0;
+  globalThis.fetch = (async () => {
+    attempt++;
+    if (attempt === 1) return completion({ content: "" }, "stop", { cost: 0.0005 });
+    return completion({ content: GOOD_JSON }, "stop", { cost: 0.002 });
+  }) as unknown as typeof fetch;
+  const retried = await requestJson<{ homeWinProb: number }>(
+    [{ role: "system", content: "s" }, { role: "user", content: "u" }],
+    true,
+    3000
+  );
+  check(
+    "cost accumulates across a retried (wasted) attempt rather than only keeping the last one",
+    Math.abs((retried.costUsd ?? 0) - 0.0025) < 0.00001,
+    `got ${retried.costUsd}`
+  );
 }
 
 async function run() {
@@ -245,6 +320,7 @@ async function run() {
 
   await runResilienceCases(failures);
   await runTwoStageWiringChecks(failures);
+  await runCostTrackingChecks(failures);
 
   if (failures.length > 0) {
     console.log("\nFAILURES:");

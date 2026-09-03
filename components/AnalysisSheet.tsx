@@ -16,7 +16,7 @@ import {
   GlobeIcon,
   RefreshIcon,
 } from "./icons";
-import { formatKickoff, toPercent } from "@/lib/format";
+import { formatKickoff, toPercent, formatCostUsd } from "@/lib/format";
 import { savePick } from "@/lib/picks";
 import { saveLastAnalysis } from "@/lib/lastAnalysis";
 import { loadSelectedModel } from "@/lib/models";
@@ -46,6 +46,13 @@ const COMPARE_STEPS = [
   "Measuring the gap against its own estimate",
   "Judging whether the difference is real",
 ];
+
+// Both sides can be missing (mock mode, or a provider that doesn't report cost) — only treat the
+// total as "unknown" when neither side has a real number, rather than silently showing $0.00.
+function totalCost(a?: number, b?: number): number | undefined {
+  if (a === undefined && b === undefined) return undefined;
+  return (a ?? 0) + (b ?? 0);
+}
 
 async function postJson<T>(url: string, body: unknown, errorLabel: string): Promise<T> {
   const res = await fetch(url, {
@@ -144,6 +151,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
           independent: finalIndependent,
           comparison: result,
           research: toFootballResearchSummary(collected),
+          totalCostUsd: totalCost(finalIndependent.costUsd, result.costUsd),
         });
       } catch (err) {
         if (cancelled) return;
@@ -203,6 +211,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
       independent,
       comparison,
       research: toFootballResearchSummary(runs),
+      totalCostUsd: totalCost(independent.costUsd, comparison.costUsd),
     });
     setSaved(true);
   };
@@ -429,6 +438,12 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
               {comparison.verdict && (
                 <p className="selectable text-[13px] leading-relaxed text-text-dim">
                   {comparison.verdict}
+                </p>
+              )}
+
+              {formatCostUsd(totalCost(independent.costUsd, comparison.costUsd)) && (
+                <p className="text-center text-[11px] tabular-nums text-text-faint">
+                  Analysis cost: {formatCostUsd(totalCost(independent.costUsd, comparison.costUsd))}
                 </p>
               )}
 

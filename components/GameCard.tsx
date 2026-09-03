@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { Game } from "@/lib/types";
 import type { LastAnalysisEntry } from "@/lib/lastAnalysis";
-import { formatCompactNumber, formatKickoff, formatRelativeTime, toPercent, toSignedPercent } from "@/lib/format";
+import { formatCompactNumber, formatKickoff, formatRelativeTime, toPercent, toSignedPercent, formatCostUsd } from "@/lib/format";
 import { isTopGame } from "@/lib/topTeams";
 import { agreementLabel, agreementTone } from "@/lib/aggregate";
 import Avatar from "./Avatar";
@@ -152,8 +152,9 @@ function LastAnalysisPanel({ game, entry }: { game: Game; entry: LastAnalysisEnt
             )}
           </span>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5 text-[10px] text-text-faint">
-          {formatRelativeTime(entry.analyzedAt)}
+        <div className="flex shrink-0 items-center gap-1.5 text-[10px] tabular-nums text-text-faint">
+          {formatCostUsd(entry.totalCostUsd) && <span>{formatCostUsd(entry.totalCostUsd)}</span>}
+          <span>{formatRelativeTime(entry.analyzedAt)}</span>
           <ChevronDownIcon className={`h-3 w-3 transition-transform ${expanded ? "rotate-180" : ""}`} />
         </div>
       </button>

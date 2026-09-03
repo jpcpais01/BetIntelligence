@@ -70,6 +70,14 @@ function mergeSources(runs: { sources?: SourceCitation[] }[]): SourceCitation[] 
   return merged;
 }
 
+// Every run genuinely cost its own money (each is its own research + predict call pair), unlike
+// keyFactors/sources which just need deduping — the merged cost is a real sum, not an average.
+function sumCost(runs: { costUsd?: number }[]): number | undefined {
+  const known = runs.filter((r) => typeof r.costUsd === "number");
+  if (known.length === 0) return undefined;
+  return known.reduce((sum, r) => sum + (r.costUsd ?? 0), 0);
+}
+
 // ---------- Football (fixed home/draw/away shape) ----------
 
 function footballTopOutcome(p: Probabilities): "home" | "draw" | "away" {
@@ -120,6 +128,7 @@ export function synthesizeFootballIndependent(runs: IndependentPrediction[]): In
       `Averaged across ${runs.length} independent research runs (${Math.round(agreement.agreementPct * 100)}% agreed ` +
       `on the same top outcome). Representative take: ${representative.rationale}`,
     sources: mergeSources(runs),
+    costUsd: sumCost(runs),
   };
 }
 
@@ -173,6 +182,7 @@ export function synthesizeMarketIndependent(runs: MarketPrediction[]): MarketPre
       `Averaged across ${runs.length} independent research runs (${Math.round(agreement.agreementPct * 100)}% agreed ` +
       `on the same top outcome). Representative take: ${representative.rationale}`,
     sources: mergeSources(runs),
+    costUsd: sumCost(runs),
   };
 }
 

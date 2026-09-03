@@ -112,7 +112,7 @@ ${resolves}). Possible outcomes: ${outcomeList}. Compile a research digest cover
 analysis, and historical base rates, organized into the sections described. Remember: never mention odds, betting lines, or \
 market/implied prices anywhere in your output.`;
 
-  const { text: digest, sources } = await requestText(
+  const { text: digest, sources, costUsd: researchCostUsd } = await requestText(
     [
       { role: "system", content: RESEARCH_SYSTEM_PROMPT },
       { role: "user", content: researchPrompt },
@@ -132,7 +132,7 @@ ${digest}
 Based only on this digest, give your own independent probability estimate for each of the outcomes listed above. Respond with \
 only the JSON object described.`;
 
-  const { parsed } = await requestJson<{
+  const { parsed, costUsd: predictCostUsd } = await requestJson<{
     outcomes: { label: string; probability: number }[];
     confidence: string;
     keyFactors: string[];
@@ -155,6 +155,7 @@ only the JSON object described.`;
     keyFactors: Array.isArray(parsed.keyFactors) ? parsed.keyFactors.slice(0, 6) : [],
     rationale: typeof parsed.rationale === "string" ? parsed.rationale : "",
     sources,
+    costUsd: researchCostUsd !== null || predictCostUsd !== null ? (researchCostUsd ?? 0) + (predictCostUsd ?? 0) : undefined,
   };
 }
 
@@ -194,7 +195,7 @@ ${marketLines}
 
 Compare your view to the market and respond with only the JSON object described.`;
 
-  const { parsed } = await requestJson<{
+  const { parsed, costUsd } = await requestJson<{
     edges: { label: string; edge: number }[];
     bestValue: string | null;
     confidence: string;
@@ -221,5 +222,6 @@ Compare your view to the market and respond with only the JSON object described.
     confidence: clampConfidence(parsed.confidence),
     agreesWithMarket: Boolean(parsed.agreesWithMarket),
     verdict: typeof parsed.verdict === "string" ? parsed.verdict : "",
+    costUsd: costUsd ?? undefined,
   };
 }

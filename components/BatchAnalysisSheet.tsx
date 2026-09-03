@@ -5,7 +5,7 @@ import type { Game, IndependentPrediction, ComparisonResult } from "@/lib/types"
 import Avatar from "./Avatar";
 import EdgeChip from "./EdgeChip";
 import { CloseIcon, TrendingUpIcon, BookmarkIcon } from "./icons";
-import { formatKickoff } from "@/lib/format";
+import { formatKickoff, formatCostUsd } from "@/lib/format";
 import { savePick } from "@/lib/picks";
 import { saveLastAnalysis } from "@/lib/lastAnalysis";
 import { loadSelectedModel } from "@/lib/models";
@@ -18,6 +18,13 @@ interface GameResult {
   comparison?: ComparisonResult;
   error?: string;
   saved?: boolean;
+}
+
+// Both sides can be missing (mock mode, or a provider that doesn't report cost) — only treat the
+// total as "unknown" when neither side has a real number, rather than silently showing $0.00.
+function totalCost(a?: number, b?: number): number | undefined {
+  if (a === undefined && b === undefined) return undefined;
+  return (a ?? 0) + (b ?? 0);
 }
 
 async function postJson<T>(url: string, body: unknown, errorLabel: string): Promise<T> {
@@ -90,6 +97,7 @@ export default function BatchAnalysisSheet({
             market: game.odds,
             independent: prediction,
             comparison,
+            totalCostUsd: totalCost(prediction.costUsd, comparison.costUsd),
           });
         } catch (err) {
           setResults((r) => ({
@@ -120,6 +128,7 @@ export default function BatchAnalysisSheet({
       market: game.odds,
       independent: r.independent,
       comparison: r.comparison,
+      totalCostUsd: totalCost(r.independent.costUsd, r.comparison.costUsd),
     });
     setResults((cur) => ({ ...cur, [game.id]: { ...cur[game.id], saved: true } }));
   };
@@ -254,6 +263,11 @@ function BatchResultCard({
                 flagged as value
               </p>
             </div>
+          )}
+          {formatCostUsd(totalCost(result.independent.costUsd, result.comparison.costUsd)) && (
+            <p className="text-center text-[10px] tabular-nums text-text-faint">
+              Cost: {formatCostUsd(totalCost(result.independent.costUsd, result.comparison.costUsd))}
+            </p>
           )}
           <button
             onClick={onSave}

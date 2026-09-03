@@ -1,7 +1,7 @@
 import type { SavedMarketPick, Confidence } from "@/lib/types";
 import OutcomeMeter from "./OutcomeMeter";
 import { CloseIcon, BrainIcon, ScaleIcon, TrendingUpIcon, GlobeIcon, ExternalLinkIcon } from "./icons";
-import { formatEndDate, toSignedPercent, toPercent } from "@/lib/format";
+import { formatEndDate, toSignedPercent, toPercent, formatCostUsd } from "@/lib/format";
 import { agreementLabel, agreementTone } from "@/lib/aggregate";
 
 const OUTCOME_COLORS = ["var(--d-accent)", "var(--d-violet)", "var(--d-accent-2)", "#8f9dff", "#ff8a5c", "#5cc9ff"];
@@ -129,6 +129,12 @@ export default function MarketPickDetailSheet({ pick, onClose }: { pick: SavedMa
             <DiscoverConfidence level={comparison.confidence} />
 
             {comparison.verdict && <p className="selectable text-[13px] leading-relaxed text-text-dim">{comparison.verdict}</p>}
+
+            {formatCostUsd(pick.totalCostUsd) && (
+              <p className="text-center text-[11px] tabular-nums text-text-faint">
+                Analysis cost: {formatCostUsd(pick.totalCostUsd)}
+              </p>
+            )}
           </div>
         </div>
       </div>
