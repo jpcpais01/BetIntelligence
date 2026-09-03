@@ -1,6 +1,22 @@
 import { requestJson, clampConfidence } from "./openrouter";
 import type { MarketComparison, MarketOutcome, MarketPrediction, OutcomeProbability } from "./types";
 
+// Football's analysis prompts (lib/openrouter.ts) always have exactly 3 fixed-length outcomes
+// (home/draw/away) and a flat token budget works fine there. Discover markets can have anywhere
+// from 2 to 8 outcomes, often with much longer labels (candidate or team names) — reusing that
+// same flat budget here meant the model would truncate mid-JSON on any market with several
+// outcomes (finish_reason "length"), and since a retry resends the SAME prompt with the SAME
+// budget, it truncated identically every single attempt — a guaranteed "failed after 3 attempts"
+// for exactly the markets this feature exists to cover. Budget now scales with how much the
+// model actually has to say: one {label, probability} pair per outcome, plus edges in the
+// compare step, plus headroom for :online web-search reasoning before the model answers.
+function predictMaxTokens(outcomeCount: number): number {
+  return Math.min(8000, 3500 + Math.max(0, outcomeCount - 2) * 350);
+}
+function compareMaxTokens(outcomeCount: number): number {
+  return Math.min(6000, 2500 + Math.max(0, outcomeCount - 2) * 250);
+}
+
 // Finds which of our known labels a piece of AI-returned text was probably referring to —
 // case-insensitive exact match first, then substring containment either direction. Shared by
 // every place the model echoes back one of the outcome labels we gave it (probabilities, edges,
@@ -84,7 +100,7 @@ described.`;
       { role: "user", content: userPrompt },
     ],
     true,
-    3000
+    predictMaxTokens(input.outcomeLabels.length)
   );
 
   const aligned = alignByLabel(input.outcomeLabels, parsed.outcomes, "probability", 0);
@@ -145,7 +161,7 @@ Compare your view to the market and respond with only the JSON object described.
       { role: "user", content: userPrompt },
     ],
     false,
-    2000
+    compareMaxTokens(labels.length)
   );
 
   const alignedEdges = alignByLabel(labels, parsed.edges, "edge", 0);

@@ -23,6 +23,17 @@ function mockFetchOnce(body: unknown) {
   globalThis.fetch = (async () => completion(JSON.stringify(body))) as unknown as typeof fetch;
 }
 
+// Captures the max_tokens actually sent in the request body, so the token-budget-scales-with-
+// outcome-count fix can be checked directly rather than trusted on faith.
+let lastRequestMaxTokens: number | null = null;
+function mockFetchCapturing(body: unknown) {
+  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    const parsedBody = init?.body ? JSON.parse(init.body as string) : {};
+    lastRequestMaxTokens = typeof parsedBody.max_tokens === "number" ? parsedBody.max_tokens : null;
+    return completion(JSON.stringify(body));
+  }) as unknown as typeof fetch;
+}
+
 async function run() {
   const failures: string[] = [];
   const check = (name: string, cond: boolean, detail?: string) => {
@@ -135,6 +146,74 @@ async function run() {
     market: LABELS.map((label) => ({ label, price: 1 / LABELS.length })),
   });
   check("compare: unmatchable bestValue resolves to null", c2.bestValue === null, `got ${c2.bestValue}`);
+
+  // 5. Token budget must actually scale with outcome count — this is the fix for the real bug
+  //    reported in production ("AI was unable to return a usable JSON" happening on every
+  //    attempt for multi-outcome markets): a flat budget copied from football's fixed 3-outcome
+  //    shape meant the model truncated mid-JSON on markets with several outcomes, and because a
+  //    retry resends the identical prompt at the identical budget, every attempt truncated
+  //    identically — a guaranteed failure, not an occasional one.
+  mockFetchCapturing({
+    outcomes: [
+      { label: "Yes", probability: 0.6 },
+      { label: "No", probability: 0.4 },
+    ],
+    confidence: "medium",
+    keyFactors: ["A"],
+    rationale: "r",
+  });
+  await getIndependentMarketPrediction({
+    title: "Binary market",
+    category: "Business",
+    endDate: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+    outcomeLabels: ["Yes", "No"],
+  });
+  const binaryPredictTokens = lastRequestMaxTokens;
+
+  const manyLabels = ["Brazil", "France", "Argentina", "England", "Spain", "Germany", "Italy", "Other"];
+  mockFetchCapturing({
+    outcomes: manyLabels.map((label) => ({ label, probability: 1 / manyLabels.length })),
+    confidence: "medium",
+    keyFactors: ["A", "B", "C"],
+    rationale: "r",
+  });
+  await getIndependentMarketPrediction({
+    title: "8-way market",
+    category: "Sports",
+    endDate: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+    outcomeLabels: manyLabels,
+  });
+  const eightWayPredictTokens = lastRequestMaxTokens;
+
+  check(
+    "predict: token budget for an 8-outcome market is meaningfully larger than for a binary one",
+    binaryPredictTokens !== null && eightWayPredictTokens !== null && eightWayPredictTokens > binaryPredictTokens + 1000,
+    `binary=${binaryPredictTokens}, 8-way=${eightWayPredictTokens}`
+  );
+  check(
+    "predict: binary market budget is still at least as generous as football's fixed 3000",
+    (binaryPredictTokens ?? 0) >= 3000,
+    `got ${binaryPredictTokens}`
+  );
+
+  mockFetchCapturing({
+    edges: manyLabels.map((label) => ({ label, edge: 0 })),
+    bestValue: null,
+    confidence: "medium",
+    agreesWithMarket: true,
+    verdict: "v",
+  });
+  await compareMarketToOdds({
+    title: "8-way market",
+    category: "Sports",
+    independent: { outcomes: manyLabels.map((label) => ({ label, probability: 1 / manyLabels.length })), confidence: "medium", keyFactors: [], rationale: "" },
+    market: manyLabels.map((label) => ({ label, price: 1 / manyLabels.length })),
+  });
+  check(
+    "compare: token budget for an 8-outcome market exceeds football's fixed 2000",
+    (lastRequestMaxTokens ?? 0) > 2000,
+    `got ${lastRequestMaxTokens}`
+  );
 
   if (failures.length > 0) {
     console.log("\nFAILURES:");
