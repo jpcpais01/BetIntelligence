@@ -4,15 +4,22 @@ import { useEffect, useState } from "react";
 import type { SavedPick } from "@/lib/types";
 import { loadPicks, removePick } from "@/lib/picks";
 import PickCard from "@/components/PickCard";
+import { useRequestLogos } from "@/components/ClubLogosProvider";
 import { BookmarkIcon } from "@/components/icons";
 
 export default function PicksPage() {
   const [picks, setPicks] = useState<SavedPick[] | null>(null);
+  const requestLogos = useRequestLogos();
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is unavailable during SSR/hydration
     setPicks(loadPicks());
   }, []);
+
+  useEffect(() => {
+    if (!picks || picks.length === 0) return;
+    requestLogos(picks.flatMap((p) => [p.homeTeam, p.awayTeam]));
+  }, [picks, requestLogos]);
 
   const handleRemove = (id: string) => {
     setPicks(removePick(id));

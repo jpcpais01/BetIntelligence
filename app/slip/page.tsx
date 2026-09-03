@@ -15,6 +15,7 @@ import {
 } from "@/lib/betslip";
 import { toPercent, toSignedPercent, toDecimalOdds } from "@/lib/format";
 import SlipPickRow from "@/components/SlipPickRow";
+import { useRequestLogos } from "@/components/ClubLogosProvider";
 import { SearchIcon, XCircleIcon, TicketIcon, ScaleIcon } from "@/components/icons";
 
 type Mode = "single" | "multi";
@@ -24,6 +25,7 @@ export default function SlipPage() {
   const [legs, setLegs] = useState<SlipLeg[]>([]);
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<Mode>("single");
+  const requestLogos = useRequestLogos();
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect -- hydrating from localStorage, unavailable during SSR */
@@ -31,6 +33,11 @@ export default function SlipPage() {
     setLegs(loadSlip());
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
+
+  useEffect(() => {
+    if (!picks || picks.length === 0) return;
+    requestLogos(picks.flatMap((p) => [p.homeTeam, p.awayTeam]));
+  }, [picks, requestLogos]);
 
   const filteredPicks = useMemo(() => {
     if (!picks) return [];

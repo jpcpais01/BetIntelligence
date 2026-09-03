@@ -10,23 +10,19 @@ export default function Avatar({ name, size = 32 }: { name: string; size?: numbe
 
   if (logoUrl && !broken) {
     return (
-      <div
-        className="flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-2 ring-1 ring-inset ring-border-soft"
+      // External crest URLs from a third-party API aren't in next/image's allowed
+      // remote-pattern list, and these are cached client-side rather than re-fetched every render.
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={logoUrl}
+        alt=""
+        width={size}
+        height={size}
+        className="shrink-0 object-contain"
         style={{ width: size, height: size }}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element -- external crest URLs from a
-            third-party API aren't in next/image's allowed remote-pattern list, and there are
-            too few of these (~45, cached client-side) to justify the config for it */}
-        <img
-          src={logoUrl}
-          alt=""
-          width={size}
-          height={size}
-          className="h-full w-full object-contain p-[12%]"
-          loading="lazy"
-          onError={() => setBroken(true)}
-        />
-      </div>
+        loading="lazy"
+        onError={() => setBroken(true)}
+      />
     );
   }
 

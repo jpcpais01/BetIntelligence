@@ -1,8 +1,24 @@
-import { getAllTopTeamNames } from "./topTeams";
-
 // TheSportsDB's shared free test key. Documented for exactly this kind of non-commercial,
 // low-volume lookup (searchteams.php by name, returning strBadge as the crest URL).
 const SPORTS_DB_BASE = "https://www.thesportsdb.com/api/v1/json/123";
+
+// Every distinct team across the 9 leagues on a busy matchday can run into the hundreds —
+// caps how many searchteams.php requests are ever in flight at once so a large batch doesn't
+// trip TheSportsDB's free-tier rate limiting the way an uncapped Promise.all would.
+const MAX_CONCURRENT = 8;
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
 
 interface RawTeam {
   strTeam?: string;
@@ -38,11 +54,21 @@ export interface ClubLogoResult {
   logoUrl: string | null;
 }
 
-// Resolves every curated top-team's crest in parallel. Failures are per-club and never throw —
-// a missing logo just means that club's Avatar falls back to its initials, same as any other team.
-export async function getClubLogos(): Promise<ClubLogoResult[]> {
-  const names = getAllTopTeamNames();
-  return Promise.all(
-    names.map(async (name) => ({ name, logoUrl: await searchTeamBadge(name) }))
+// A hard cap so a malformed or abusive request body can't fan out into an unbounded number
+// of outbound lookups — comfortably above the number of distinct teams that could realistically
+// appear across every currently-listed game plus a user's saved picks in one batch.
+export const MAX_LOGO_NAMES_PER_REQUEST = 300;
+
+// Resolves every requested club's crest, deduped, with bounded concurrency. Failures are
+// per-club and never throw — a missing logo just means that club's Avatar falls back to its
+// initials, same as any other team we don't have a badge for.
+export async function getClubLogos(names: string[]): Promise<ClubLogoResult[]> {
+  const unique = [...new Set(names.map((n) => n.trim()).filter(Boolean))].slice(
+    0,
+    MAX_LOGO_NAMES_PER_REQUEST
   );
+  return mapWithConcurrency(unique, MAX_CONCURRENT, async (name) => ({
+    name,
+    logoUrl: await searchTeamBadge(name),
+  }));
 }

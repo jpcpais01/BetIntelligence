@@ -9,6 +9,7 @@ import AnalysisSheet from "@/components/AnalysisSheet";
 import BatchAnalysisSheet from "@/components/BatchAnalysisSheet";
 import { AlertIcon, RefreshIcon, SparkleIcon, ListCheckIcon, CloseIcon } from "@/components/icons";
 import { isTopGame } from "@/lib/topTeams";
+import { useRequestLogos } from "@/components/ClubLogosProvider";
 import { formatRelativeTime } from "@/lib/format";
 import {
   loadCachedGames,
@@ -32,6 +33,7 @@ export default function Home() {
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
 
   const MAX_BATCH = 10;
+  const requestLogos = useRequestLogos();
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -70,6 +72,14 @@ export default function Home() {
     const id = setInterval(() => void refresh(), REFRESH_INTERVAL_MS);
     return () => clearInterval(id);
   }, [refresh]);
+
+  // Every team currently listed gets its crest requested — not just a curated "top club" list —
+  // so the whole league, not a handful of elite names, shows real logos.
+  useEffect(() => {
+    if (!games || games.length === 0) return;
+    const names = games.flatMap((g) => [g.homeTeam, g.awayTeam]);
+    requestLogos(names);
+  }, [games, requestLogos]);
 
   // Coming back to a tab that's been sitting open shouldn't show half-hour-old odds.
   useEffect(() => {

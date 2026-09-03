@@ -1,10 +1,13 @@
-const STORAGE_KEY = "betintelligence.logos.v1";
-// Crests essentially never change, so this cache can live far longer than the odds cache.
-const TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// v2: stores every name we've ever resolved (found or not), not just a fixed curated list,
+// since logos are now fetched for whatever teams actually show up across games/picks/slip.
+const STORAGE_KEY = "betintelligence.logos.v2";
 
 interface CachedLogos {
   logos: Record<string, string>;
-  fetchedAt: string;
+  // Names we've already asked TheSportsDB about, whether or not a crest came back — crests
+  // essentially never change and a "not found" result won't change either, so this is never
+  // treated as stale and just grows over time instead of expiring.
+  attempted: string[];
 }
 
 export function loadCachedLogos(): CachedLogos | null {
@@ -13,7 +16,7 @@ export function loadCachedLogos(): CachedLogos | null {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed.logos !== "object" || typeof parsed.fetchedAt !== "string") {
+    if (!parsed || typeof parsed.logos !== "object" || !Array.isArray(parsed.attempted)) {
       return null;
     }
     return parsed as CachedLogos;
@@ -22,21 +25,11 @@ export function loadCachedLogos(): CachedLogos | null {
   }
 }
 
-export function saveCachedLogos(logos: Record<string, string>): void {
+export function saveCachedLogos(logos: Record<string, string>, attempted: string[]): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ logos, fetchedAt: new Date().toISOString() })
-    );
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ logos, attempted }));
   } catch {
     // Best effort only.
   }
-}
-
-export function isLogoCacheStale(fetchedAt: string | null): boolean {
-  if (!fetchedAt) return true;
-  const t = new Date(fetchedAt).getTime();
-  if (!Number.isFinite(t)) return true;
-  return Date.now() - t >= TTL_MS;
 }
