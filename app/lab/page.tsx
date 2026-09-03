@@ -22,7 +22,6 @@ import MarketPickDetailSheet from "@/components/MarketPickDetailSheet";
 import { useRequestLogos } from "@/components/ClubLogosProvider";
 import { SearchIcon, XCircleIcon, TicketIcon, ScaleIcon } from "@/components/icons";
 
-type Mode = "single" | "multi";
 type Filter = "all" | "football";
 
 type AnyPick =
@@ -34,7 +33,6 @@ export default function LabPage() {
   const [marketPicks, setMarketPicks] = useState<SavedMarketPick[] | null>(null);
   const [legs, setLegs] = useState<SlipLeg[]>([]);
   const [query, setQuery] = useState("");
-  const [mode, setMode] = useState<Mode>("single");
   const [filter, setFilter] = useState<Filter>("all");
   const [openPick, setOpenPick] = useState<AnyPick | null>(null);
   const requestLogos = useRequestLogos();
@@ -162,20 +160,13 @@ export default function LabPage() {
               </button>
             </div>
 
-            {legs.length > 1 && (
-              <div className="mb-3 flex gap-1.5 rounded-full bg-surface-2 p-1">
-                <ModeButton label="Single" active={mode === "single"} onClick={() => setMode("single")} />
-                <ModeButton label="Multi" active={mode === "multi"} onClick={() => setMode("multi")} />
-              </div>
-            )}
-
             <div className="space-y-2">
               {legs.map((leg) => (
                 <LegRow key={leg.pickId} leg={leg} onRemove={() => handleRemove(leg.pickId)} />
               ))}
             </div>
 
-            {mode === "multi" && legs.length > 1 && (
+            {legs.length > 1 && (
               <div className="mt-3 space-y-2.5 rounded-xl bg-surface-2 p-3.5">
                 <p className="flex items-center gap-1.5 text-[11px] font-medium text-text-faint">
                   <ScaleIcon className="h-3 w-3" />

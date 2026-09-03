@@ -2,7 +2,7 @@
 // Discover markets alike. Kept as a small whitelist (rather than a free-text field) so an API
 // route can safely resolve a client-supplied id to a real OpenRouter model string without ever
 // forwarding arbitrary client input into a third-party API call.
-export type ModelId = "deepseek" | "glm";
+export type ModelId = "deepseek" | "glm" | "gemini";
 
 export interface ModelInfo {
   id: ModelId;
@@ -27,12 +27,19 @@ export const MODELS: Record<ModelId, ModelInfo> = {
     shortLabel: "GLM",
     description: "Z.AI's fast model, a different take on the same read.",
   },
+  gemini: {
+    id: "gemini",
+    openrouterId: "google/gemini-3.8-flash",
+    label: "Gemini 3.8 Flash",
+    shortLabel: "Gemini",
+    description: "Google's fast model, a third independent take on the same read.",
+  },
 };
 
 export const DEFAULT_MODEL: ModelId = "deepseek";
 
 export function isModelId(value: unknown): value is ModelId {
-  return value === "deepseek" || value === "glm";
+  return value === "deepseek" || value === "glm" || value === "gemini";
 }
 
 // Server-side: turn a (possibly untrusted, client-supplied) model choice into the real
