@@ -1,14 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type {
-  Market,
-  MarketPrediction,
-  MarketComparison,
-  SourceCitation,
-  Confidence,
-  OutcomeProbability,
-} from "@/lib/types";
+import type { Market, MarketPrediction, MarketComparison, SourceCitation, Confidence } from "@/lib/types";
 import OutcomeMeter from "./OutcomeMeter";
 import ResearchOverlay from "./ResearchOverlay";
 import {
@@ -24,9 +17,16 @@ import {
 } from "./icons";
 import { formatEndDate, toSignedPercent, toPercent } from "@/lib/format";
 import { saveMarketPick } from "@/lib/marketPicks";
+import { saveLastMarketAnalysis } from "@/lib/lastMarketAnalysis";
 import { loadSelectedModel } from "@/lib/models";
 import { clampResearchRuns, loadResearchRuns } from "@/lib/researchRuns";
-import { aggregateMarketRuns, synthesizeMarketIndependent, agreementLabel, agreementTone } from "@/lib/aggregate";
+import {
+  aggregateMarketRuns,
+  synthesizeMarketIndependent,
+  toMarketResearchSummary,
+  agreementLabel,
+  agreementTone,
+} from "@/lib/aggregate";
 
 type Stage = "predicting" | "comparing" | "compared" | "error";
 
@@ -126,6 +126,16 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
         if (cancelled) return;
         setComparison(result);
         setStage("compared");
+
+        // Cached automatically regardless of whether the user ever taps "Save" — the card
+        // should be able to show what the AI last said about this market either way.
+        saveLastMarketAnalysis(market.id, {
+          analyzedAt: new Date().toISOString(),
+          market: market.outcomes,
+          independent: finalIndependent,
+          comparison: result,
+          research: toMarketResearchSummary(collected),
+        });
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -182,14 +192,7 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
       market: market.outcomes,
       independent,
       comparison,
-      research: research
-        ? {
-            runCount: research.agreement.runCount,
-            agreementPct: research.agreement.agreementPct,
-            spread: research.agreement.spread,
-            runs: runs.map((r): OutcomeProbability[] => r.outcomes),
-          }
-        : undefined,
+      research: toMarketResearchSummary(runs),
     });
     setSaved(true);
   };

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Game, IndependentPrediction, ComparisonResult, SourceCitation, Probabilities } from "@/lib/types";
+import type { Game, IndependentPrediction, ComparisonResult, SourceCitation } from "@/lib/types";
 import OutcomeBar from "./OutcomeBar";
 import ConfidenceBadge from "./ConfidenceBadge";
 import EdgeChip from "./EdgeChip";
@@ -18,9 +18,16 @@ import {
 } from "./icons";
 import { formatKickoff, toPercent } from "@/lib/format";
 import { savePick } from "@/lib/picks";
+import { saveLastAnalysis } from "@/lib/lastAnalysis";
 import { loadSelectedModel } from "@/lib/models";
 import { clampResearchRuns, loadResearchRuns } from "@/lib/researchRuns";
-import { aggregateFootballRuns, synthesizeFootballIndependent, agreementLabel, agreementTone } from "@/lib/aggregate";
+import {
+  aggregateFootballRuns,
+  synthesizeFootballIndependent,
+  toFootballResearchSummary,
+  agreementLabel,
+  agreementTone,
+} from "@/lib/aggregate";
 
 type Stage = "predicting" | "comparing" | "compared" | "error";
 
@@ -128,6 +135,16 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
         if (cancelled) return;
         setComparison(result);
         setStage("compared");
+
+        // Cached automatically regardless of whether the user ever taps "Save" — the card
+        // should be able to show what the AI last said about this match either way.
+        saveLastAnalysis(game.id, {
+          analyzedAt: new Date().toISOString(),
+          market: game.odds,
+          independent: finalIndependent,
+          comparison: result,
+          research: toFootballResearchSummary(collected),
+        });
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -185,14 +202,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
       market: game.odds,
       independent,
       comparison,
-      research: research
-        ? {
-            runCount: research.agreement.runCount,
-            agreementPct: research.agreement.agreementPct,
-            spread: research.agreement.spread,
-            runs: runs.map((r): Probabilities => ({ home: r.home, draw: r.draw, away: r.away })),
-          }
-        : undefined,
+      research: toFootballResearchSummary(runs),
     });
     setSaved(true);
   };

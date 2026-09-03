@@ -7,6 +7,7 @@ import EdgeChip from "./EdgeChip";
 import { CloseIcon, TrendingUpIcon, BookmarkIcon } from "./icons";
 import { formatKickoff } from "@/lib/format";
 import { savePick } from "@/lib/picks";
+import { saveLastAnalysis } from "@/lib/lastAnalysis";
 import { loadSelectedModel } from "@/lib/models";
 
 type GameStage = "pending" | "predicting" | "comparing" | "done" | "error";
@@ -84,6 +85,12 @@ export default function BatchAnalysisSheet({
             "Comparison failed."
           );
           setResults((r) => ({ ...r, [game.id]: { stage: "done", independent: prediction, comparison } }));
+          saveLastAnalysis(game.id, {
+            analyzedAt: new Date().toISOString(),
+            market: game.odds,
+            independent: prediction,
+            comparison,
+          });
         } catch (err) {
           setResults((r) => ({
             ...r,

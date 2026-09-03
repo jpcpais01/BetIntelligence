@@ -186,9 +186,9 @@ export function AlertIcon({ className, style }: { className?: string; style?: Re
   );
 }
 
-export function BrainIcon({ className }: { className?: string }) {
+export function BrainIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
+    <svg viewBox="0 0 24 24" fill="none" className={className} style={style}>
       <path
         d="M9 4.5a3 3 0 0 0-3 3v.2A3 3 0 0 0 4.5 10.5v.3A3 3 0 0 0 3 13.5a3 3 0 0 0 2.5 2.96A3.5 3.5 0 0 0 9 20a2.5 2.5 0 0 0 2.5-2.5v-10A2.5 2.5 0 0 0 9 4.5Z"
         stroke="currentColor"

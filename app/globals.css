@@ -43,6 +43,11 @@
 
 * {
   -webkit-tap-highlight-color: transparent;
+  /* No native scrollbar chrome anywhere — this is meant to feel like an installed app, not a
+     web page. -webkit-scrollbar below covers Chrome/Safari; these two cover Firefox and
+     old Edge/IE. Scrolling itself is untouched, only the visible track/thumb goes away. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 html {

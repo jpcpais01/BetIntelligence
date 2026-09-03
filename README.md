@@ -69,15 +69,27 @@ Both results are shown in the UI as a guided reveal, and the whole thing can be 
 Next to each card's **Analyze** button is a small stepper (1&times;-5&times;) for how many times to
 run the independent-research step before comparing to the market (`lib/researchRuns.ts`, one
 global preference like the model choice). At 1&times; nothing changes. Above that, the app fires
-that many independent, from-scratch research passes in sequence, then averages them
-(`lib/aggregate.ts`) into the single read that gets compared against the market — the result shows
-each run's own numbers plus how much they agreed with each other (a plain-language agreement label
-plus the per-run breakdown), so you can tell a stable read from one that's basically a coin flip.
-That merged, multi-run read is what gets saved with the pick.
+that many independent, from-scratch research passes all at once (they don't depend on each other,
+so there's no reason to wait for one before starting the next) and waits for every one to land,
+then averages them (`lib/aggregate.ts`) into the single read that gets compared against the market
+— the result shows each run's own numbers plus how much they agreed with each other (a plain-
+language agreement label plus the per-run breakdown), so you can tell a stable read from one that's
+basically a coin flip. That merged, multi-run read is what gets saved with the pick.
 
-The "researching" screen itself is a centered animation rather than a checklist now
-(`components/ResearchOverlay.tsx`), with a run-progress indicator ("Run 2 of 3") when more than
-one pass is in flight.
+The "researching" screen itself is a small centered popup — not the full-width sheet used once
+results are in, and with no way to dismiss it mid-analysis — with a pulsing radar animation rather
+than a checklist (`components/ResearchOverlay.tsx`), and a run-progress indicator ("2 of 3 runs
+done") when more than one pass is in flight.
+
+### Every card remembers its last analysis
+
+Analyzing a match or market caches the result against that match/market's id
+(`lib/lastAnalysis.ts` for Sports, `lib/lastMarketAnalysis.ts` for Discover) the moment it
+finishes — whether or not you ever tap **Save**. The card shows a one-line summary ("AI: Arsenal
+52% &middot; +4pp edge &middot; 2h ago") with a dropdown that expands into the full read: AI vs.
+market for every outcome, confidence, the verdict, and the multi-run agreement breakdown if it was
+researched more than once. Re-analyzing overwrites the cached entry; each cache is capped at the
+150 most recently analyzed matches/markets to keep it from growing unbounded.
 
 ### Choosing a model
 

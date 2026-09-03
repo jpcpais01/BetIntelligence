@@ -9,6 +9,7 @@ import type {
   Probabilities,
   Confidence,
   SourceCitation,
+  ResearchSummary,
 } from "./types";
 
 export interface RunAgreement {
@@ -172,5 +173,32 @@ export function synthesizeMarketIndependent(runs: MarketPrediction[]): MarketPre
       `Averaged across ${runs.length} independent research runs (${Math.round(agreement.agreementPct * 100)}% agreed ` +
       `on the same top outcome). Representative take: ${representative.rationale}`,
     sources: mergeSources(runs),
+  };
+}
+
+// The compact, storable form of a set of runs — used both when saving a pick and when caching
+// "last analysis" for a card, so the two call sites (and football/markets) build this the same
+// way instead of duplicating the shape logic.
+export function toFootballResearchSummary(runs: IndependentPrediction[]): ResearchSummary<Probabilities> | undefined {
+  if (runs.length <= 1) return undefined;
+  const { agreement } = aggregateFootballRuns(runs);
+  return {
+    runCount: agreement.runCount,
+    agreementPct: agreement.agreementPct,
+    spread: agreement.spread,
+    runs: runs.map((r) => ({ home: r.home, draw: r.draw, away: r.away })),
+  };
+}
+
+export function toMarketResearchSummary(
+  runs: MarketPrediction[]
+): ResearchSummary<OutcomeProbability[]> | undefined {
+  if (runs.length <= 1) return undefined;
+  const { agreement } = aggregateMarketRuns(runs);
+  return {
+    runCount: agreement.runCount,
+    agreementPct: agreement.agreementPct,
+    spread: agreement.spread,
+    runs: runs.map((r) => r.outcomes),
   };
 }

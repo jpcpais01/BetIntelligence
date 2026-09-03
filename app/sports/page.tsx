@@ -19,6 +19,7 @@ import {
   REFRESH_INTERVAL_MS,
 } from "@/lib/gamesCache";
 import { loadSelectedLeagues, saveSelectedLeagues } from "@/lib/leaguePrefs";
+import { loadLastAnalyses, type LastAnalysisEntry } from "@/lib/lastAnalysis";
 
 export default function Home() {
   const [games, setGames] = useState<Game[] | null>(null);
@@ -32,9 +33,15 @@ export default function Home() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchGames, setBatchGames] = useState<Game[] | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
+  const [lastAnalysisMap, setLastAnalysisMap] = useState<Record<string, LastAnalysisEntry>>({});
 
   const MAX_BATCH = 10;
   const requestLogos = useRequestLogos();
+
+  // Re-read whenever an analysis sheet closes — analyses are cached automatically as soon as
+  // they finish (lib/lastAnalysis.ts), whether or not the user tapped Save, so this is how a
+  // card picks up "what the AI last said" right after you close the sheet.
+  const refreshLastAnalysis = useCallback(() => setLastAnalysisMap(loadLastAnalyses()), []);
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -63,6 +70,7 @@ export default function Home() {
       setFetchedAt(cached.fetchedAt);
     }
     setSelectedLeagues(loadSelectedLeagues());
+    setLastAnalysisMap(loadLastAnalyses());
     /* eslint-enable react-hooks/set-state-in-effect */
     if (!cached || isStale(cached.fetchedAt)) {
       void refresh();
@@ -258,6 +266,7 @@ export default function Home() {
                 selectMode={selectMode}
                 selected={selectedIds.has(game.id)}
                 onToggleSelect={toggleGameSelected}
+                lastAnalysis={lastAnalysisMap[game.id] ?? null}
               />
             ))}
           </div>
@@ -285,8 +294,24 @@ export default function Home() {
         </div>
       )}
 
-      {analyzeGame && <AnalysisSheet game={analyzeGame} onClose={() => setAnalyzeGame(null)} />}
-      {batchGames && <BatchAnalysisSheet games={batchGames} onClose={() => setBatchGames(null)} />}
+      {analyzeGame && (
+        <AnalysisSheet
+          game={analyzeGame}
+          onClose={() => {
+            setAnalyzeGame(null);
+            refreshLastAnalysis();
+          }}
+        />
+      )}
+      {batchGames && (
+        <BatchAnalysisSheet
+          games={batchGames}
+          onClose={() => {
+            setBatchGames(null);
+            refreshLastAnalysis();
+          }}
+        />
+      )}
     </div>
   );
 }

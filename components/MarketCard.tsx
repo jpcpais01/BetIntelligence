@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import type { Market } from "@/lib/types";
-import { formatCompactNumber, formatEndDate } from "@/lib/format";
-import { ChevronDownIcon, ExternalLinkIcon, FlameIcon, SparkleIcon } from "./icons";
+import type { Market, Confidence } from "@/lib/types";
+import type { LastMarketAnalysisEntry } from "@/lib/lastMarketAnalysis";
+import { formatCompactNumber, formatEndDate, formatRelativeTime, toPercent, toSignedPercent } from "@/lib/format";
+import { agreementLabel, agreementTone } from "@/lib/aggregate";
+import { ChevronDownIcon, ExternalLinkIcon, FlameIcon, SparkleIcon, BrainIcon } from "./icons";
 import OutcomeMeter from "./OutcomeMeter";
 import ResearchRunsStepper from "./ResearchRunsStepper";
 
@@ -14,11 +16,13 @@ export default function MarketCard({
   hot,
   onAnalyze,
   style,
+  lastAnalysis,
 }: {
   market: Market;
   hot?: boolean;
   onAnalyze: (market: Market) => void;
   style?: React.CSSProperties;
+  lastAnalysis?: LastMarketAnalysisEntry | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const top = market.outcomes[0];
@@ -113,6 +117,8 @@ export default function MarketCard({
         </div>
       )}
 
+      {lastAnalysis && <LastAnalysisPanel entry={lastAnalysis} />}
+
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 text-[10px] uppercase tracking-wide text-text-faint">
           <span className="tabular-nums">${formatCompactNumber(market.volume)} vol</span>
@@ -132,5 +138,99 @@ export default function MarketCard({
         </div>
       </div>
     </div>
+  );
+}
+
+// Shown whenever this market has been analyzed before, whether or not that analysis was ever
+// saved to Picks — a collapsed one-line summary that expands into the full read.
+function LastAnalysisPanel({ entry }: { entry: LastMarketAnalysisEntry }) {
+  const [expanded, setExpanded] = useState(false);
+  const { independent, comparison } = entry;
+  const topOutcome = independent.outcomes.reduce((best, o) => (o.probability > best.probability ? o : best), independent.outcomes[0]);
+  const bestEdge = comparison.bestValue ? comparison.edges.find((e) => e.label === comparison.bestValue) : null;
+
+  return (
+    <div className="mb-3.5 overflow-hidden rounded-sm" style={{ background: "var(--d-surface-2)" }}>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setExpanded((v) => !v);
+        }}
+        className="press flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left"
+      >
+        <div className="flex min-w-0 items-center gap-1.5">
+          <BrainIcon className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--d-accent)" }} />
+          <span className="truncate text-[11px] text-text-dim">
+            AI: <strong className="font-medium text-text">{topOutcome.label}</strong>{" "}
+            <span className="tabular-nums">{toPercent(topOutcome.probability)}</span>
+            {bestEdge && (
+              <span className="ml-1 tabular-nums" style={{ color: "var(--d-accent)" }}>
+                {toSignedPercent(bestEdge.edge)} edge
+              </span>
+            )}
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5 text-[10px] text-text-faint">
+          {formatRelativeTime(entry.analyzedAt)}
+          <ChevronDownIcon className={`h-3 w-3 transition-transform ${expanded ? "rotate-180" : ""}`} />
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="rise-in space-y-3 px-2.5 pb-2.5">
+          <div className="space-y-2.5 rounded-sm p-2.5" style={{ background: "var(--d-surface)" }}>
+            {entry.market.map((o, i) => {
+              const aiEst = independent.outcomes.find((p) => p.label === o.label)?.probability;
+              return (
+                <OutcomeMeter
+                  key={o.label}
+                  label={o.label}
+                  pct={o.price}
+                  color={OUTCOME_COLORS[i % OUTCOME_COLORS.length]}
+                  markerPct={aiEst}
+                  markerLabel="AI estimate"
+                  size="sm"
+                />
+              );
+            })}
+            <p className="text-[10px] text-text-faint">Bars show the market at analysis time. The line marks the AI&apos;s estimate.</p>
+          </div>
+
+          {entry.research && entry.research.runCount > 1 && (
+            <p
+              className="text-[11px] font-medium"
+              style={{
+                color:
+                  agreementTone(entry.research) === "high"
+                    ? "var(--d-accent)"
+                    : agreementTone(entry.research) === "medium"
+                      ? "var(--d-accent-2)"
+                      : "#ff6b6b",
+              }}
+            >
+              {agreementLabel(entry.research)}
+            </p>
+          )}
+
+          <DiscoverConfidence level={comparison.confidence} />
+
+          {comparison.verdict && <p className="selectable text-[12px] leading-relaxed text-text-dim">{comparison.verdict}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DiscoverConfidence({ level }: { level: Confidence }) {
+  const label = level === "high" ? "High confidence" : level === "medium" ? "Medium confidence" : "Low confidence";
+  const color = level === "high" ? "var(--d-accent)" : level === "medium" ? "var(--d-accent-2)" : "var(--text-faint)";
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-[11px] font-medium ring-1 ring-inset"
+      style={{ color, borderColor: color, background: "transparent" }}
+    >
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+      {label}
+    </span>
   );
 }

@@ -1,10 +1,16 @@
+"use client";
+
+import { useState } from "react";
 import type { Game } from "@/lib/types";
-import { formatCompactNumber, formatKickoff } from "@/lib/format";
+import type { LastAnalysisEntry } from "@/lib/lastAnalysis";
+import { formatCompactNumber, formatKickoff, formatRelativeTime, toPercent, toSignedPercent } from "@/lib/format";
 import { isTopGame } from "@/lib/topTeams";
+import { agreementLabel, agreementTone } from "@/lib/aggregate";
 import Avatar from "./Avatar";
 import OutcomeBar from "./OutcomeBar";
+import ConfidenceBadge from "./ConfidenceBadge";
 import ResearchRunsStepper from "./ResearchRunsStepper";
-import { SparkleIcon, StarIcon, CheckIcon } from "./icons";
+import { SparkleIcon, StarIcon, CheckIcon, BrainIcon, ChevronDownIcon } from "./icons";
 
 export default function GameCard({
   game,
@@ -13,6 +19,7 @@ export default function GameCard({
   selectMode = false,
   selected = false,
   onToggleSelect,
+  lastAnalysis,
 }: {
   game: Game;
   onAnalyze: (game: Game) => void;
@@ -20,6 +27,7 @@ export default function GameCard({
   selectMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (game: Game) => void;
+  lastAnalysis?: LastAnalysisEntry | null;
 }) {
   const { label: kickoffLabel, isLive } = formatKickoff(game.startTime);
   const top = isTopGame(game);
@@ -86,6 +94,8 @@ export default function GameCard({
         </div>
       </div>
 
+      {!selectMode && lastAnalysis && <LastAnalysisPanel game={game} entry={lastAnalysis} />}
+
       <div className="flex items-center justify-between gap-3 border-t border-border-soft pt-3">
         <span className="text-[11px] tabular-nums text-text-faint">
           ${formatCompactNumber(game.volume)} vol
@@ -103,6 +113,91 @@ export default function GameCard({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function topOutcome(p: { home: number; draw: number; away: number }): "home" | "draw" | "away" {
+  if (p.home >= p.draw && p.home >= p.away) return "home";
+  if (p.away >= p.draw) return "away";
+  return "draw";
+}
+
+// Shown on the card whenever this match has been analyzed before, whether or not that analysis
+// was ever saved to Picks — a collapsed one-line summary that expands into the full read.
+function LastAnalysisPanel({ game, entry }: { game: Game; entry: LastAnalysisEntry }) {
+  const [expanded, setExpanded] = useState(false);
+  const { independent, comparison } = entry;
+  const top = topOutcome(independent);
+  const topLabel = top === "home" ? game.homeTeam : top === "away" ? game.awayTeam : "Draw";
+  const bestValue = comparison.bestValue;
+  const edge = bestValue !== "none" ? comparison.edges[bestValue] : 0;
+
+  return (
+    <div className="mb-4 overflow-hidden rounded-xl bg-surface-2">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setExpanded((v) => !v);
+        }}
+        className="press flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+      >
+        <div className="flex min-w-0 items-center gap-1.5">
+          <BrainIcon className="h-3.5 w-3.5 shrink-0 text-accent" />
+          <span className="truncate text-[11px] text-text-dim">
+            AI: <strong className="font-medium text-text">{topLabel}</strong>{" "}
+            <span className="tabular-nums">{toPercent(independent[top])}</span>
+            {bestValue !== "none" && (
+              <span className="ml-1 tabular-nums text-accent">{toSignedPercent(edge)} edge</span>
+            )}
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5 text-[10px] text-text-faint">
+          {formatRelativeTime(entry.analyzedAt)}
+          <ChevronDownIcon className={`h-3 w-3 transition-transform ${expanded ? "rotate-180" : ""}`} />
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="rise-in space-y-3 px-3 pb-3">
+          <div className="space-y-2.5 rounded-lg bg-bg-elevated p-3">
+            <OutcomeBar
+              label={game.homeTeam}
+              pct={entry.market.home}
+              color="home"
+              markerPct={independent.home}
+              markerLabel="AI estimate"
+            />
+            <OutcomeBar label="Draw" pct={entry.market.draw} color="draw" markerPct={independent.draw} markerLabel="AI estimate" />
+            <OutcomeBar
+              label={game.awayTeam}
+              pct={entry.market.away}
+              color="away"
+              markerPct={independent.away}
+              markerLabel="AI estimate"
+            />
+            <p className="text-[10px] text-text-faint">Bars show the market at analysis time. The line marks the AI&apos;s estimate.</p>
+          </div>
+
+          {entry.research && entry.research.runCount > 1 && (
+            <p
+              className={`text-[11px] font-medium ${
+                agreementTone(entry.research) === "high"
+                  ? "text-accent"
+                  : agreementTone(entry.research) === "medium"
+                    ? "text-warn"
+                    : "text-accent-3"
+              }`}
+            >
+              {agreementLabel(entry.research)}
+            </p>
+          )}
+
+          <ConfidenceBadge level={comparison.confidence} />
+
+          {comparison.verdict && <p className="selectable text-[12px] leading-relaxed text-text-dim">{comparison.verdict}</p>}
+        </div>
+      )}
     </div>
   );
 }

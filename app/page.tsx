@@ -10,6 +10,7 @@ import ModelPicker from "@/components/ModelPicker";
 import { AlertIcon, RefreshIcon, CompassIcon, FlameIcon, BookmarkIcon } from "@/components/icons";
 import { formatRelativeTime } from "@/lib/format";
 import { loadCachedMarkets, saveCachedMarkets, isStale, REFRESH_INTERVAL_MS } from "@/lib/marketsCache";
+import { loadLastMarketAnalyses, type LastMarketAnalysisEntry } from "@/lib/lastMarketAnalysis";
 
 export default function DiscoverPage() {
   const [markets, setMarkets] = useState<Market[] | null>(null);
@@ -18,6 +19,7 @@ export default function DiscoverPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [category, setCategory] = useState("All");
   const [analyzeMarket, setAnalyzeMarket] = useState<Market | null>(null);
+  const [lastAnalysisMap, setLastAnalysisMap] = useState<Record<string, LastMarketAnalysisEntry>>({});
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -44,8 +46,14 @@ export default function DiscoverPage() {
       setMarkets(cached.markets);
       setFetchedAt(cached.fetchedAt);
     }
+    setLastAnalysisMap(loadLastMarketAnalyses());
     if (!cached || isStale(cached.fetchedAt)) void refresh();
   }, [refresh]);
+
+  // Re-read whenever the analysis sheet closes — analyses are cached automatically as soon as
+  // they finish (lib/lastMarketAnalysis.ts), whether or not the user tapped Save, so this is how
+  // a card picks up "what the AI last said" right after you close the sheet.
+  const refreshLastAnalysis = useCallback(() => setLastAnalysisMap(loadLastMarketAnalyses()), []);
 
   useEffect(() => {
     const id = setInterval(() => void refresh(), REFRESH_INTERVAL_MS);
@@ -217,13 +225,22 @@ export default function DiscoverPage() {
                 hot={hotIds.has(market.id)}
                 onAnalyze={setAnalyzeMarket}
                 style={{ animationDelay: `${Math.min(i, 6) * 35}ms` }}
+                lastAnalysis={lastAnalysisMap[market.id] ?? null}
               />
             ))}
           </div>
         )}
       </div>
 
-      {analyzeMarket && <MarketAnalysisSheet market={analyzeMarket} onClose={() => setAnalyzeMarket(null)} />}
+      {analyzeMarket && (
+        <MarketAnalysisSheet
+          market={analyzeMarket}
+          onClose={() => {
+            setAnalyzeMarket(null);
+            refreshLastAnalysis();
+          }}
+        />
+      )}
     </div>
   );
 }
