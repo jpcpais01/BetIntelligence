@@ -1,17 +1,19 @@
-import type { SavedPick } from "./types";
+import type { SavedPick, SavedMarketPick } from "./types";
 
-const STORAGE_KEY = "betintelligence.slip.v1";
+// v2: legs now carry a resolved title/meta/outcomeLabel directly instead of a fixed
+// home/draw/away enum plus raw match fields, so a leg can come from either a football pick or
+// any Discover market pick. Old v1 slips (pre-unification) are simply orphaned rather than
+// migrated — this is local paper-trading data, not anything worth a migration path for.
+const STORAGE_KEY = "betintelligence.slip.v2";
 
 export type Outcome = "home" | "draw" | "away";
 
 export interface SlipLeg {
   pickId: string;
-  homeTeam: string;
-  awayTeam: string;
-  leagueName: string;
-  leagueFlag: string;
-  startTime: string;
-  outcome: Outcome;
+  kind: "sports" | "market";
+  title: string; // "Arsenal v Chelsea" for sports, the market question for a market pick
+  meta: string; // "🏴 Premier League" for sports, "💼 Business" for a market pick
+  outcomeLabel: string; // "Arsenal" / "Draw" / "Chelsea", or the chosen market outcome's label
   marketProb: number;
   aiProb: number;
 }
@@ -19,14 +21,27 @@ export interface SlipLeg {
 export function legFromPick(pick: SavedPick, outcome: Outcome): SlipLeg {
   return {
     pickId: pick.id,
-    homeTeam: pick.homeTeam,
-    awayTeam: pick.awayTeam,
-    leagueName: pick.leagueName,
-    leagueFlag: pick.leagueFlag,
-    startTime: pick.startTime,
-    outcome,
+    kind: "sports",
+    title: `${pick.homeTeam} v ${pick.awayTeam}`,
+    meta: `${pick.leagueFlag} ${pick.leagueName}`,
+    outcomeLabel: outcome === "draw" ? "Draw" : outcome === "home" ? pick.homeTeam : pick.awayTeam,
     marketProb: pick.market[outcome],
     aiProb: pick.independent[outcome],
+  };
+}
+
+export function legFromMarketPick(pick: SavedMarketPick, outcomeLabel: string): SlipLeg | null {
+  const ai = pick.independent.outcomes.find((o) => o.label === outcomeLabel);
+  const market = pick.market.find((o) => o.label === outcomeLabel);
+  if (!ai || !market) return null;
+  return {
+    pickId: pick.id,
+    kind: "market",
+    title: pick.title,
+    meta: `${pick.categoryEmoji} ${pick.category}`,
+    outcomeLabel,
+    marketProb: market.price,
+    aiProb: ai.probability,
   };
 }
 
@@ -51,11 +66,6 @@ export function saveSlip(legs: SlipLeg[]): void {
   }
 }
 
-export function outcomeLabel(leg: Pick<SlipLeg, "homeTeam" | "awayTeam" | "outcome">): string {
-  if (leg.outcome === "draw") return "Draw";
-  return leg.outcome === "home" ? leg.homeTeam : leg.awayTeam;
-}
-
 export interface CombinedSlip {
   marketProb: number;
   aiProb: number;
@@ -64,7 +74,8 @@ export interface CombinedSlip {
 
 // A parlay's true probability is the product of each leg's independent probability — this is
 // standard combinatorics, not something either side of the comparison "agrees" or "disagrees"
-// on: if the legs are independent events, P(all hit) = product of each P(hit).
+// on: if the legs are independent events, P(all hit) = product of each P(hit). Holds regardless
+// of whether a leg came from a football match or any other kind of market.
 export function combineSlip(legs: SlipLeg[]): CombinedSlip {
   const marketProb = legs.reduce((p, leg) => p * leg.marketProb, 1);
   const aiProb = legs.reduce((p, leg) => p * leg.aiProb, 1);

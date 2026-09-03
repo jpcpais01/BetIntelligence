@@ -1,27 +1,34 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { SavedPick } from "@/lib/types";
+import type { SavedPick, SavedMarketPick } from "@/lib/types";
 import { loadPicks } from "@/lib/picks";
+import { loadMarketPicks } from "@/lib/marketPicks";
 import {
   loadSlip,
   saveSlip,
   legFromPick,
+  legFromMarketPick,
   combineSlip,
   legEdge,
-  outcomeLabel,
   type SlipLeg,
   type Outcome,
 } from "@/lib/betslip";
 import { toPercent, toSignedPercent, toDecimalOdds } from "@/lib/format";
 import SlipPickRow from "@/components/SlipPickRow";
+import MarketPickRow from "@/components/MarketPickRow";
 import { useRequestLogos } from "@/components/ClubLogosProvider";
 import { SearchIcon, XCircleIcon, TicketIcon, ScaleIcon } from "@/components/icons";
 
 type Mode = "single" | "multi";
 
-export default function SlipPage() {
-  const [picks, setPicks] = useState<SavedPick[] | null>(null);
+type AnyPick =
+  | { kind: "sports"; savedAt: string; pick: SavedPick }
+  | { kind: "market"; savedAt: string; pick: SavedMarketPick };
+
+export default function LabPage() {
+  const [sportsPicks, setSportsPicks] = useState<SavedPick[] | null>(null);
+  const [marketPicks, setMarketPicks] = useState<SavedMarketPick[] | null>(null);
   const [legs, setLegs] = useState<SlipLeg[]>([]);
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<Mode>("single");
@@ -29,49 +36,67 @@ export default function SlipPage() {
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect -- hydrating from localStorage, unavailable during SSR */
-    setPicks(loadPicks());
+    setSportsPicks(loadPicks());
+    setMarketPicks(loadMarketPicks());
     setLegs(loadSlip());
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   useEffect(() => {
-    if (!picks || picks.length === 0) return;
-    requestLogos(picks.flatMap((p) => [p.homeTeam, p.awayTeam]));
-  }, [picks, requestLogos]);
+    if (!sportsPicks || sportsPicks.length === 0) return;
+    requestLogos(sportsPicks.flatMap((p) => [p.homeTeam, p.awayTeam]));
+  }, [sportsPicks, requestLogos]);
+
+  const picks = useMemo<AnyPick[] | null>(() => {
+    if (sportsPicks === null || marketPicks === null) return null;
+    const merged: AnyPick[] = [
+      ...sportsPicks.map((pick): AnyPick => ({ kind: "sports", savedAt: pick.savedAt, pick })),
+      ...marketPicks.map((pick): AnyPick => ({ kind: "market", savedAt: pick.savedAt, pick })),
+    ];
+    return merged.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
+  }, [sportsPicks, marketPicks]);
 
   const filteredPicks = useMemo(() => {
     if (!picks) return [];
     const q = query.trim().toLowerCase();
     if (!q) return picks;
-    return picks.filter(
-      (p) =>
-        p.homeTeam.toLowerCase().includes(q) ||
-        p.awayTeam.toLowerCase().includes(q) ||
-        p.leagueName.toLowerCase().includes(q)
+    return picks.filter((item) =>
+      item.kind === "sports"
+        ? item.pick.homeTeam.toLowerCase().includes(q) ||
+          item.pick.awayTeam.toLowerCase().includes(q) ||
+          item.pick.leagueName.toLowerCase().includes(q)
+        : item.pick.title.toLowerCase().includes(q) || item.pick.category.toLowerCase().includes(q)
     );
   }, [picks, query]);
 
   const legByPickId = useMemo(() => {
-    const map = new Map<string, Outcome>();
-    for (const leg of legs) map.set(leg.pickId, leg.outcome);
+    const map = new Map<string, string>();
+    for (const leg of legs) map.set(leg.pickId, leg.outcomeLabel);
     return map;
   }, [legs]);
 
-  const handlePick = (pick: SavedPick, outcome: Outcome) => {
+  const upsertLeg = (pickId: string, newLeg: SlipLeg) => {
     setLegs((current) => {
-      const existing = current.find((l) => l.pickId === pick.id);
+      const existing = current.find((l) => l.pickId === pickId);
       let next: SlipLeg[];
-      if (existing && existing.outcome === outcome) {
+      if (existing && existing.outcomeLabel === newLeg.outcomeLabel) {
         // Tapping the already-chosen outcome removes that leg.
-        next = current.filter((l) => l.pickId !== pick.id);
+        next = current.filter((l) => l.pickId !== pickId);
       } else if (existing) {
-        next = current.map((l) => (l.pickId === pick.id ? legFromPick(pick, outcome) : l));
+        next = current.map((l) => (l.pickId === pickId ? newLeg : l));
       } else {
-        next = [...current, legFromPick(pick, outcome)];
+        next = [...current, newLeg];
       }
       saveSlip(next);
       return next;
     });
+  };
+
+  const handlePickSports = (pick: SavedPick, outcome: Outcome) => upsertLeg(pick.id, legFromPick(pick, outcome));
+
+  const handlePickMarket = (pick: SavedMarketPick, outcomeLabel: string) => {
+    const leg = legFromMarketPick(pick, outcomeLabel);
+    if (leg) upsertLeg(pick.id, leg);
   };
 
   const handleRemove = (pickId: string) => {
@@ -92,15 +117,15 @@ export default function SlipPage() {
   return (
     <div className="mx-auto max-w-md">
       <header className="safe-top sticky top-0 z-30 border-b border-border-soft bg-bg/85 px-4 pb-3 backdrop-blur-xl">
-        <h1 className="font-display text-[17px] font-bold tracking-tight">Bet Slip</h1>
-        <p className="text-[11px] text-text-faint">Build from analyzed picks &middot; paper only</p>
+        <h1 className="font-display text-[17px] font-bold tracking-tight">Lab</h1>
+        <p className="text-[11px] text-text-faint">Build bets from any saved pick &middot; paper only</p>
 
         <div className="relative mt-3">
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-faint" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search analyzed games..."
+            placeholder="Search analyzed picks..."
             className="w-full rounded-full bg-surface py-2.5 pl-9 pr-3 text-[13px] text-text placeholder:text-text-faint ring-1 ring-inset ring-border-soft focus:outline-none focus:ring-accent/40"
           />
         </div>
@@ -186,25 +211,34 @@ export default function SlipPage() {
           <div className="flex flex-col items-center gap-2.5 rounded-2xl border border-border-soft bg-surface px-5 py-16 text-center">
             <TicketIcon className="h-6 w-6 text-text-faint" />
             <p className="max-w-[240px] text-[13px] text-text-dim">
-              Analyze a match and save it as a pick, then build a slip from it here.
+              Analyze a match or a market and save it as a pick, then build a slip from it here.
             </p>
           </div>
         )}
 
         {picks !== null && picks.length > 0 && filteredPicks.length === 0 && (
-          <p className="py-10 text-center text-[13px] text-text-faint">No analyzed games match &quot;{query}&quot;.</p>
+          <p className="py-10 text-center text-[13px] text-text-faint">No analyzed picks match &quot;{query}&quot;.</p>
         )}
 
         {filteredPicks.length > 0 && (
           <div className="space-y-3 pb-4">
-            {filteredPicks.map((pick) => (
-              <SlipPickRow
-                key={pick.id}
-                pick={pick}
-                selectedOutcome={legByPickId.get(pick.id) ?? null}
-                onPick={(outcome) => handlePick(pick, outcome)}
-              />
-            ))}
+            {filteredPicks.map((item) =>
+              item.kind === "sports" ? (
+                <SlipPickRow
+                  key={item.pick.id}
+                  pick={item.pick}
+                  selectedOutcome={legByPickId.get(item.pick.id) ?? null}
+                  onPick={(outcome) => handlePickSports(item.pick, outcome)}
+                />
+              ) : (
+                <MarketPickRow
+                  key={item.pick.id}
+                  pick={item.pick}
+                  selectedOutcomeLabel={legByPickId.get(item.pick.id) ?? null}
+                  onPick={(outcomeLabel) => handlePickMarket(item.pick, outcomeLabel)}
+                />
+              )
+            )}
           </div>
         )}
       </div>
@@ -231,10 +265,8 @@ function LegRow({ leg, onRemove }: { leg: SlipLeg; onRemove: () => void }) {
     <div className="flex items-center justify-between gap-2 rounded-xl bg-surface-2 px-3 py-2.5">
       <div className="min-w-0">
         <p className="truncate text-[12px] font-medium text-text">
-          {outcomeLabel(leg)}
-          <span className="ml-1.5 font-normal text-text-faint">
-            &middot; {leg.homeTeam} v {leg.awayTeam}
-          </span>
+          {leg.outcomeLabel}
+          <span className="ml-1.5 font-normal text-text-faint">&middot; {leg.title}</span>
         </p>
         <p className="text-[10px] tabular-nums text-text-faint">
           AI {toPercent(leg.aiProb)} &middot; mkt {toPercent(leg.marketProb)} &middot; edge{" "}

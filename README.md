@@ -19,14 +19,29 @@ across every category, refreshed from a live sweep of Polymarket's Gamma API (`l
 chip to filter, or **Analyze** any card to run the same independent-research-then-compare flow
 described below, generalized for markets with anywhere from 2 (Yes/No) to a dozen-plus named
 outcomes (`lib/openrouterMarkets.ts`, `/api/analyze/market/predict`, `/api/analyze/market/compare`).
-Saved analyses live under Discover's own **Saved** tab (`lib/marketPicks.ts`) — a separate store
-from Sports' Picks/Slip, so the two flows never interfere with each other.
+A saved analysis lands in `lib/marketPicks.ts` — a separate store from Sports' picks
+(`lib/picks.ts`), so the two flows can never corrupt each other's data — but both are shown
+together everywhere a pick is shown: **Picks** and **Lab**.
 
 ## Sports
 
 The **Sports** tab (`app/sports/page.tsx`) is the original football-only experience — see below
-for how its AI analysis, filtering, and caching work. Saved picks from Sports appear in the
-**Picks** and **Slip** tabs.
+for how its AI analysis, filtering, and caching work.
+
+## Picks and Lab: one shared view across both
+
+Every analysis you save, whether it came from Discover or Sports, shows up together:
+
+- **Picks** lists every saved analysis — football and any other market — sorted by when you saved
+  it, each rendered with its own card style but in one merged, chronological feed.
+- **Lab** (formerly "Slip") builds a single or multi-leg (parlay) bet from any combination of your
+  saved picks, football and Discover markets alike: search across all of them, tap an outcome on
+  each to add it as a leg. In **Multi** mode with 2+ legs, the combined market probability and
+  combined AI probability are each the product of every leg's own probability for its chosen
+  outcome (`lib/betslip.ts`) — the gap between the two is how much more, or less, likely the AI
+  thinks the whole parlay is than the market's pricing implies. This math doesn't care what kind
+  of market a leg came from, so a parlay can freely mix a football result with, say, a crypto
+  price target.
 
 ## How the AI analysis works
 
@@ -46,14 +61,6 @@ Both results are shown in the UI as a guided reveal, and the whole thing can be 
 Tap the select icon in the header to pick up to 10 matches and analyze them all in one batch —
 they run through the same two-step process sequentially (not in parallel, to stay well within
 OpenRouter's rate limits) and each result appears in the sheet as it finishes.
-
-## Bet Slip
-
-The **Slip** tab builds a single or multi-leg (parlay) bet from your saved picks: search your
-analyzed matches, tap Home/Draw/Away on each to add that outcome as a leg. In **Multi** mode with
-2+ legs, the combined market probability and combined AI probability are each the product of every
-leg's own probability for its chosen outcome (`lib/betslip.ts`) — the gap between the two is how
-much more, or less, likely the AI thinks the whole parlay is than the market's pricing implies.
 
 ## Filtering and refreshing
 
@@ -123,8 +130,8 @@ required to run AI analysis.
 app/
   page.tsx                            Discover — trending markets across all of Polymarket (home)
   sports/page.tsx                     Sports — the original football-only game list
-  picks/page.tsx                      Sports' saved paper picks
-  slip/page.tsx                       Sports' bet slip
+  picks/page.tsx                      Every saved analysis, football and Discover, merged
+  lab/page.tsx                        Build a single/multi bet from any saved pick
   api/markets/route.ts                Fetches + normalizes Discover's trending markets
   api/analyze/market/predict/route.ts Discover step 1: independent AI prediction (any market)
   api/analyze/market/compare/route.ts Discover step 2: compare prediction against market odds

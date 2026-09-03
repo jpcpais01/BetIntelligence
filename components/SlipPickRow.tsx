@@ -15,7 +15,11 @@ export default function SlipPickRow({
   onPick,
 }: {
   pick: SavedPick;
-  selectedOutcome: Outcome | null;
+  // The slip stores the resolved display label (team name / "Draw"), not the raw enum — this
+  // component compares against that label to decide which button is highlighted, but still
+  // reports the Outcome enum to onPick since that's what legFromPick needs to index into
+  // pick.market/pick.independent.
+  selectedOutcome: string | null;
   onPick: (outcome: Outcome) => void;
 }) {
   return (
@@ -39,7 +43,7 @@ export default function SlipPickRow({
           outcome="home"
           ai={pick.independent.home}
           market={pick.market.home}
-          active={selectedOutcome === "home"}
+          active={selectedOutcome === pick.homeTeam}
           onClick={() => onPick("home")}
         />
         <OutcomeButton
@@ -47,7 +51,7 @@ export default function SlipPickRow({
           outcome="draw"
           ai={pick.independent.draw}
           market={pick.market.draw}
-          active={selectedOutcome === "draw"}
+          active={selectedOutcome === "Draw"}
           onClick={() => onPick("draw")}
         />
         <OutcomeButton
@@ -55,7 +59,7 @@ export default function SlipPickRow({
           outcome="away"
           ai={pick.independent.away}
           market={pick.market.away}
-          active={selectedOutcome === "away"}
+          active={selectedOutcome === pick.awayTeam}
           onClick={() => onPick("away")}
         />
       </div>

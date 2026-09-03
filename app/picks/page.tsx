@@ -1,37 +1,59 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { SavedPick } from "@/lib/types";
+import { useEffect, useMemo, useState } from "react";
+import type { SavedPick, SavedMarketPick } from "@/lib/types";
 import { loadPicks, removePick } from "@/lib/picks";
+import { loadMarketPicks, removeMarketPick } from "@/lib/marketPicks";
 import PickCard from "@/components/PickCard";
+import SavedMarketPickCard from "@/components/SavedMarketPickCard";
 import { useRequestLogos } from "@/components/ClubLogosProvider";
 import { BookmarkIcon } from "@/components/icons";
 
+type AnyPick =
+  | { kind: "sports"; savedAt: string; pick: SavedPick }
+  | { kind: "market"; savedAt: string; pick: SavedMarketPick };
+
 export default function PicksPage() {
-  const [picks, setPicks] = useState<SavedPick[] | null>(null);
+  const [sportsPicks, setSportsPicks] = useState<SavedPick[] | null>(null);
+  const [marketPicks, setMarketPicks] = useState<SavedMarketPick[] | null>(null);
   const requestLogos = useRequestLogos();
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is unavailable during SSR/hydration
-    setPicks(loadPicks());
+    /* eslint-disable react-hooks/set-state-in-effect -- localStorage is unavailable during SSR/hydration */
+    setSportsPicks(loadPicks());
+    setMarketPicks(loadMarketPicks());
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   useEffect(() => {
-    if (!picks || picks.length === 0) return;
-    requestLogos(picks.flatMap((p) => [p.homeTeam, p.awayTeam]));
-  }, [picks, requestLogos]);
+    if (!sportsPicks || sportsPicks.length === 0) return;
+    requestLogos(sportsPicks.flatMap((p) => [p.homeTeam, p.awayTeam]));
+  }, [sportsPicks, requestLogos]);
 
-  const handleRemove = (id: string) => {
-    setPicks(removePick(id));
-  };
+  const handleRemoveSports = (id: string) => setSportsPicks(removePick(id));
+  const handleRemoveMarket = (id: string) => setMarketPicks(removeMarketPick(id));
 
-  const valueCount = picks?.filter((p) => p.comparison.bestValue !== "none").length ?? 0;
+  // Every saved analysis, football and Discover alike, merged into one feed sorted by when it
+  // was saved — Picks is meant to be a single place to see everything you've analyzed, not one
+  // list per market type.
+  const picks = useMemo<AnyPick[] | null>(() => {
+    if (sportsPicks === null || marketPicks === null) return null;
+    const merged: AnyPick[] = [
+      ...sportsPicks.map((pick): AnyPick => ({ kind: "sports", savedAt: pick.savedAt, pick })),
+      ...marketPicks.map((pick): AnyPick => ({ kind: "market", savedAt: pick.savedAt, pick })),
+    ];
+    return merged.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
+  }, [sportsPicks, marketPicks]);
+
+  const valueCount =
+    (sportsPicks?.filter((p) => p.comparison.bestValue !== "none").length ?? 0) +
+    (marketPicks?.filter((p) => p.comparison.bestValue !== null).length ?? 0);
 
   return (
     <div className="mx-auto max-w-md">
       <header className="safe-top sticky top-0 z-30 border-b border-border-soft bg-bg/85 px-4 pb-3 backdrop-blur-xl">
         <h1 className="font-display text-[17px] font-bold tracking-tight">Picks</h1>
-        <p className="text-[11px] text-text-faint">Tracked calls &middot; paper only, no real money</p>
+        <p className="text-[11px] text-text-faint">Every saved analysis &middot; paper only, no real money</p>
       </header>
 
       <div className="px-4 pt-4">
@@ -52,16 +74,20 @@ export default function PicksPage() {
           <div className="flex flex-col items-center gap-2.5 rounded-2xl border border-border-soft bg-surface px-5 py-16 text-center">
             <BookmarkIcon className="h-6 w-6 text-text-faint" />
             <p className="max-w-[220px] text-[13px] text-text-dim">
-              No saved picks yet. Analyze a match and save it here.
+              No saved picks yet. Analyze a match on Sports or a market on Discover and save it here.
             </p>
           </div>
         )}
 
         {picks !== null && picks.length > 0 && (
           <div className="space-y-3">
-            {picks.map((pick) => (
-              <PickCard key={pick.id} pick={pick} onRemove={handleRemove} />
-            ))}
+            {picks.map((item) =>
+              item.kind === "sports" ? (
+                <PickCard key={item.pick.id} pick={item.pick} onRemove={handleRemoveSports} />
+              ) : (
+                <SavedMarketPickCard key={item.pick.id} pick={item.pick} onRemove={handleRemoveMarket} />
+              )
+            )}
           </div>
         )}
       </div>

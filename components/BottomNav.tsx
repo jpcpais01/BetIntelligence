@@ -8,7 +8,7 @@ const TABS = [
   { href: "/", label: "Discover", icon: CompassIcon },
   { href: "/sports", label: "Sports", icon: TrophyIcon },
   { href: "/picks", label: "Picks", icon: BookmarkIcon },
-  { href: "/slip", label: "Slip", icon: TicketIcon },
+  { href: "/lab", label: "Lab", icon: TicketIcon },
 ] as const;
 
 export default function BottomNav() {

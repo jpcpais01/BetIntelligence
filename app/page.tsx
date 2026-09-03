@@ -1,17 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Market, SavedMarketPick } from "@/lib/types";
+import Link from "next/link";
+import type { Market } from "@/lib/types";
 import MarketCard from "@/components/MarketCard";
 import MarketCardSkeleton from "@/components/MarketCardSkeleton";
 import MarketAnalysisSheet from "@/components/MarketAnalysisSheet";
-import SavedMarketPickCard from "@/components/SavedMarketPickCard";
 import { AlertIcon, RefreshIcon, CompassIcon, FlameIcon, BookmarkIcon } from "@/components/icons";
 import { formatRelativeTime } from "@/lib/format";
 import { loadCachedMarkets, saveCachedMarkets, isStale, REFRESH_INTERVAL_MS } from "@/lib/marketsCache";
-import { loadMarketPicks, removeMarketPick } from "@/lib/marketPicks";
-
-type Tab = "explore" | "saved";
 
 export default function DiscoverPage() {
   const [markets, setMarkets] = useState<Market[] | null>(null);
@@ -19,9 +16,7 @@ export default function DiscoverPage() {
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [category, setCategory] = useState("All");
-  const [tab, setTab] = useState<Tab>("explore");
   const [analyzeMarket, setAnalyzeMarket] = useState<Market | null>(null);
-  const [picks, setPicks] = useState<SavedMarketPick[] | null>(null);
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -63,13 +58,6 @@ export default function DiscoverPage() {
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [fetchedAt, refresh]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is unavailable during SSR/hydration
-    setPicks(loadMarketPicks());
-  }, [tab]);
-
-  const handleRemovePick = (id: string) => setPicks(removeMarketPick(id));
 
   const categories = useMemo(() => {
     if (!markets) return [];
@@ -117,19 +105,29 @@ export default function DiscoverPage() {
               {isRefreshing ? "Scanning every market..." : `Updated ${formatRelativeTime(fetchedAt)}`}
             </p>
           </div>
-          <button
-            onClick={() => void refresh()}
-            disabled={isRefreshing}
-            aria-label="Refresh markets"
-            className="press shrink-0 rounded-sm p-2.5 text-text-dim ring-1 ring-inset disabled:opacity-50"
-            style={{ background: "var(--d-surface-2)", borderColor: "var(--d-border)" }}
-          >
-            <RefreshIcon className={`h-4 w-4 ${isRefreshing ? "spin" : ""}`} />
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Link
+              href="/picks"
+              aria-label="View saved picks"
+              className="press rounded-sm p-2.5 text-text-dim ring-1 ring-inset"
+              style={{ background: "var(--d-surface-2)", borderColor: "var(--d-border)" }}
+            >
+              <BookmarkIcon className="h-4 w-4" />
+            </Link>
+            <button
+              onClick={() => void refresh()}
+              disabled={isRefreshing}
+              aria-label="Refresh markets"
+              className="press rounded-sm p-2.5 text-text-dim ring-1 ring-inset disabled:opacity-50"
+              style={{ background: "var(--d-surface-2)", borderColor: "var(--d-border)" }}
+            >
+              <RefreshIcon className={`h-4 w-4 ${isRefreshing ? "spin" : ""}`} />
+            </button>
+          </div>
         </div>
 
         {tickerMarkets.length > 0 && (
-          <div className="mb-3.5 -mx-4 overflow-hidden px-4">
+          <div className="-mx-4 overflow-hidden px-4">
             <div className="flex w-max gap-2">
               <div className="marquee-track flex w-max shrink-0 gap-2">
                 <TickerRow markets={tickerMarkets} />
@@ -140,124 +138,86 @@ export default function DiscoverPage() {
             </div>
           </div>
         )}
-
-        <div className="flex gap-1.5 rounded-sm p-1" style={{ background: "var(--d-surface-2)" }}>
-          <TabButton label="Explore" icon={CompassIcon} active={tab === "explore"} onClick={() => setTab("explore")} />
-          <TabButton
-            label={`Saved${picks && picks.length > 0 ? ` (${picks.length})` : ""}`}
-            icon={BookmarkIcon}
-            active={tab === "saved"}
-            onClick={() => setTab("saved")}
-          />
-        </div>
       </header>
 
       <div className="px-4 pt-4">
-        {tab === "explore" && (
-          <>
-            {categories.length > 0 && (
-              <div className="mb-4 -mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
-                <CategoryChip label="All" emoji="✨" active={category === "All"} onClick={() => setCategory("All")} />
-                {categories.map((c) => {
-                  const emoji = markets?.find((m) => m.category === c)?.categoryEmoji ?? "🔮";
-                  return (
-                    <CategoryChip
-                      key={c}
-                      label={c}
-                      emoji={emoji}
-                      active={category === c}
-                      onClick={() => setCategory(c)}
-                    />
-                  );
-                })}
-              </div>
-            )}
-
-            {error && markets !== null && (
-              <div
-                className="mb-3 flex items-center gap-2 rounded-sm px-3 py-2 ring-1 ring-inset"
-                style={{ background: "rgba(var(--d-accent-2-rgb), 0.08)", borderColor: "var(--d-accent-2)" }}
-              >
-                <AlertIcon className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--d-accent-2)" }} />
-                <p className="text-[11px] text-text-dim">
-                  Couldn&apos;t refresh &mdash; showing markets from {formatRelativeTime(fetchedAt)}.
-                </p>
-              </div>
-            )}
-
-            {showFullError && (
-              <div
-                className="flex flex-col items-center gap-3 rounded-md border px-5 py-12 text-center"
-                style={{ borderColor: "var(--d-border)" }}
-              >
-                <AlertIcon className="h-6 w-6" style={{ color: "var(--d-accent-2)" }} />
-                <p className="selectable text-[13px] text-text-dim">{error}</p>
-                <button
-                  onClick={() => void refresh()}
-                  className="press mt-1 rounded-sm px-4 py-2 text-xs font-semibold"
-                  style={{ background: "rgba(var(--d-accent-2-rgb), 0.12)", color: "var(--d-accent-2)" }}
-                >
-                  Try again
-                </button>
-              </div>
-            )}
-
-            {!showFullError && markets === null && (
-              <div className="space-y-3">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <MarketCardSkeleton key={i} />
-                ))}
-              </div>
-            )}
-
-            {!showFullError && markets !== null && filtered.length === 0 && (
-              <div
-                className="flex flex-col items-center gap-2.5 rounded-md border px-5 py-14 text-center"
-                style={{ borderColor: "var(--d-border)" }}
-              >
-                <CompassIcon className="h-6 w-6 text-text-faint" />
-                <p className="max-w-[240px] text-[13px] text-text-dim">No markets in this category right now.</p>
-              </div>
-            )}
-
-            {!showFullError && filtered.length > 0 && (
-              <div className="space-y-3 pb-4">
-                {filtered.map((market, i) => (
-                  <MarketCard
-                    key={market.id}
-                    market={market}
-                    hot={hotIds.has(market.id)}
-                    onAnalyze={setAnalyzeMarket}
-                    style={{ animationDelay: `${Math.min(i, 6) * 35}ms` }}
-                  />
-                ))}
-              </div>
-            )}
-          </>
+        {categories.length > 0 && (
+          <div className="mb-4 -mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+            <CategoryChip label="All" emoji="✨" active={category === "All"} onClick={() => setCategory("All")} />
+            {categories.map((c) => {
+              const emoji = markets?.find((m) => m.category === c)?.categoryEmoji ?? "🔮";
+              return (
+                <CategoryChip
+                  key={c}
+                  label={c}
+                  emoji={emoji}
+                  active={category === c}
+                  onClick={() => setCategory(c)}
+                />
+              );
+            })}
+          </div>
         )}
 
-        {tab === "saved" && (
-          <>
-            {picks === null && <div className="py-16" />}
-            {picks !== null && picks.length === 0 && (
-              <div
-                className="flex flex-col items-center gap-2.5 rounded-md border px-5 py-16 text-center"
-                style={{ borderColor: "var(--d-border)" }}
-              >
-                <BookmarkIcon className="h-6 w-6 text-text-faint" />
-                <p className="max-w-[220px] text-[13px] text-text-dim">
-                  Analyze a market and save it here to track your calls.
-                </p>
-              </div>
-            )}
-            {picks !== null && picks.length > 0 && (
-              <div className="space-y-3 pb-4">
-                {picks.map((pick) => (
-                  <SavedMarketPickCard key={pick.id} pick={pick} onRemove={handleRemovePick} />
-                ))}
-              </div>
-            )}
-          </>
+        {error && markets !== null && (
+          <div
+            className="mb-3 flex items-center gap-2 rounded-sm px-3 py-2 ring-1 ring-inset"
+            style={{ background: "rgba(var(--d-accent-2-rgb), 0.08)", borderColor: "var(--d-accent-2)" }}
+          >
+            <AlertIcon className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--d-accent-2)" }} />
+            <p className="text-[11px] text-text-dim">
+              Couldn&apos;t refresh &mdash; showing markets from {formatRelativeTime(fetchedAt)}.
+            </p>
+          </div>
+        )}
+
+        {showFullError && (
+          <div
+            className="flex flex-col items-center gap-3 rounded-md border px-5 py-12 text-center"
+            style={{ borderColor: "var(--d-border)" }}
+          >
+            <AlertIcon className="h-6 w-6" style={{ color: "var(--d-accent-2)" }} />
+            <p className="selectable text-[13px] text-text-dim">{error}</p>
+            <button
+              onClick={() => void refresh()}
+              className="press mt-1 rounded-sm px-4 py-2 text-xs font-semibold"
+              style={{ background: "rgba(var(--d-accent-2-rgb), 0.12)", color: "var(--d-accent-2)" }}
+            >
+              Try again
+            </button>
+          </div>
+        )}
+
+        {!showFullError && markets === null && (
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <MarketCardSkeleton key={i} />
+            ))}
+          </div>
+        )}
+
+        {!showFullError && markets !== null && filtered.length === 0 && (
+          <div
+            className="flex flex-col items-center gap-2.5 rounded-md border px-5 py-14 text-center"
+            style={{ borderColor: "var(--d-border)" }}
+          >
+            <CompassIcon className="h-6 w-6 text-text-faint" />
+            <p className="max-w-[240px] text-[13px] text-text-dim">No markets in this category right now.</p>
+          </div>
+        )}
+
+        {!showFullError && filtered.length > 0 && (
+          <div className="space-y-3 pb-4">
+            {filtered.map((market, i) => (
+              <MarketCard
+                key={market.id}
+                market={market}
+                hot={hotIds.has(market.id)}
+                onAnalyze={setAnalyzeMarket}
+                style={{ animationDelay: `${Math.min(i, 6) * 35}ms` }}
+              />
+            ))}
+          </div>
         )}
       </div>
 
@@ -283,33 +243,6 @@ function TickerRow({ markets }: { markets: Market[] }) {
         </div>
       ))}
     </>
-  );
-}
-
-function TabButton({
-  label,
-  icon: Icon,
-  active,
-  onClick,
-}: {
-  label: string;
-  icon: (props: { className?: string }) => React.ReactElement;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="press flex flex-1 items-center justify-center gap-1.5 rounded-sm py-2 text-[12px] font-semibold"
-      style={
-        active
-          ? { background: "linear-gradient(135deg, var(--d-accent), var(--d-violet))", color: "var(--bg)" }
-          : { color: "var(--text-faint)" }
-      }
-    >
-      <Icon className="h-3.5 w-3.5" />
-      {label}
-    </button>
   );
 }
 
