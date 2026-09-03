@@ -52,6 +52,13 @@ export interface FetchDiagnostics {
   }[];
   sampleParsedKickoffs: { title: string; startTime: string }[];
   requestErrors: string[];
+  // How many /series objects were actually retrieved (across the unfiltered pagination sweep
+  // and the categories_labels-filtered attempts) and a sample of them — added because the
+  // series_id discovery path kept finding zero matches with no error to explain why, so this
+  // shows the real response shape/content directly instead of requiring another guess-and-check
+  // round trip through a human pasting debug output.
+  seriesFetched: number;
+  sampleSeries: { id?: string | number; slug?: string; title?: string }[];
 }
 
 function parseArrayField(field: string | string[] | undefined): string[] {
@@ -227,6 +234,17 @@ interface RawSeries {
 
 const MAX_SERIES_PAGES = 15;
 
+function extractSeriesArray(data: unknown): RawSeries[] {
+  if (Array.isArray(data)) return data as RawSeries[];
+  if (data && typeof data === "object") {
+    for (const key of ["series", "data", "results"]) {
+      const value = (data as Record<string, unknown>)[key];
+      if (Array.isArray(value)) return value as RawSeries[];
+    }
+  }
+  return [];
+}
+
 // Real /series objects have proper {id, slug, title} fields — confirmed against Polymarket's
 // own API docs (github.com/Polymarket/agent-skills) and a third-party Go client's typed
 // struct definitions, since gamma-api.polymarket.com itself isn't reachable to verify directly
@@ -234,9 +252,22 @@ const MAX_SERIES_PAGES = 15;
 // silently broken: that field is a STRING on that endpoint, not an array of series objects —
 // `Array.isArray(s.series)` was always false, so it found zero matches every time, no matter
 // what shape the caller assumed. /series is the dedicated, documented endpoint instead.
-async function fetchAllSeries(): Promise<{ series: RawSeries[]; errors: string[] }> {
+//
+// Two passes: an unfiltered pagination sweep (in case /series ignores category filtering or
+// uses a different label than guessed), AND a category-filtered attempt (in case the platform
+// has thousands of non-sports recurring series that would otherwise push soccer leagues past
+// the unfiltered sweep's page cap before ever reaching them). Merged and deduped by id.
+async function fetchAllSeries(): Promise<{ series: RawSeries[]; errors: string[]; pagesFetched: number }> {
   const errors: string[] = [];
-  const collected: RawSeries[] = [];
+  const collected = new Map<string, RawSeries>();
+  let pagesFetched = 0;
+
+  const addAll = (batch: RawSeries[]) => {
+    for (const s of batch) {
+      const key = s.id !== undefined ? String(s.id) : s.slug;
+      if (key && !collected.has(key)) collected.set(key, s);
+    }
+  };
 
   for (let page = 0; page < MAX_SERIES_PAGES; page++) {
     const { data, error } = await gate.run(() =>
@@ -245,16 +276,28 @@ async function fetchAllSeries(): Promise<{ series: RawSeries[]; errors: string[]
         new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(page * PAGE_SIZE), closed: "false" })
       )
     );
+    pagesFetched++;
     if (error) {
       errors.push(error);
       break;
     }
-    const batch = Array.isArray(data) ? (data as RawSeries[]) : [];
-    collected.push(...batch);
+    const batch = extractSeriesArray(data);
+    addAll(batch);
     if (batch.length < PAGE_SIZE) break;
   }
 
-  return { series: collected, errors };
+  for (const label of ["Sports", "Soccer"]) {
+    const { data, error } = await gate.run(() =>
+      getJson<unknown>(
+        "/series",
+        new URLSearchParams({ limit: String(PAGE_SIZE), closed: "false", categories_labels: label })
+      )
+    );
+    if (error) errors.push(error);
+    else addAll(extractSeriesArray(data));
+  }
+
+  return { series: [...collected.values()], errors, pagesFetched };
 }
 
 // Premier League, La Liga, and Serie A are official Polymarket partner leagues, and their
@@ -267,8 +310,11 @@ async function fetchLeaguesBySeries(): Promise<{
   events: RawEvent[];
   matchedLeagues: string[];
   errors: string[];
+  seriesFetched: number;
+  sampleSeries: { id?: string | number; slug?: string; title?: string }[];
 }> {
   const { series: allSeries, errors } = await fetchAllSeries();
+  const sampleSeries = allSeries.slice(0, 40).map((s) => ({ id: s.id, slug: s.slug, title: s.title }));
 
   const matches: { leagueId: string; series: RawSeries }[] = [];
   for (const series of allSeries) {
@@ -280,7 +326,7 @@ async function fetchLeaguesBySeries(): Promise<{
   }
 
   if (matches.length === 0) {
-    return { events: [], matchedLeagues: [], errors };
+    return { events: [], matchedLeagues: [], errors, seriesFetched: allSeries.length, sampleSeries };
   }
 
   const seen = new Set<string>();
@@ -310,7 +356,7 @@ async function fetchLeaguesBySeries(): Promise<{
     }
   }
 
-  return { events: merged, matchedLeagues, errors };
+  return { events: merged, matchedLeagues, errors, seriesFetched: allSeries.length, sampleSeries };
 }
 
 // Two complementary passes, merged rather than "first one that works wins":
@@ -322,6 +368,8 @@ async function fetchSoccerEvents(): Promise<{
   events: RawEvent[];
   strategy: string;
   errors: string[];
+  seriesFetched: number;
+  sampleSeries: { id?: string | number; slug?: string; title?: string }[];
 }> {
   const errors: string[] = [];
   const seen = new Set<string>();
@@ -388,7 +436,13 @@ async function fetchSoccerEvents(): Promise<{
     strategies.push(`broad(${broad.events.length})`);
   }
 
-  return { events: merged, strategy: strategies.join(" + ") || "none", errors };
+  return {
+    events: merged,
+    strategy: strategies.join(" + ") || "none",
+    errors,
+    seriesFetched: seriesResult.seriesFetched,
+    sampleSeries: seriesResult.sampleSeries,
+  };
 }
 
 function extractTeamsFromTitle(eventTitle: string): { home: string; away: string } | null {
@@ -588,7 +642,7 @@ const MATCH_LIKE_TITLE = /\bvs\.?\b|\bv\.?\b|@/i;
 const PARTNER_LEAGUE_IDS = new Set(["premier-league", "la-liga", "serie-a"]);
 
 export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
-  const { events, strategy, errors } = await fetchSoccerEvents();
+  const { events, strategy, errors, seriesFetched, sampleSeries } = await fetchSoccerEvents();
   const eventsWithMarkets = events.filter((e) => (e.markets?.length ?? 0) > 0);
 
   const eventsMatchingLeague = eventsWithMarkets.filter(eventMatchesTargetLeague);
@@ -667,6 +721,8 @@ export async function getFetchDiagnostics(): Promise<FetchDiagnostics> {
     samplePartnerLeagueRejections,
     sampleParsedKickoffs,
     requestErrors: errors,
+    seriesFetched,
+    sampleSeries,
   };
 }
 
