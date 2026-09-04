@@ -117,17 +117,21 @@ export default function BetSlipBar({
               className="lab-slide-up max-h-[70vh] overflow-y-auto rounded-3xl shadow-2xl"
               style={{ background: "var(--lab-surface)", border: "1px solid var(--lab-border)" }}
             >
-              <div className="sticky top-0 z-10 flex items-center justify-between gap-2 rounded-t-3xl px-4 pt-3.5 pb-2" style={{ background: "var(--lab-surface)" }}>
-                <span className="flex items-center gap-1.5 text-[13px] font-bold text-text">
-                  <TicketIcon className="h-4 w-4" style={{ color: "var(--lab-gold)" }} />
-                  Your slip
-                </span>
-                <div className="flex items-center gap-3">
+              <div className="sticky top-0 z-10 rounded-t-3xl pt-2" style={{ background: "var(--lab-surface)" }}>
+                <button
+                  onClick={() => setExpanded(false)}
+                  aria-label="Collapse slip"
+                  className="press flex w-full items-center justify-center py-1 text-text-faint"
+                >
+                  <ChevronDownIcon className="h-4 w-4" />
+                </button>
+                <div className="flex items-center justify-between gap-2 px-4 pb-2">
+                  <span className="flex items-center gap-1.5 text-[13px] font-bold text-text">
+                    <TicketIcon className="h-4 w-4" style={{ color: "var(--lab-gold)" }} />
+                    Your slip
+                  </span>
                   <button onClick={onClear} className="press text-[11px] font-medium text-text-faint hover:text-[var(--lab-red)]">
                     Clear
-                  </button>
-                  <button onClick={() => setExpanded(false)} aria-label="Collapse slip" className="press text-text-faint">
-                    <ChevronDownIcon className="h-4 w-4" />
                   </button>
                 </div>
               </div>
