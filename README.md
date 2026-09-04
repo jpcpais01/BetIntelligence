@@ -48,26 +48,27 @@ Every analysis you save, whether it came from Discover or Sports, shows up toget
 Lab is deliberately styled unlike the rest of the app — a deep violet/gold "modern sportsbook"
 theme (`.lab` in `app/globals.css`, its own CSS custom properties alongside the neutral palette
 Sports/Picks use and the green-phosphor terminal look Discover uses) instead of another variation
-on the same look. Odds lead with the number a real book shows — **decimal odds** (`toDecimalOdds`,
-`lib/format.ts`), e.g. `2.38x` — rather than the percentage-first framing used everywhere else,
-and any outcome where the AI's read clears the market by 2+ points earns a small "value" badge
-(a bolt icon + the edge) so a spottable edge reads as a find, not just another number in a row.
+on the same look. Every outcome — the main three-way, the two double-chance combos, any Discover
+market's outcomes — renders through the same button: a label, a big **decimal odds** number
+(`toDecimalOdds`, `lib/format.ts`, e.g. `2.38x`) rather than the percentage-first framing used
+everywhere else, and the AI's own probability underneath. Edge only ever shows as a small "value"
+badge (a bolt icon + the edge) when the AI's read clears the market by 2+ points — deliberately the
+*only* place edge appears, and only when it's worth noticing, rather than a number crowding every
+single button whether or not it means anything.
 
 Every odds figure and edge shown in Lab is **live**, not the snapshot from when you originally
-analyzed the pick — the market moves after that, and showing a stale number would be misleading.
-A shared client-side lookup (`lib/livePrices.ts`) re-fetches each outcome's current price by its
+analyzed the pick — the market moves after that, and showing a stale number would be misleading. A
+shared client-side lookup (`lib/livePrices.ts`) re-fetches each outcome's current price by its
 Polymarket CLOB token id (the same one behind the odds-history chart's `/api/odds-history`, so no
-new API route was needed) and every card, slip leg, and placed bet reads from that one map. A tiny
-"Δ" line under the edge shows how much it's moved since the analysis (or since you bought, on a
-placed bet) — the delta is just `entry market price − current market price`, since the AI's own
-read doesn't change after analysis. A pick saved before this shipped, or a double-chance combo
-(no single token prices "1X"), simply has nothing to reprice and holds at its last known value.
+new API route was needed) and every card, slip leg, and placed bet reads from that one map. A pick
+saved before this shipped, or a double-chance combo (no single token prices "1X"), simply has
+nothing to reprice and holds at its last known value.
 
 - **Build** tab: search across every saved pick (with the same All/Football filter as Picks), tap
   an outcome to add it as a leg, or tap the pick's own title/teams to open its full analysis
   report. Every football pick also offers **double chance** — **1X** (home win or draw) and **X2**
-  (draw or away win) — as a compact secondary row beneath the main three-way buttons. Neither is a
-  market Polymarket sells separately (a partner-league event is a plain 1X2 with no fourth or fifth
+  (draw or away win) — as two extra buttons alongside the main three-way ones. Neither is a market
+  Polymarket sells separately (a partner-league event is a plain 1X2 with no fourth or fifth
   outcome), so both are computed client-side as the sum of the two 1X2 outcomes they cover
   (`legFromPick` in `lib/betslip.ts`), for both the market's own probability and the AI's
   independent read — edge included, since a combo's edge is just the sum of the two edges it covers.
@@ -82,9 +83,9 @@ read doesn't change after analysis. A pick saved before this shipped, or a doubl
   confetti-and-receipt confirmation, and the slip clears. The stake is spent from the play-money
   balance Home tracks (see below); `lib/placedBets.ts` snapshots the legs, the live entry price,
   and the stake into local storage.
-- **My Bets** tab lists every bet you've placed as a ticket-style card — legs, live odds/edge (with
-  the same Δ-since-bought line), and a **Pending** status, honestly reflecting that this is a record
-  of what you bought, not a settled result — the app has no way to know how a match or market
+- **My Bets** tab lists every bet you've placed as a ticket-style card — legs, live odds/edge, and a
+  **Pending** status, honestly reflecting that this is a record of what you bought, not a settled
+  result — the app has no way to know how a match or market
   actually resolved.
 
 ## Home: a paper portfolio

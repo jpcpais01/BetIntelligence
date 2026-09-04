@@ -37,7 +37,6 @@ export default function MarketPickRow({
           const liveMarket = livePrices[liveKey(pick.id, o.label)] ?? entryMarket;
           const active = selectedOutcomeLabel === o.label;
           const edge = o.probability - liveMarket;
-          const delta = entryMarket - liveMarket;
           const isValue = edge >= VALUE_EDGE_THRESHOLD;
           const color = OUTCOME_COLORS[i % OUTCOME_COLORS.length];
           return (
@@ -64,9 +63,6 @@ export default function MarketPickRow({
                 {toDecimalOdds(liveMarket)}
               </p>
               <p className="text-[9px] tabular-nums text-text-faint">AI {toPercent(o.probability)}</p>
-              <p className="text-[7px] tabular-nums text-text-faint opacity-70">
-                &Delta; {toSignedPercent(delta)} since analysis
-              </p>
             </button>
           );
         })}

@@ -7,12 +7,14 @@ import { ChevronRightIcon, BoltIcon } from "./icons";
 
 // A meaningfully positive AI-vs-market edge earns a small "value" badge — the whole point of a
 // gamified slip is making a spottable edge feel like a find, not just another number in a row.
+// It's the only place edge shows: a number on every single button, value or not, is just noise.
 const VALUE_EDGE_THRESHOLD = 0.02;
 
-const OUTCOME_COLOR: Record<"home" | "draw" | "away", string> = {
+const OUTCOME_COLOR: Record<"home" | "draw" | "away" | "combo", string> = {
   home: "var(--lab-pink)",
   draw: "var(--lab-gold)",
   away: "var(--lab-cyan)",
+  combo: "var(--lab-gold)",
 };
 
 export default function SlipPickRow({
@@ -56,51 +58,46 @@ export default function SlipPickRow({
       </button>
 
       <div className="grid grid-cols-3 gap-1.5">
-        <OutcomeButton
+        <OddsButton
           label={firstWord(pick.homeTeam)}
-          outcome="home"
+          color={OUTCOME_COLOR.home}
           ai={pick.independent.home}
-          entryMarket={pick.market.home}
-          liveMarket={liveHome}
+          market={liveHome}
           active={selectedOutcome === pick.homeTeam}
           onClick={() => onPick("home")}
         />
-        <OutcomeButton
+        <OddsButton
           label="Draw"
-          outcome="draw"
+          color={OUTCOME_COLOR.draw}
           ai={pick.independent.draw}
-          entryMarket={pick.market.draw}
-          liveMarket={liveDraw}
+          market={liveDraw}
           active={selectedOutcome === "Draw"}
           onClick={() => onPick("draw")}
         />
-        <OutcomeButton
+        <OddsButton
           label={firstWord(pick.awayTeam)}
-          outcome="away"
+          color={OUTCOME_COLOR.away}
           ai={pick.independent.away}
-          entryMarket={pick.market.away}
-          liveMarket={liveAway}
+          market={liveAway}
           active={selectedOutcome === pick.awayTeam}
           onClick={() => onPick("away")}
         />
       </div>
 
       <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-        <ComboButton
+        <OddsButton
           label="1X"
-          sublabel={`${firstWord(pick.homeTeam)} or draw`}
+          color={OUTCOME_COLOR.combo}
           ai={pick.independent.home + pick.independent.draw}
-          entryMarket={pick.market.home + pick.market.draw}
-          liveMarket={liveHome + liveDraw}
+          market={liveHome + liveDraw}
           active={selectedOutcome === "1X"}
           onClick={() => onPick("1x")}
         />
-        <ComboButton
+        <OddsButton
           label="X2"
-          sublabel={`Draw or ${firstWord(pick.awayTeam)}`}
+          color={OUTCOME_COLOR.combo}
           ai={pick.independent.draw + pick.independent.away}
-          entryMarket={pick.market.draw + pick.market.away}
-          liveMarket={liveDraw + liveAway}
+          market={liveDraw + liveAway}
           active={selectedOutcome === "X2"}
           onClick={() => onPick("x2")}
         />
@@ -113,34 +110,26 @@ function firstWord(name: string): string {
   return name.split(" ")[0];
 }
 
-// Delta shows the drift between "edge as of the analysis" and "edge right now" — entirely
-// captured by how much the market itself moved, since the AI's read is a fixed number from
-// analysis time. Sign convention: positive delta means the edge has widened since analysis.
-function edgeDelta(entryMarket: number, liveMarket: number): number {
-  return entryMarket - liveMarket;
-}
-
-function OutcomeButton({
+// One shared button style for all five outcomes (home/draw/away plus the two double-chance
+// combos) — a single consistent shape reads faster than switching layouts partway down the card.
+// Edge only ever shows as the corner badge, and only when it's actually worth noticing.
+function OddsButton({
   label,
-  outcome,
+  color,
   ai,
-  entryMarket,
-  liveMarket,
+  market,
   active,
   onClick,
 }: {
   label: string;
-  outcome: "home" | "draw" | "away";
+  color: string;
   ai: number;
-  entryMarket: number;
-  liveMarket: number;
+  market: number;
   active: boolean;
   onClick: () => void;
 }) {
-  const edge = ai - liveMarket;
-  const delta = edgeDelta(entryMarket, liveMarket);
+  const edge = ai - market;
   const isValue = edge >= VALUE_EDGE_THRESHOLD;
-  const color = OUTCOME_COLOR[outcome];
   return (
     <button
       onClick={onClick}
@@ -161,78 +150,9 @@ function OutcomeButton({
       )}
       <p className="truncate text-[10px] text-text-faint">{label}</p>
       <p className="font-display text-[17px] font-bold tabular-nums" style={{ color }}>
-        {toDecimalOdds(liveMarket)}
+        {toDecimalOdds(market)}
       </p>
       <p className="text-[9px] tabular-nums text-text-faint">AI {toPercent(ai)}</p>
-      <p className="text-[7px] tabular-nums text-text-faint opacity-70">
-        &Delta; {toSignedPercent(delta)} since analysis
-      </p>
-    </button>
-  );
-}
-
-// Double chance (1X / X2): two of the three 1X2 outcomes bet together, so it gets a visually
-// distinct compact row rather than sitting inside the main 3-way grid as if it were a fourth
-// independent side.
-function ComboButton({
-  label,
-  sublabel,
-  ai,
-  entryMarket,
-  liveMarket,
-  active,
-  onClick,
-}: {
-  label: string;
-  sublabel: string;
-  ai: number;
-  entryMarket: number;
-  liveMarket: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  // A double-chance edge is just the sum of the two 1X2 edges it covers (e.g. 1X's edge = the
-  // home edge + the draw edge) — already true here since `ai`/`entryMarket`/`liveMarket` are
-  // themselves sums of the two outcomes it covers.
-  const edge = ai - liveMarket;
-  const delta = edgeDelta(entryMarket, liveMarket);
-  const isValue = edge >= VALUE_EDGE_THRESHOLD;
-  return (
-    <button
-      onClick={onClick}
-      className="press relative flex items-center justify-between gap-2 rounded-2xl px-2.5 py-1.5 text-left"
-      style={{
-        background: active ? "rgba(var(--lab-gold-rgb), 0.14)" : "rgba(255,255,255,0.03)",
-        boxShadow: active ? "inset 0 0 0 1.5px var(--lab-gold)" : "inset 0 0 0 1px var(--lab-border)",
-      }}
-    >
-      {isValue && (
-        <span
-          className="absolute -top-1.5 -right-1.5 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[8px] font-bold"
-          style={{ background: "var(--lab-green)", color: "#052018" }}
-        >
-          <BoltIcon className="h-2 w-2" />
-          {toSignedPercent(edge)}
-        </span>
-      )}
-      <div className="min-w-0">
-        <p className="text-[11px] font-semibold" style={{ color: active ? "var(--lab-gold)" : "var(--text-dim)" }}>
-          {label}
-        </p>
-        <p className="truncate text-[9px] text-text-faint">{sublabel}</p>
-      </div>
-      <div className="shrink-0 text-right">
-        <p className="font-display text-[13px] font-bold tabular-nums" style={{ color: "var(--lab-gold)" }}>
-          {toDecimalOdds(liveMarket)}
-        </p>
-        <p className="text-[9px] tabular-nums text-text-faint">
-          AI {toPercent(ai)} &middot;{" "}
-          <span style={{ color: edge > 0.005 ? "var(--lab-green)" : edge < -0.005 ? "var(--lab-red)" : undefined }}>
-            {toSignedPercent(edge)}
-          </span>
-        </p>
-        <p className="text-[7px] tabular-nums text-text-faint opacity-70">&Delta; {toSignedPercent(delta)}</p>
-      </div>
     </button>
   );
 }

@@ -204,7 +204,6 @@ export default function BetSlipBar({
 
 function LabLegRow({ leg, liveMarket, onRemove }: { leg: SlipLeg; liveMarket: number; onRemove: () => void }) {
   const edge = leg.aiProb - liveMarket;
-  const delta = leg.marketProb - liveMarket;
   return (
     <div className="flex items-center justify-between gap-2 rounded-2xl px-3 py-2.5" style={{ background: "var(--lab-surface-2)" }}>
       <div className="min-w-0">
@@ -217,9 +216,6 @@ function LabLegRow({ leg, liveMarket, onRemove }: { leg: SlipLeg; liveMarket: nu
           <span style={{ color: edge > 0.005 ? "var(--lab-green)" : edge < -0.005 ? "var(--lab-red)" : undefined }}>
             {toSignedPercent(edge)}
           </span>
-        </p>
-        <p className="text-[8px] tabular-nums text-text-faint opacity-70">
-          &Delta; {toSignedPercent(delta)} since analysis
         </p>
       </div>
       <button onClick={onRemove} aria-label="Remove leg" className="press shrink-0 text-text-faint hover:text-[var(--lab-red)]">

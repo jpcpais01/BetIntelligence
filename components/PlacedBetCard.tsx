@@ -7,17 +7,15 @@ import { TicketIcon } from "./icons";
 // A placed bet is a permanent paper-trade record, not a live position — the app has no way to
 // know how a match or market actually resolved, so every entry just shows "Pending" rather than
 // fabricating a win/loss. Odds and edge are repriced against the current market (same livePrices
-// map Lab's build view uses), with a small delta showing how much has moved since you bought.
-// Styled like a ticket stub: a dashed divider separates "what you bought" from the live snapshot,
-// same visual language real sportsbook confirmations use.
+// map Lab's build view uses). Styled like a ticket stub: a dashed divider separates "what you
+// bought" from the live snapshot, same visual language real sportsbook confirmations use.
 export default function PlacedBetCard({ bet, livePrices }: { bet: PlacedBet; livePrices: Record<string, number> }) {
-  const { legs, combined } = bet;
+  const { legs } = bet;
   const liveLegs = legs.map((leg) => ({
     ...leg,
     marketProb: livePrices[liveKey(leg.pickId, leg.outcomeLabel)] ?? leg.marketProb,
   }));
   const live = combineSlip(liveLegs);
-  const edgeDelta = live.edge - combined.edge;
 
   return (
     <div className="overflow-hidden rounded-3xl" style={{ background: "var(--lab-surface)", border: "1px solid var(--lab-border)" }}>
@@ -62,7 +60,6 @@ export default function PlacedBetCard({ bet, livePrices }: { bet: PlacedBet; liv
             >
               {toSignedPercent(live.edge)}
             </p>
-            <p className="text-[7px] tabular-nums text-text-faint opacity-70">&Delta; {toSignedPercent(edgeDelta)} since bought</p>
           </div>
         </div>
       </div>
