@@ -190,7 +190,7 @@ export default function MarketAnalysisSheet({ market, onClose }: { market: Marke
   const handleSave = () => {
     if (!independent || !comparison) return;
     saveMarketPick({
-      id: `${market.id}-${Date.now()}`,
+      id: market.id,
       savedAt: new Date().toISOString(),
       title: market.title,
       category: market.category,

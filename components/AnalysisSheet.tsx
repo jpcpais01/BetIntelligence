@@ -200,7 +200,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
   const handleSave = () => {
     if (!independent || !comparison) return;
     savePick({
-      id: `${game.id}-${Date.now()}`,
+      id: game.id,
       savedAt: new Date().toISOString(),
       homeTeam: game.homeTeam,
       awayTeam: game.awayTeam,

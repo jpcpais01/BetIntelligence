@@ -114,6 +114,13 @@ async function callOpenRouter(
         temperature: 0.4,
         max_tokens: maxTokens,
         usage: { include: true },
+        // Reasoning-capable models (DeepSeek's releases in particular) default to an expensive
+        // "high" reasoning effort on OpenRouter, burning a large hidden token budget on chain-of-
+        // thought before ever emitting the JSON/prose we actually asked for — turning what should
+        // be a quick call into a multi-minute one, and starving max_tokens so badly that the
+        // length-triggered retry above can fail the same way on every attempt. None of our prompts
+        // want visible reasoning, so it's switched off for every model, every call.
+        reasoning: { enabled: false },
       }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });

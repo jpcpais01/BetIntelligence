@@ -158,6 +158,9 @@ via OpenRouter:
    looks mispriced.
 
 All three results are shown in the UI as a guided reveal, and the whole thing can be saved to **My Picks**.
+Saving is keyed by the match/market's own id (`lib/picks.ts`, `lib/marketPicks.ts`), so re-analyzing
+and re-saving the same game or market replaces its previous save rather than adding a duplicate —
+My Picks always holds your latest read on a given match or market, never several stale ones side by side.
 
 **Why two calls instead of one for the "independent" read:** OpenRouter's `:online` step isn't an isolated browsing session —
 it's a single search pass that runs before the model answers, and whatever it finds is merged straight into the same context
@@ -219,13 +222,23 @@ than a placeholder.
 
 ### Choosing a model
 
-The **DeepSeek/GLM** button in the header (Discover and Sports both show it — it's one global
-choice, since both feeds run through the same analysis pipeline) lets you pick which model powers
-every analysis: [`deepseek/deepseek-v4-flash-0731`](https://openrouter.ai/deepseek/deepseek-v4-flash-0731)
-(the default) or [`z-ai/glm-5.3-flash`](https://openrouter.ai/z-ai/glm-5.3-flash). The choice is
-remembered in your browser (`lib/models.ts`) and sent with every predict/compare request; the API
-routes resolve it against a small server-side whitelist, so nothing free-text ever reaches
+The model button in the header (Discover and Sports both show it — it's one global choice, since
+both feeds run through the same analysis pipeline) lets you pick which model powers every
+analysis: [`deepseek/deepseek-v4-flash-0731`](https://openrouter.ai/deepseek/deepseek-v4-flash-0731)
+(the default), [`z-ai/glm-5.3-flash`](https://openrouter.ai/z-ai/glm-5.3-flash),
+[`google/gemini-3.8-flash`](https://openrouter.ai/google/gemini-3.8-flash), or
+[`nvidia/nemotron-3-ultra-550b-a55b`](https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b). The
+choice is remembered in your browser (`lib/models.ts`) and sent with every predict/compare request;
+the API routes resolve it against a small server-side whitelist, so nothing free-text ever reaches
 OpenRouter as a model id.
+
+Every OpenRouter request explicitly disables reasoning (`reasoning: { enabled: false }` in
+`lib/openrouter.ts`). Reasoning-capable releases — DeepSeek's in particular — default to a "high"
+reasoning effort on OpenRouter, which silently burns a large hidden chain-of-thought token budget
+before the model ever writes the prose or JSON we actually asked for. Left on, that's most of why
+an analysis could feel like it hangs, and it made the length-triggered retry (see above) fail the
+same way on every attempt since the budget kept going to reasoning instead of the answer. None of
+our prompts want visible reasoning, so it's off everywhere.
 
 Tap the select icon in the header to pick up to 10 matches and analyze them all in one batch —
 they run through the same two-step process sequentially (not in parallel, to stay well within

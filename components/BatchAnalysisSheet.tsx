@@ -118,7 +118,7 @@ export default function BatchAnalysisSheet({
     const r = results[game.id];
     if (!r?.independent || !r?.comparison) return;
     savePick({
-      id: `${game.id}-${Date.now()}`,
+      id: game.id,
       savedAt: new Date().toISOString(),
       homeTeam: game.homeTeam,
       awayTeam: game.awayTeam,
