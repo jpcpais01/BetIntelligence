@@ -101,6 +101,15 @@ const RAW: Array<
     liquidity: 7300,
     hours: 62,
   },
+  {
+    league: "champions-league",
+    homeTeam: "Real Madrid",
+    awayTeam: "Manchester City",
+    odds: { home: 0.36, draw: 0.26, away: 0.38 },
+    volume: 267500,
+    liquidity: 73900,
+    hours: 46,
+  },
 ];
 
 export function getMockGames(): Game[] {

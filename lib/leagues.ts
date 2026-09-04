@@ -209,6 +209,16 @@ export const LEAGUES: LeagueConfig[] = [
     excludeKeywords: [...COMMON_EXCLUDES],
     tagSlugs: ["belgian-pro-league", "jupiler-pro-league", "belgium-pro-league"],
   },
+  {
+    id: "champions-league",
+    name: "Champions League",
+    shortName: "UCL",
+    country: "Europe",
+    flag: "\u{1F3C6}",
+    keywords: ["champions league", "uefa champions league", "ucl"],
+    excludeKeywords: [...COMMON_EXCLUDES],
+    tagSlugs: ["champions-league", "uefa-champions-league", "ucl"],
+  },
 ];
 
 function normalizeHaystack(haystacks: string[]): string {

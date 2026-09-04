@@ -1,16 +1,18 @@
 import type { LeagueId } from "./types";
+import { findBestNameMatch } from "./teamNameMatching";
 
 // Structured match data from football-data.org (api.football-data.org/v4) — replaces the old "AI
 // reads the open web" research step for football entirely, since a search engine's summary of
-// form/injuries/lineups turned out to be unreliable often enough to be worse than useless.
+// form/lineups turned out to be unreliable often enough to be worse than useless.
 //
 // This app previously tried API-Football (api-sports.io) for this instead. Its free plan looked
 // identical on paper (form, injuries, fixture status, all endpoints "included"), but in practice
 // locks every endpoint to old completed seasons ("Free plans do not have access to this season,
 // try from 2022 to 2024") — useless for analyzing a current or upcoming match, which is the app's
 // entire use case. football-data.org's free tier has no such season lock and covers 7 of the 8
-// leagues below at no cost; it also has no injuries endpoint at any tier, so that section is
-// simply not part of the digest — reporting nothing is better than reporting something wrong.
+// domestic leagues below plus the Champions League at no cost; it has no injuries endpoint at any
+// tier, though, which is why injury/availability data comes from a second provider instead
+// (lib/bigBallsData.ts) rather than from here.
 //
 // No fallback to web search on a miss: if a team or fixture can't be resolved here, the analysis
 // fails with a clear error rather than quietly falling back to a shakier source.
@@ -28,6 +30,7 @@ const COMPETITION_CODE: Partial<Record<LeagueId, string>> = {
   "serie-a": "SA",
   "primeira-liga": "PPL",
   eredivisie: "DED",
+  "champions-league": "CL",
 };
 
 interface FootballDataTeam {
@@ -143,50 +146,8 @@ async function footballDataFetch<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-function normalizeTeamName(name: string): string {
-  return name
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-// Word tokens with founding-year-style pure numbers dropped (e.g. "09" in "BV Borussia 09
-// Dortmund", "1899" in "TSG 1899 Hoffenheim") — those numbers are exactly the kind of extra token
-// a club's full legal name carries that a shorter display name never does, so keeping them would
-// make an otherwise-good match fail on nothing but a number sitting between the real words.
-function significantWords(name: string): string[] {
-  return normalizeTeamName(name)
-    .split(" ")
-    .filter((w) => w.length > 0 && !/^\d+$/.test(w));
-}
-
 function findBestTeamMatch(teams: FootballDataTeam[], name: string): FootballDataTeam | null {
-  const target = normalizeTeamName(name);
-  const exact = teams.find((t) => normalizeTeamName(t.name) === target || (t.shortName && normalizeTeamName(t.shortName) === target));
-  if (exact) return exact;
-  // Polymarket sometimes shortens or lengthens a club's display name (e.g. "Newcastle" vs
-  // "Newcastle United") — a substring match either direction covers that without getting too
-  // loose, since we're only ever matching within the ~20 teams of the one league we already know.
-  const substring = teams.find((t) => {
-    const n = normalizeTeamName(t.name);
-    return n.includes(target) || target.includes(n);
-  });
-  if (substring) return substring;
-  // A full legal name (Polymarket's "BV Borussia 09 Dortmund" vs football-data.org's "Borussia
-  // Dortmund") isn't a substring match either direction — the founding-year number sits between
-  // the real words and breaks contiguity. Falling back to "every significant word of one name
-  // appears in the other's word set" (order-independent, numbers ignored) catches that case too.
-  const targetWords = new Set(significantWords(name));
-  return (
-    teams.find((t) => {
-      const words = significantWords(t.name);
-      if (words.length === 0) return false;
-      const wordsSet = new Set(words);
-      return words.every((w) => targetWords.has(w)) || [...targetWords].every((w) => wordsSet.has(w));
-    }) ?? null
-  );
+  return findBestNameMatch(teams, (t) => [t.name, t.shortName], name);
 }
 
 // A competition's roster barely changes within a season — cached for the life of the warm server
@@ -293,7 +254,7 @@ async function fetchFootballDigest(input: FootballDigestInput, cacheKey: string)
   if (!code) {
     throw new Error(
       "This league isn't available on football-data.org's free plan (only Premier League, La Liga, Bundesliga, Serie A, " +
-        "Ligue 1, Primeira Liga, and Eredivisie are)."
+        "Ligue 1, Primeira Liga, Eredivisie, and the Champions League are)."
     );
   }
 

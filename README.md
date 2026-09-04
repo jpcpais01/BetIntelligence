@@ -178,16 +178,21 @@ Tapping **AI Analyze** runs against [`deepseek/deepseek-v4-flash-0731`](https://
 
 1. **Research** — *not* a web search. An AI web-search pass here used to give wrong data (stale injuries, mixed-up form,
    invented head-to-head records) often enough to be worse than useless, so this step is now a plain data fetch against
-   [football-data.org](https://www.football-data.org/) with no LLM involved at all: each club's last 5 completed results,
-   the last 5 head-to-head meetings, and the fixture's own live status — whether it's started yet, and if so the current
-   score, straight from football-data.org's own kickoff time rather than assuming Polymarket's original schedule still
-   holds. All of it is formatted into a plain-text digest the next step reasons over. There's no fallback to web search if
-   a team or fixture can't be matched there — the analysis fails with a clear error rather than quietly falling back to a
-   shakier source. (This app first tried [API-Football](https://www.api-football.com/) instead — its free plan looked
-   equivalent on paper, including an injuries endpoint, but locks every endpoint to old completed seasons in practice,
-   making it useless for a current match. football-data.org's free tier has no such season lock, covering 7 of the 8
-   leagues below — everything except Belgian Pro League, which has no free-tier code — but it has no injuries endpoint at
-   any tier, so that section of the digest is simply gone rather than replaced with something unreliable.)
+   two structured providers, no LLM involved at all. [football-data.org](https://www.football-data.org/) supplies the
+   core match data — each club's last 5 completed results, the last 5 head-to-head meetings, and the fixture's own live
+   status (whether it's started yet, and if so the current score, straight from its own kickoff time rather than assuming
+   Polymarket's original schedule still holds). There's no fallback to web search if a team or fixture can't be matched
+   there — the analysis fails with a clear error rather than quietly falling back to a shakier source. (This app first
+   tried [API-Football](https://www.api-football.com/) instead — its free plan looked equivalent on paper, but locks every
+   endpoint to old completed seasons in practice, making it useless for a current match. football-data.org's free tier has
+   no such season lock, covering 7 of the 8 domestic leagues below plus the Champions League — everything except Belgian
+   Pro League, which has no free-tier code.) [Big Balls Sports Data](https://bigballsdata.com/) supplies the
+   injuries/availability section football-data.org can't (it has no injuries endpoint at any tier): Premier League, La
+   Liga, Bundesliga, Serie A, Ligue 1, and the Champions League — not Primeira Liga, Eredivisie, or Belgian Pro League.
+   This one is an enrichment layer rather than a core source: an unset key, an uncovered league, or a failed request all
+   just make the digest say injury data isn't available for that match, rather than failing the whole analysis the way a
+   football-data.org miss does — that data was never guaranteed before, so its absence is a known, honest gap, not a
+   regression.
 2. **Independent read** — an OpenRouter call, no web access, that only ever sees that digest and produces the 1X2 probability
    estimate from it.
 3. **Market comparison** — the app reveals Polymarket's implied probabilities for the same match and asks the model to
@@ -384,7 +389,8 @@ Open [http://localhost:3000](http://localhost:3000).
 | Variable | Required | Description |
 | --- | --- | --- |
 | `OPENROUTER_API_KEY` | Yes (for real analysis) | API key from [openrouter.ai/keys](https://openrouter.ai/keys). |
-| `FOOTBALL_DATA_API_KEY` | Yes (for football analysis) | Free key from [football-data.org](https://www.football-data.org/client/register). Powers football's entire research step (form, head-to-head, fixture status/score); Discover markets don't use it. |
+| `FOOTBALL_DATA_API_KEY` | Yes (for football analysis) | Free key from [football-data.org](https://www.football-data.org/client/register). Powers football's core research step (form, head-to-head, fixture status/score); Discover markets don't use it. |
+| `BIG_BALLS_API_KEY` | No | Free key from [bigballsdata.com](https://bigballsdata.com/). Adds the injuries/availability section to football's research step. Left unset, that section just says injury data isn't available. |
 | `NEXT_PUBLIC_APP_URL` | No | Sent to OpenRouter as the app's referer/title for their dashboards. |
 | `MOCK_GAMES` | No | Set to `1` to serve built-in sample matches instead of calling Polymarket. Useful for local UI work without network access. |
 | `MOCK_MARKETS` | No | Set to `1` to serve built-in sample Discover markets instead of calling Polymarket. |
@@ -399,8 +405,8 @@ required to run AI analysis.
   auth required.
   - `lib/polymarket.ts` (Sports) fetches upcoming soccer events, matches them against a keyword
     list for the Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Primeira Liga, Eredivisie,
-    and Belgian Pro League, and derives 1X2 probabilities from each match's three moneyline
-    sub-markets.
+    Belgian Pro League, and the Champions League, and derives 1X2 probabilities from each match's
+    three moneyline sub-markets.
   - `lib/allMarkets.ts` (Discover) sweeps the highest-volume active events across every category,
     with no fixed category list — categories shown are derived from whatever tags Polymarket
     actually returns on the fetched markets.
@@ -410,8 +416,14 @@ required to run AI analysis.
 - **Football match data**: [football-data.org](https://www.football-data.org/) (`api.football-data.org/v4`)
   — `lib/footballData.ts` fetches each team's recent form, head-to-head history, and the fixture's
   own live status/score, and feeds that straight into the football research digest above. No
-  injuries data (this source doesn't have an injuries endpoint at any tier) and no fallback to web
-  search on a miss.
+  fallback to web search on a miss.
+- **Football injuries/availability**: [Big Balls Sports Data](https://bigballsdata.com/)
+  (`api.bigballsdata.com/v1`) — `lib/bigBallsData.ts` fetches each covered league's current injury
+  list and filters it down to the two teams in the match, appending an "Injuries / Availability"
+  section to the digest above. Covers Premier League, La Liga, Bundesliga, Serie A, Ligue 1, and
+  the Champions League; an uncovered league, an unset `BIG_BALLS_API_KEY`, or a failed request all
+  render as an honest "not available" line rather than failing the analysis — this source is an
+  enrichment layer, not a required one.
 
 ## Project structure
 

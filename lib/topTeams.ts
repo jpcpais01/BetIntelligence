@@ -64,6 +64,13 @@ const TOP_TEAMS: Record<LeagueId, TopTeam[]> = {
     { canonical: "Standard Liege", aliases: ["Standard Liege", "Standard de Liege"] },
     { canonical: "Union Saint-Gilloise", aliases: ["Union Saint-Gilloise", "Union SG"] },
   ],
+  "champions-league": [
+    { canonical: "Real Madrid", aliases: ["Real Madrid"] },
+    { canonical: "Manchester City", aliases: ["Manchester City", "Man City"] },
+    { canonical: "Bayern Munich", aliases: ["Bayern Munich", "Bayern Munchen", "FC Bayern", "Bayern"] },
+    { canonical: "Paris Saint-Germain", aliases: ["Paris Saint-Germain", "Paris Saint Germain", "PSG"] },
+    { canonical: "Barcelona", aliases: ["Barcelona", "FC Barcelona", "Barca"] },
+  ],
 };
 
 const CLUB_STOPWORDS = new Set([
