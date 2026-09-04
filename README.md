@@ -119,7 +119,8 @@ nothing to reprice and holds at its last known value.
 - **My Bets** tab lists every bet you've placed as a ticket-style card — legs, live odds/edge, and a
   **Pending** status, honestly reflecting that this is a record of what you bought, not a settled
   result — the app has no way to know how a match or market
-  actually resolved.
+  actually resolved. Each card has its own delete button (`removePlacedBet`, `lib/placedBets.ts`) to
+  clear out a bet you no longer want tracked.
 
 ## Home: a paper portfolio
 
@@ -184,6 +185,16 @@ via OpenRouter:
 3. **Market comparison** — the app then reveals Polymarket's implied probabilities for the same match and asks the model to
    compare its independent view against the market, explain any disagreement, and flag whether it thinks a specific outcome
    looks mispriced.
+
+Every one of these calls — system prompt and user prompt alike, all three steps, football and Discover markets both — also
+carries the real current date and time (`nowLine`/`withNow` in `lib/openrouter.ts`, computed fresh on every call rather than
+baked into a prompt string built once at server start). A model has no reliable sense of "today" from its training data
+alone, and that matters most for step 1: its system prompt explicitly tells it to weigh the most recent news, results, and
+injury updates far more heavily than older context, and to trust whichever source is more recent when two disagree — the
+whole point of giving it live web access is to catch what's actually current, not to average it in with stale context.
+Every system prompt also ends with a short "Soul" line setting the model's persona for the read it's about to give: *"You are
+wise, you are advanced, you are super intelligent and smart, you are logical and certain, you are bold, you go for it, you
+trust your decision."*
 
 All three results are shown in the UI as a guided reveal, and the whole thing can be saved to **My Picks**.
 Saving is keyed by the match/market's own id (`lib/picks.ts`, `lib/marketPicks.ts`), so re-analyzing

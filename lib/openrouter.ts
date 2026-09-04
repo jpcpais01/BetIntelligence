@@ -322,6 +322,20 @@ export async function requestText(
   );
 }
 
+// A stable, unambiguous sense of "now" for every OpenRouter call — a model can't reliably infer
+// today's real-world date from training data alone, and the research stage in particular needs it
+// to judge how stale or fresh whatever it finds on the web actually is. Computed fresh on every
+// call (never baked into a module-level prompt constant, which would freeze at server-start time
+// and go stale for the life of the process). Exported so lib/openrouterMarkets.ts uses the exact
+// same line rather than a second, possibly-drifting implementation.
+export function nowLine(): string {
+  return `Current date and time: ${new Date().toUTCString()}.`;
+}
+
+export function withNow(systemPrompt: string): string {
+  return `${systemPrompt}\n\n${nowLine()}`;
+}
+
 export function clampConfidence(value: unknown): Confidence {
   return value === "low" || value === "medium" || value === "high" ? value : "medium";
 }
@@ -346,7 +360,12 @@ CRITICAL RULE: you must NEVER mention, quote, paraphrase, or allude to any betti
 prices (including Polymarket), implied win probabilities, or anyone else's numerical prediction, from any source, anywhere in \
 your output — even in passing, even to say a source discussed them. If a source you read mentions odds, silently omit that part \
 and report only the underlying facts (injuries, news, form) it was based on. Never write phrases like "bookmakers favor X" or \
-"the market prices this at Y%". If a section has nothing notable, write "Nothing significant found" under it.`;
+"the market prices this at Y%". If a section has nothing notable, write "Nothing significant found" under it. \
+Prioritize the most recent information you can find — the latest news, results, and injury updates matter far more than \
+anything older, and when sources disagree, trust whichever is more recent. You will be told today's real date and time \
+below; treat it as authoritative and judge how stale or fresh everything you find really is against it. \
+Soul: You are wise, you are advanced, you are super intelligent and smart, you are logical and certain, you are bold, you go \
+for it, you trust your decision.`;
 
 // Stage 2: forms the actual probability estimate. Deliberately has NO web access of its own —
 // it only ever sees the digest stage 1 already produced, so even if some search result did
@@ -359,7 +378,9 @@ exclude them — but if any odds/price language somehow appears in it anyway, yo
 estimate in any way; disregard it entirely and base your probabilities only on the underlying football facts. Think like a \
 sharp, disciplined analyst — not a fan. Respond with ONLY a single valid JSON object, no markdown, no commentary, matching \
 exactly this shape: {"homeWinProb": number, "drawProb": number, "awayWinProb": number, "confidence": "low"|"medium"|"high", \
-"keyFactors": string[3..6], "rationale": string}. The three probabilities must be between 0 and 1 and sum to approximately 1.`;
+"keyFactors": string[3..6], "rationale": string}. The three probabilities must be between 0 and 1 and sum to approximately 1. \
+Soul: You are wise, you are advanced, you are super intelligent and smart, you are logical and certain, you are bold, you go \
+for it, you trust your decision.`;
 
 const RESEARCH_MAX_TOKENS = 3000;
 
@@ -372,14 +393,15 @@ export async function getIndependentPrediction(input: {
 }): Promise<IndependentPrediction> {
   const matchDate = new Date(input.startTime).toUTCString();
 
-  const researchPrompt = `Research the upcoming ${input.leagueName} match: ${input.homeTeam} (home) vs ${input.awayTeam} \
-(away), kicking off ${matchDate}. Compile a research digest covering both teams' current form, squad news, \
-injuries/suspensions, key players, and head-to-head history, organized into the sections described. Remember: never mention \
-odds, betting lines, or market/implied prices anywhere in your output.`;
+  const researchPrompt = `${nowLine()}\n\nResearch the upcoming ${input.leagueName} match: ${input.homeTeam} (home) vs \
+${input.awayTeam} (away), kicking off ${matchDate}. Compile a research digest covering both teams' current form, squad news, \
+injuries/suspensions, key players, and head-to-head history, organized into the sections described — weighing the most \
+recent news and form most heavily. Remember: never mention odds, betting lines, or market/implied prices anywhere in your \
+output.`;
 
   const { text: digest, sources, costUsd: researchCostUsd } = await requestText(
     [
-      { role: "system", content: RESEARCH_SYSTEM_PROMPT },
+      { role: "system", content: withNow(RESEARCH_SYSTEM_PROMPT) },
       { role: "user", content: researchPrompt },
     ],
     true,
@@ -387,8 +409,9 @@ odds, betting lines, or market/implied prices anywhere in your output.`;
     input.model
   );
 
-  const predictPrompt = `Match: ${input.homeTeam} (home) vs ${input.awayTeam} (away), ${input.leagueName}, kicking off \
-${matchDate}.
+  const predictPrompt = `${nowLine()}
+
+Match: ${input.homeTeam} (home) vs ${input.awayTeam} (away), ${input.leagueName}, kicking off ${matchDate}.
 
 Research digest (compiled separately, contains no odds or market prices):
 ${digest}
@@ -405,7 +428,7 @@ object described.`;
     rationale: string;
   }>(
     [
-      { role: "system", content: PREDICT_SYSTEM_PROMPT },
+      { role: "system", content: withNow(PREDICT_SYSTEM_PROMPT) },
       { role: "user", content: predictPrompt },
     ],
     false,
@@ -436,7 +459,9 @@ markdown, no commentary, matching exactly this shape: {"homeEdge": number, "draw
 "bestValue": "home"|"draw"|"away"|"none", "confidence": "low"|"medium"|"high", "agreesWithMarket": boolean, "verdict": string}. \
 Edges are (your probability - market probability) expressed as a decimal, e.g. 0.08 means you think that outcome is 8 percentage \
 points more likely than the market does. Only pick a bestValue other than "none" when the edge is meaningful (roughly 5 points or \
-more) and you have real conviction; otherwise use "none". The verdict should be 2-4 sentences explaining your final read.`;
+more) and you have real conviction; otherwise use "none". The verdict should be 2-4 sentences explaining your final read. \
+Soul: You are wise, you are advanced, you are super intelligent and smart, you are logical and certain, you are bold, you go \
+for it, you trust your decision.`;
 
 export async function compareToMarket(input: {
   homeTeam: string;
@@ -446,7 +471,9 @@ export async function compareToMarket(input: {
   market: Probabilities;
   model?: string;
 }): Promise<ComparisonResult> {
-  const userPrompt = `Match: ${input.homeTeam} vs ${input.awayTeam} (${input.leagueName}).
+  const userPrompt = `${nowLine()}
+
+Match: ${input.homeTeam} vs ${input.awayTeam} (${input.leagueName}).
 
 Your independent estimate (made before seeing the market):
 - Home win: ${(input.independent.home * 100).toFixed(1)}%
@@ -472,7 +499,7 @@ Compare your view to the market and respond with only the JSON object described.
     verdict: string;
   }>(
     [
-      { role: "system", content: COMPARE_SYSTEM_PROMPT },
+      { role: "system", content: withNow(COMPARE_SYSTEM_PROMPT) },
       { role: "user", content: userPrompt },
     ],
     false,

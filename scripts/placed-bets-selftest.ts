@@ -16,7 +16,7 @@ class MemoryStorage {
   localStorage: new MemoryStorage(),
 };
 
-import { loadPlacedBets, placeBet } from "../lib/placedBets";
+import { loadPlacedBets, placeBet, removePlacedBet } from "../lib/placedBets";
 import type { SlipLeg, CombinedSlip } from "../lib/betslip";
 
 function fakeLeg(pickId: string): SlipLeg {
@@ -56,6 +56,15 @@ async function run() {
   check("store is capped at 100 entries", loadPlacedBets().length === 100);
   check("newest bulk entry survived", loadPlacedBets()[0].legs[0].pickId === "bulk-104");
   check("oldest bulk entry was evicted", !loadPlacedBets().some((b) => b.legs[0].pickId === "bulk-0"));
+
+  const beforeRemove = loadPlacedBets().length;
+  const targetId = loadPlacedBets()[0].id;
+  const afterRemove = removePlacedBet(targetId);
+  check("removePlacedBet returns the store with one fewer entry", afterRemove.length === beforeRemove - 1);
+  check("the removed bet is gone from the returned store", !afterRemove.some((b) => b.id === targetId));
+  check("the removed bet is gone from a fresh load too", !loadPlacedBets().some((b) => b.id === targetId));
+  check("every other bet is still present", afterRemove.length === loadPlacedBets().length);
+  check("removing an unknown id is a harmless no-op", removePlacedBet("nonexistent-id").length === afterRemove.length);
 
   if (failures.length > 0) {
     console.log("\nFAILURES:");

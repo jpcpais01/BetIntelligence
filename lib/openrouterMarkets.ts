@@ -1,4 +1,4 @@
-import { requestJson, requestText, clampConfidence } from "./openrouter";
+import { requestJson, requestText, clampConfidence, nowLine, withNow } from "./openrouter";
 import type { MarketComparison, MarketOutcome, MarketPrediction, OutcomeProbability } from "./types";
 
 // Football's analysis prompts (lib/openrouter.ts) always have exactly 3 fixed-length outcomes
@@ -82,7 +82,12 @@ bookmaker/prediction-market's price for the same question) while researching —
 allude to any betting odds, implied probabilities, or market prices from any source, anywhere in your output, even in passing. \
 If a source you read mentions a price, silently omit that part and report only the underlying facts (news, data) it was based \
 on. Never write phrases like "the market prices this at Y%". If a section has nothing notable, write "Nothing significant \
-found" under it.`;
+found" under it. \
+Prioritize the most recent information you can find — the latest news and developments matter far more than anything older, \
+and when sources disagree, trust whichever is more recent. You will be told today's real date and time below; treat it as \
+authoritative and judge how stale or fresh everything you find really is against it. \
+Soul: You are wise, you are advanced, you are super intelligent and smart, you are logical and certain, you are bold, you go \
+for it, you trust your decision.`;
 
 // Stage 2: forms the actual probability estimate. Deliberately has NO web access of its own —
 // it only ever sees the digest stage 1 already produced.
@@ -95,7 +100,9 @@ probabilities only on the underlying facts. Think like a sharp, disciplined fore
 headlines. Respond with ONLY a single valid JSON object, no markdown, no commentary, matching exactly this shape: \
 {"outcomes": [{"label": string, "probability": number}], "confidence": "low"|"medium"|"high", "keyFactors": string[3..6], \
 "rationale": string}. The "outcomes" array MUST contain exactly the same outcome labels given to you (same text, same count, any \
-order) with probabilities between 0 and 1 that sum to approximately 1 across all of them together.`;
+order) with probabilities between 0 and 1 that sum to approximately 1 across all of them together. \
+Soul: You are wise, you are advanced, you are super intelligent and smart, you are logical and certain, you are bold, you go \
+for it, you trust your decision.`;
 
 export async function getIndependentMarketPrediction(input: {
   title: string;
@@ -107,14 +114,16 @@ export async function getIndependentMarketPrediction(input: {
   const resolves = new Date(input.endDate).toUTCString();
   const outcomeList = input.outcomeLabels.map((l) => `"${l}"`).join(", ");
 
-  const researchPrompt = `Research this question on the web: "${input.title}" (category: ${input.category}, resolves \
+  const researchPrompt = `${nowLine()}
+
+Research this question on the web: "${input.title}" (category: ${input.category}, resolves \
 ${resolves}). Possible outcomes: ${outcomeList}. Compile a research digest covering recent news, relevant data, expert \
-analysis, and historical base rates, organized into the sections described. Remember: never mention odds, betting lines, or \
-market/implied prices anywhere in your output.`;
+analysis, and historical base rates, organized into the sections described — weighing the most recent news and developments \
+most heavily. Remember: never mention odds, betting lines, or market/implied prices anywhere in your output.`;
 
   const { text: digest, sources, costUsd: researchCostUsd } = await requestText(
     [
-      { role: "system", content: RESEARCH_SYSTEM_PROMPT },
+      { role: "system", content: withNow(RESEARCH_SYSTEM_PROMPT) },
       { role: "user", content: researchPrompt },
     ],
     true,
@@ -122,7 +131,9 @@ market/implied prices anywhere in your output.`;
     input.model
   );
 
-  const predictPrompt = `Market: "${input.title}" (category: ${input.category}, resolves ${resolves}).
+  const predictPrompt = `${nowLine()}
+
+Market: "${input.title}" (category: ${input.category}, resolves ${resolves}).
 
 Possible outcomes: ${outcomeList}.
 
@@ -139,7 +150,7 @@ only the JSON object described.`;
     rationale: string;
   }>(
     [
-      { role: "system", content: PREDICT_SYSTEM_PROMPT },
+      { role: "system", content: withNow(PREDICT_SYSTEM_PROMPT) },
       { role: "user", content: predictPrompt },
     ],
     false,
@@ -168,7 +179,9 @@ number}], "bestValue": string|null, "confidence": "low"|"medium"|"high", "agrees
 "edges" array MUST contain exactly the same outcome labels you were given (your probability minus the market's, as a decimal — \
 e.g. 0.08 means you think that outcome is 8 percentage points more likely than the market does). "bestValue" must be the EXACT \
 label of the single outcome you think the market misprices most, only when the edge is meaningful (roughly 5 points or more) and \
-you have real conviction — otherwise use null. The verdict should be 2-4 sentences explaining your final read.`;
+you have real conviction — otherwise use null. The verdict should be 2-4 sentences explaining your final read. \
+Soul: You are wise, you are advanced, you are super intelligent and smart, you are logical and certain, you are bold, you go \
+for it, you trust your decision.`;
 
 export async function compareMarketToOdds(input: {
   title: string;
@@ -183,7 +196,9 @@ export async function compareMarketToOdds(input: {
     .join("\n");
   const marketLines = input.market.map((o) => `- ${o.label}: ${(o.price * 100).toFixed(1)}%`).join("\n");
 
-  const userPrompt = `Market: "${input.title}" (category: ${input.category}).
+  const userPrompt = `${nowLine()}
+
+Market: "${input.title}" (category: ${input.category}).
 
 Your independent estimate (made before seeing the market):
 ${independentLines}
@@ -203,7 +218,7 @@ Compare your view to the market and respond with only the JSON object described.
     verdict: string;
   }>(
     [
-      { role: "system", content: COMPARE_SYSTEM_PROMPT },
+      { role: "system", content: withNow(COMPARE_SYSTEM_PROMPT) },
       { role: "user", content: userPrompt },
     ],
     false,

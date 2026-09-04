@@ -2,14 +2,22 @@ import type { PlacedBet } from "@/lib/placedBets";
 import { combineSlip } from "@/lib/betslip";
 import { liveKey } from "@/lib/livePrices";
 import { toSignedPercent, toDecimalOdds, toPercent, formatRelativeTime } from "@/lib/format";
-import { TicketIcon } from "./icons";
+import { TicketIcon, CloseIcon } from "./icons";
 
 // A placed bet is a permanent paper-trade record, not a live position — the app has no way to
 // know how a match or market actually resolved, so every entry just shows "Pending" rather than
 // fabricating a win/loss. Odds and edge are repriced against the current market (same livePrices
 // map Lab's build view uses). Styled like a ticket stub: a dashed divider separates "what you
 // bought" from the live snapshot, same visual language real sportsbook confirmations use.
-export default function PlacedBetCard({ bet, livePrices }: { bet: PlacedBet; livePrices: Record<string, number> }) {
+export default function PlacedBetCard({
+  bet,
+  livePrices,
+  onRemove,
+}: {
+  bet: PlacedBet;
+  livePrices: Record<string, number>;
+  onRemove: (id: string) => void;
+}) {
   const { legs } = bet;
   const liveLegs = legs.map((leg) => ({
     ...leg,
@@ -24,7 +32,16 @@ export default function PlacedBetCard({ bet, livePrices }: { bet: PlacedBet; liv
           <TicketIcon className="h-3.5 w-3.5" />
           Placed
         </span>
-        <span className="text-[10px] text-text-faint">{formatRelativeTime(bet.placedAt)}</span>
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="text-[10px] text-text-faint">{formatRelativeTime(bet.placedAt)}</span>
+          <button
+            onClick={() => onRemove(bet.id)}
+            aria-label="Delete bet"
+            className="press -mr-1 shrink-0 text-text-faint hover:text-[var(--lab-red)]"
+          >
+            <CloseIcon className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
 
       <div className="space-y-1.5 px-4">

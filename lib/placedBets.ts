@@ -53,3 +53,9 @@ export function placeBet(legs: SlipLeg[], combined: CombinedSlip, stake: number)
   persist(next);
   return bet;
 }
+
+export function removePlacedBet(id: string): PlacedBet[] {
+  const next = loadPlacedBets().filter((b) => b.id !== id);
+  persist(next);
+  return next;
+}

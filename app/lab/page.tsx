@@ -5,7 +5,7 @@ import type { SavedPick, SavedMarketPick } from "@/lib/types";
 import { loadPicks } from "@/lib/picks";
 import { loadMarketPicks } from "@/lib/marketPicks";
 import { loadSlip, saveSlip, legFromPick, legFromMarketPick, type SlipLeg, type Outcome } from "@/lib/betslip";
-import { loadPlacedBets, type PlacedBet } from "@/lib/placedBets";
+import { loadPlacedBets, removePlacedBet, type PlacedBet } from "@/lib/placedBets";
 import { liveKey, fetchLivePrices, type LivePriceRequest } from "@/lib/livePrices";
 import { RISK_MODES, buildRiskSlip, type RiskMode } from "@/lib/riskModes";
 import SlipPickRow from "@/components/SlipPickRow";
@@ -282,7 +282,12 @@ export default function LabPage() {
             {placedBets !== null && placedBets.length > 0 && (
               <div className="space-y-3">
                 {placedBets.map((bet) => (
-                  <PlacedBetCard key={bet.id} bet={bet} livePrices={livePrices} />
+                  <PlacedBetCard
+                    key={bet.id}
+                    bet={bet}
+                    livePrices={livePrices}
+                    onRemove={(id) => setPlacedBets(removePlacedBet(id))}
+                  />
                 ))}
               </div>
             )}
