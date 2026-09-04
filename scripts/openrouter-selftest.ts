@@ -1,4 +1,9 @@
-import { requestJson, getIndependentPrediction } from "../lib/openrouter";
+import {
+  requestJson,
+  getIndependentPrediction,
+  buildFootballAnalysisDigest,
+  getIndependentPredictionFromDigest,
+} from "../lib/openrouter";
 import { __resetRateLimiterForTests } from "../lib/footballData";
 
 process.env.OPENROUTER_API_KEY = "test-key";
@@ -388,6 +393,76 @@ async function runFootballPipelineChecks(failures: string[]) {
     check("a league with no free-tier code throws before ever calling the API", threw !== null);
     check("the error explains it's a free-plan limitation", /free plan/i.test(threw?.message ?? ""), threw?.message);
     check("no OpenRouter call is made for an unsupported league", openRouterCalls === 0, `made ${openRouterCalls}`);
+  }
+
+  // --- The split that fixes N-parallel-research-runs multiplying football-data.org calls: a
+  // digest built once and reused across several predict calls costs football-data.org exactly
+  // one round, not one per call — a guarantee by construction, not by cache, since each call here
+  // simulates a SEPARATE concurrent /api/analyze/predict request (the real failure mode, since
+  // Vercel can route those to separate serverless instances that don't share in-process caches). ---
+  {
+    __resetRateLimiterForTests();
+    const serieAHome = { id: 500, name: "Inter Milan" };
+    const serieAAway = { id: 501, name: "AC Milan" };
+    const serieAKickoff = "2026-05-01T19:00:00.000Z";
+    let footballDataCalls = 0;
+    let openRouterCalls = 0;
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("api.football-data.org")) {
+        footballDataCalls++;
+        if (u.includes("/competitions/")) return { ok: true, status: 200, json: async () => ({ teams: [serieAHome, serieAAway] }) };
+        if (u.includes("/head2head")) return { ok: true, status: 200, json: async () => ({ matches: [] }) };
+        if (u.includes(`/teams/${serieAHome.id}/matches`) || u.includes(`/teams/${serieAAway.id}/matches`)) {
+          return { ok: true, status: 200, json: async () => ({ matches: [] }) };
+        }
+        if (u.includes("/matches?")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              matches: [
+                fdMatch({ id: 900010, date: serieAKickoff, home: serieAHome, away: serieAAway, status: "SCHEDULED", homeGoals: null, awayGoals: null }),
+              ],
+            }),
+          };
+        }
+        throw new Error(`Unhandled football-data.org URL: ${u}`);
+      }
+      openRouterCalls++;
+      return completion({ content: GOOD_JSON }, "stop", { cost: 0.0009 });
+    }) as unknown as typeof fetch;
+
+    const digest = await buildFootballAnalysisDigest({
+      homeTeam: "Inter Milan",
+      awayTeam: "AC Milan",
+      league: "serie-a",
+      startTime: serieAKickoff,
+    });
+    check("buildFootballAnalysisDigest makes no OpenRouter call", openRouterCalls === 0, `made ${openRouterCalls}`);
+    const callsAfterDigest = footballDataCalls;
+    check("building the digest makes at least one football-data.org call", callsAfterDigest > 0, `${callsAfterDigest}`);
+
+    const runCount = 5;
+    const results = await Promise.all(
+      Array.from({ length: runCount }, () =>
+        getIndependentPredictionFromDigest({
+          homeTeam: "Inter Milan",
+          awayTeam: "AC Milan",
+          leagueName: "Serie A",
+          startTime: serieAKickoff,
+          digest,
+        })
+      )
+    );
+
+    check("all 5 predict-from-digest calls succeed", results.length === 5);
+    check(
+      "5 parallel predict-from-digest calls make ZERO additional football-data.org calls",
+      footballDataCalls === callsAfterDigest,
+      `${callsAfterDigest} -> ${footballDataCalls}`
+    );
+    check("5 parallel predict-from-digest calls make exactly 5 OpenRouter calls", openRouterCalls === 5, `${openRouterCalls}`);
   }
 }
 

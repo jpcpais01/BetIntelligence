@@ -296,19 +296,23 @@ For football specifically, since research is no longer an LLM call, running it m
 several independent-read passes over the *same* football-data.org digest rather than several fresh
 searches — still meaningfully different runs, since the predict step's own sampling varies each
 time, but the diversity comes entirely from that step now rather than from re-researching too.
-Those N runs fire as N parallel requests, all for the exact same match at the exact same instant —
-so a 2-minute resolved-value cache alone doesn't help, since every one of them misses it before the
-first has finished long enough to populate it. `lib/footballData.ts` coalesces this: concurrent
-calls for the same match share a single in-flight fetch, so 5 parallel runs still cost one round of
-football-data.org calls (~5 requests total), not five. Once that shared fetch resolves, the result
-also lands in the 2-minute cache so a *later* run (or a fresh analysis of the same match within a
-couple of minutes) skips the network entirely too. On top of both of those, every call to
-football-data.org goes through an in-process sliding-window throttle that tracks the last 60
-seconds of requests and makes a new call wait for a free slot rather than firing blindly — so
-normal single-instance use shouldn't hit the limit at all. If a 429 does slip through anyway (a
-separate serverless instance doesn't share that in-memory window), the client reads football-data.org's
-own "Wait N seconds" message out of the error body and waits that exact duration before a single
-retry, instead of guessing.
+Those N runs are N separate HTTP requests to `/api/analyze/predict`, and Vercel can (and does) route
+concurrent requests to separate serverless instances that don't share any in-process state — a
+server-side cache or in-flight-request coalescing inside `lib/footballData.ts` only helps when calls
+land on the *same* warm instance, so relying on that alone let N parallel runs multiply real
+football-data.org calls by N under real concurrent load, exhausting the free tier's
+10-requests/minute budget almost immediately. The actual fix is architectural, not caching:
+`components/AnalysisSheet.tsx` fetches the digest exactly once via a dedicated
+`/api/analyze/football-digest` call, then fires all N predict calls with that same digest text
+already attached — so N runs cost exactly one round of football-data.org calls by construction,
+regardless of how Vercel happens to distribute those N requests across instances. (Batch analysis
+and a single run don't have this redundancy risk in the first place — they still fetch the digest
+inline via the same `getIndependentPrediction` convenience path as before.) On top of that, every
+call to football-data.org still goes through an in-process sliding-window throttle (10 requests per
+rolling 60 seconds) and reads football-data.org's own "Wait N seconds" message for a single informed
+retry if a 429 does slip through — both useful defense-in-depth for other traffic (a single-run
+analysis, batch analysis of several different matches, the live-scores/live-odds polling below), but
+neither was ever going to fix the N-runs-per-match case on its own.
 
 The "researching" screen itself is a small centered popup — not the full-width sheet used once
 results are in, and with no way to dismiss it mid-analysis — with a pulsing radar animation rather

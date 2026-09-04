@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getIndependentPrediction } from "@/lib/openrouter";
+import { getIndependentPrediction, getIndependentPredictionFromDigest } from "@/lib/openrouter";
 import { getMockIndependentPrediction } from "@/lib/mockAnalysis";
 import { resolveOpenRouterModel } from "@/lib/models";
 import { isLeagueId } from "@/lib/leagues";
@@ -13,7 +13,7 @@ export const maxDuration = 300;
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { homeTeam, awayTeam, leagueName, league, startTime, model } = body ?? {};
+    const { homeTeam, awayTeam, leagueName, league, startTime, model, digest } = body ?? {};
 
     if (!homeTeam || !awayTeam || !leagueName || !startTime) {
       return NextResponse.json({ error: "Missing match details." }, { status: 400 });
@@ -22,17 +22,30 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unknown or missing league." }, { status: 400 });
     }
 
+    // A caller running more than one independent research pass over the same match (the
+    // research-runs stepper) fetches the digest once up front and passes it here for every run —
+    // see the comment on buildFootballAnalysisDigest in lib/openrouter.ts for why. A caller with
+    // no digest yet (batch analysis, a single run) falls back to fetching it itself, unchanged.
     const prediction =
       process.env.MOCK_AI === "1"
         ? await getMockIndependentPrediction({ homeTeam, awayTeam })
-        : await getIndependentPrediction({
-            homeTeam,
-            awayTeam,
-            leagueName,
-            league,
-            startTime,
-            model: resolveOpenRouterModel(model),
-          });
+        : typeof digest === "string" && digest.length > 0
+          ? await getIndependentPredictionFromDigest({
+              homeTeam,
+              awayTeam,
+              leagueName,
+              startTime,
+              digest,
+              model: resolveOpenRouterModel(model),
+            })
+          : await getIndependentPrediction({
+              homeTeam,
+              awayTeam,
+              leagueName,
+              league,
+              startTime,
+              model: resolveOpenRouterModel(model),
+            });
 
     return NextResponse.json({ prediction });
   } catch (err) {

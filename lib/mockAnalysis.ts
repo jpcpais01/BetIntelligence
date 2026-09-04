@@ -4,6 +4,24 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Under MOCK_AI, the eventual prediction never actually reads this digest — but the client always
+// fetches one first (see app/api/analyze/football-digest and AnalysisSheet.tsx), so this exists to
+// keep that call working without a real FOOTBALL_DATA_API_KEY configured.
+export async function getMockFootballDigest(input: { homeTeam: string; awayTeam: string }): Promise<string> {
+  await delay(400);
+  return `Match Status:
+Match has not started yet — mock digest, no real football-data.org call was made.
+
+${input.homeTeam} Form (last 5 completed matches):
+- Mock data: connect a real FOOTBALL_DATA_API_KEY for live form.
+
+${input.awayTeam} Form (last 5 completed matches):
+- Mock data: connect a real FOOTBALL_DATA_API_KEY for live form.
+
+Head-to-Head History (last 5 meetings):
+- Mock data: connect a real FOOTBALL_DATA_API_KEY for live head-to-head history.`;
+}
+
 export async function getMockIndependentPrediction(input: {
   homeTeam: string;
   awayTeam: string;

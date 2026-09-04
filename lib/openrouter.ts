@@ -374,16 +374,22 @@ string[3..6], "rationale": string}. The three probabilities must be between 0 an
 Soul: You are wise, you are advanced, you are super intelligent and smart, you are logical and certain, you are bold, you go \
 for it, you trust your decision.`;
 
-export async function getIndependentPrediction(input: {
+// The football-data.org/Big Balls Data half of an analysis — split out from the LLM call below so
+// a caller running N independent research passes over the SAME match (the research-runs stepper,
+// AnalysisSheet.tsx) can fetch this exactly once and hand the same text to all N predict calls,
+// instead of each one re-deriving it. That matters because each of those N calls is its own HTTP
+// request to /api/analyze/predict, and Vercel can (and does) route concurrent requests to separate
+// serverless instances with their own memory — the in-process caching/coalescing inside
+// lib/footballData.ts only helps when calls land on the SAME warm instance, so relying on it alone
+// let N parallel runs multiply real football-data.org calls by N under real concurrent load,
+// exhausting the free tier's 10-requests/minute budget almost immediately. Fetching once and
+// threading the result through is a guarantee by construction, not by cache.
+export async function buildFootballAnalysisDigest(input: {
   homeTeam: string;
   awayTeam: string;
-  leagueName: string;
   league: LeagueId;
   startTime: string;
-  model?: string;
-}): Promise<IndependentPrediction> {
-  const matchDate = new Date(input.startTime).toUTCString();
-
+}): Promise<string> {
   const { text: matchDigest } = await buildFootballDigest({
     homeTeam: input.homeTeam,
     awayTeam: input.awayTeam,
@@ -395,14 +401,28 @@ export async function getIndependentPrediction(input: {
     awayTeam: input.awayTeam,
     league: input.league,
   });
-  const digest = `${matchDigest}\n\n${injuryDigest}`;
+  return `${matchDigest}\n\n${injuryDigest}`;
+}
+
+// The OpenRouter-only half — no football-data.org or Big Balls Data calls at all, so this is safe
+// to call any number of times in parallel (once per independent research run) without touching
+// either provider's rate limit.
+export async function getIndependentPredictionFromDigest(input: {
+  homeTeam: string;
+  awayTeam: string;
+  leagueName: string;
+  startTime: string;
+  digest: string;
+  model?: string;
+}): Promise<IndependentPrediction> {
+  const matchDate = new Date(input.startTime).toUTCString();
 
   const predictPrompt = `${nowLine()}
 
 Match: ${input.homeTeam} (home) vs ${input.awayTeam} (away), ${input.leagueName}, kicking off ${matchDate}.
 
 Research digest (from live match-data feeds, contains no odds or market prices):
-${digest}
+${input.digest}
 
 Based only on this digest, give your own independent estimate of the 1X2 outcome probabilities. Respond with only the JSON \
 object described.`;
@@ -436,6 +456,28 @@ object described.`;
     sources: [],
     costUsd: predictCostUsd ?? undefined,
   };
+}
+
+// Convenience wrapper combining both halves — used by callers that only ever need a single run per
+// match (batch analysis, the single-run case), where there's no redundant-fetch risk to design
+// around.
+export async function getIndependentPrediction(input: {
+  homeTeam: string;
+  awayTeam: string;
+  leagueName: string;
+  league: LeagueId;
+  startTime: string;
+  model?: string;
+}): Promise<IndependentPrediction> {
+  const digest = await buildFootballAnalysisDigest(input);
+  return getIndependentPredictionFromDigest({
+    homeTeam: input.homeTeam,
+    awayTeam: input.awayTeam,
+    leagueName: input.leagueName,
+    startTime: input.startTime,
+    digest,
+    model: input.model,
+  });
 }
 
 const COMPARE_SYSTEM_PROMPT = `You are the same elite football analyst from BetIntelligence, continuing your analysis of a single match. \

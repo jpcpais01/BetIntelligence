@@ -97,25 +97,44 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
 
     (async () => {
       try {
-        runsRef.current ??= Promise.all(
-          Array.from({ length: plannedRuns }, () =>
-            postJson<{ prediction: IndependentPrediction }>(
-              "/api/analyze/predict",
-              {
-                homeTeam: game.homeTeam,
-                awayTeam: game.awayTeam,
-                leagueName: game.leagueName,
-                league: game.league,
-                startTime: game.startTime,
-                model,
-              },
-              "Analysis failed."
-            ).then((d) => {
-              setCompletedRuns((c) => c + 1);
-              return d.prediction;
-            })
-          )
-        );
+        // Fetched once up front, then handed to every one of the N predict calls below — each
+        // is its own HTTP request, and relying on server-side caching alone to dedupe them across
+        // however many separate serverless instances Vercel routes them to isn't safe (see the
+        // comment on buildFootballAnalysisDigest in lib/openrouter.ts). Fetching once here is a
+        // guarantee by construction: N runs always cost exactly one digest fetch, never N.
+        runsRef.current ??= (async () => {
+          const { digest } = await postJson<{ digest: string }>(
+            "/api/analyze/football-digest",
+            {
+              homeTeam: game.homeTeam,
+              awayTeam: game.awayTeam,
+              league: game.league,
+              startTime: game.startTime,
+            },
+            "Could not build the research digest."
+          );
+
+          return Promise.all(
+            Array.from({ length: plannedRuns }, () =>
+              postJson<{ prediction: IndependentPrediction }>(
+                "/api/analyze/predict",
+                {
+                  homeTeam: game.homeTeam,
+                  awayTeam: game.awayTeam,
+                  leagueName: game.leagueName,
+                  league: game.league,
+                  startTime: game.startTime,
+                  model,
+                  digest,
+                },
+                "Analysis failed."
+              ).then((d) => {
+                setCompletedRuns((c) => c + 1);
+                return d.prediction;
+              })
+            )
+          );
+        })();
 
         const collected = await runsRef.current;
         if (cancelled) return;
