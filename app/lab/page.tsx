@@ -343,27 +343,31 @@ function FilterButton({ label, active, onClick }: { label: string; active: boole
   );
 }
 
-// One dot color per risk step — cool/safe (green, cyan) through neutral (silver) to hot (red at
-// two intensities) — reusing the page's existing accent tokens rather than introducing new ones,
-// so the escalating risk reads at a glance without breaking the page's restrained palette.
-const RISK_DOT: Record<RiskMode, { color: string; opacity?: number }> = {
-  calm: { color: "var(--lab-green)" },
-  easy: { color: "var(--lab-cyan)" },
-  normal: { color: "var(--lab-gold)" },
-  risky: { color: "var(--lab-red)", opacity: 0.55 },
-  mega: { color: "var(--lab-red)" },
+// One accent color per risk step — cool/safe (green, cyan) through neutral (silver) to hot (red,
+// with mega turned up louder than risky) — reusing the page's existing accent tokens rather than
+// introducing new ones. Each button gets a tinted background in that color, the same "colored
+// glass" treatment the bet slip's own pill uses, rather than a plain neutral box with a dot.
+const RISK_ACCENT: Record<RiskMode, { rgb: string; color: string; bg: number }> = {
+  calm: { rgb: "var(--lab-green-rgb)", color: "var(--lab-green)", bg: 0.16 },
+  easy: { rgb: "var(--lab-cyan-rgb)", color: "var(--lab-cyan)", bg: 0.16 },
+  normal: { rgb: "var(--lab-gold-rgb)", color: "var(--lab-gold)", bg: 0.16 },
+  risky: { rgb: "var(--lab-red-rgb)", color: "var(--lab-red)", bg: 0.16 },
+  mega: { rgb: "var(--lab-red-rgb)", color: "var(--lab-red)", bg: 0.26 },
 };
 
 function RiskButton({ mode, onClick }: { mode: (typeof RISK_MODES)[number]; onClick: () => void }) {
-  const dot = RISK_DOT[mode.id];
+  const a = RISK_ACCENT[mode.id];
   return (
     <button
       onClick={onClick}
-      className="press flex flex-1 flex-col items-center gap-1 rounded-2xl py-2"
-      style={{ background: "var(--lab-surface-2)" }}
+      className="press flex flex-1 items-center justify-center rounded-2xl py-2.5 text-[11px] font-semibold"
+      style={{
+        background: `rgba(${a.rgb}, ${a.bg})`,
+        color: a.color,
+        boxShadow: `inset 0 0 0 1px rgba(${a.rgb}, 0.3)`,
+      }}
     >
-      <span className="h-1.5 w-1.5 rounded-full" style={{ background: dot.color, opacity: dot.opacity ?? 1 }} />
-      <span className="text-[10px] font-medium text-text-dim">{mode.label}</span>
+      {mode.label}
     </button>
   );
 }

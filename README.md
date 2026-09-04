@@ -85,8 +85,10 @@ nothing to reprice and holds at its last known value.
   outcome), so both are computed client-side as the sum of the two 1X2 outcomes they cover
   (`legFromPick` in `lib/betslip.ts`), for both the market's own probability and the AI's
   independent read — edge included, since a combo's edge is just the sum of the two edges it covers.
-- A row of five **risk presets** — **Calm, Easy, Normal, Risky, Mega** — one-tap builds a slip for
-  you (`lib/riskModes.ts`), scanning every saved football pick for its single best qualifying leg
+- A row of five **risk presets** — **Calm, Easy, Normal, Risky, Mega** — each its own tinted "colored
+  glass" pill (green through cyan and silver to red, echoing the bet slip's own colored-background
+  treatment rather than a plain neutral box) that one-tap builds a slip for you (`lib/riskModes.ts`),
+  scanning every saved football pick for its single best qualifying leg
   (never two correlated legs — say, a team's win and its own double-chance — from the same match)
   and replacing whatever's currently in the slip with the result. Calm and Easy only ever bet the
   match's own market favorite among home/draw/away (never a double-chance combo, which is

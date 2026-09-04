@@ -321,7 +321,9 @@ body {
   --lab-cyan: #9db0c2;
   --lab-cyan-rgb: 157, 176, 194;
   --lab-green: #7fae95;
+  --lab-green-rgb: 127, 174, 149;
   --lab-red: #bf8686;
+  --lab-red-rgb: 191, 134, 134;
 
   --slip-bg: #150b28;
   --slip-bg-2: #1c0f36;
