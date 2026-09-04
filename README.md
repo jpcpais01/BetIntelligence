@@ -292,6 +292,18 @@ OpenRouter's rate limits) and each result appears in the sheet as it finishes.
   that's gone stale, and whenever you tap the refresh button in the header. If a refresh fails, the
   last known odds stay on screen with a notice rather than being replaced by an error.
 
+## Bottom navigation
+
+The bottom nav (`components/BottomNav.tsx`) is a floating rounded bar inset from both screen
+edges, not a full-width strip flush against them. Behind it — on every page, since both live in
+the root layout — sits `BottomFade`, a screen-wide gradient that's fully transparent at the nav's
+own top edge and fades to 95% opaque black by the bottom of the screen, so ordinary content
+scrolling underneath darkens progressively as it nears the nav rather than cutting off abruptly.
+The nav is the only thing rendered above that gradient; the fade's height is kept in exact sync
+with the nav's own rendered height (which varies by device, mainly the safe-area inset) via a
+`--bottom-nav-height` CSS custom property BottomNav publishes from a `ResizeObserver` on itself,
+rather than duplicating its padding math in a second place.
+
 ## Install as an app
 
 BetIntelligence is a PWA: **Add to Home Screen** on iOS or **Install** on Android/desktop and it

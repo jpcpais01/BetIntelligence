@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import BottomNav from "@/components/BottomNav";
+import BottomFade from "@/components/BottomFade";
 import ServiceWorker from "@/components/ServiceWorker";
 import ClubLogosProvider from "@/components/ClubLogosProvider";
 import FlyingMoney from "@/components/FlyingMoney";
@@ -65,6 +66,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-dvh flex flex-col">
         <ClubLogosProvider>
           <div className="flex-1 pb-28">{children}</div>
+          <BottomFade />
           <BottomNav />
         </ClubLogosProvider>
         <ServiceWorker />
