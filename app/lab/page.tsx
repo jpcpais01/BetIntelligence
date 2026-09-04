@@ -152,16 +152,11 @@ export default function LabPage() {
           Lab's much lighter violet one. */}
       <div className="fixed inset-0 -z-10" style={{ background: "var(--lab-bg)" }} />
       <header
-        className="lab-hero safe-top sticky top-0 z-30 px-4 pb-3"
+        className="lab-hero safe-top sticky top-0 z-30 space-y-3 px-4 pb-3 pt-3"
         style={{ borderBottom: "1px solid var(--lab-border)" }}
       >
-        <h1 className="flex items-center gap-1.5 font-display text-[19px] font-bold tracking-tight text-text">
-          <span>🎟️</span> Lab
-        </h1>
-        <p className="text-[11px] text-text-faint">Stack picks into a slip, then buy it &middot; paper trade</p>
-
         {tab === "build" && (
-          <div className="relative mt-3">
+          <div className="relative">
             <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-faint" />
             <input
               value={query}
@@ -173,7 +168,7 @@ export default function LabPage() {
           </div>
         )}
 
-        <div className="mt-3 flex gap-1.5">
+        <div className="flex gap-1.5">
           <div className="flex flex-1 gap-1.5 rounded-full p-1" style={{ background: "var(--lab-surface-2)" }}>
             <TabButton label="Build" active={tab === "build"} onClick={() => setTab("build")} />
             <TabButton

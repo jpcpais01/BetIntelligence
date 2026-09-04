@@ -89,13 +89,19 @@ export default function BetSlipBar({
 
       {legs.length > 0 && (
         <div className="fixed inset-x-0 bottom-[calc(74px+env(safe-area-inset-bottom))] z-[45] mx-auto max-w-md px-4">
-          {!expanded ? (
+          <div
+            className="lab-slip-sheen lab-slip-morph shadow-xl"
+            style={{
+              background: "var(--lab-surface-2)",
+              border: "1px solid var(--lab-border)",
+              borderRadius: expanded ? "28px" : "999px",
+            }}
+          >
             <button
-              onClick={() => setExpanded(true)}
-              className="lab-pop-in lab-slip-sheen press flex w-full items-center justify-between gap-3 rounded-full px-4 py-3 shadow-xl"
-              style={{ background: "var(--lab-surface-2)", border: "1px solid var(--lab-border)" }}
+              onClick={() => setExpanded((v) => !v)}
+              className="press relative z-[1] flex w-full items-center justify-between gap-3 px-4 py-3"
             >
-              <span className="relative z-[1] flex items-center gap-2">
+              <span className="flex items-center gap-2">
                 <span
                   key={legs.length}
                   className="lab-coin-bounce flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] font-bold"
@@ -107,104 +113,112 @@ export default function BetSlipBar({
                   {legs.length} bet{legs.length === 1 ? "" : "s"}
                 </span>
               </span>
-              <span className="relative z-[1] flex items-center gap-1.5 text-[12px] font-bold tabular-nums" style={{ color: "var(--lab-gold)" }}>
+              <span className="flex items-center gap-1.5 text-[12px] font-bold tabular-nums" style={{ color: "var(--lab-gold)" }}>
                 {toDecimalOdds(combined.marketProb)}x
                 <span style={{ color: combined.edge > 0.005 ? "var(--lab-green)" : combined.edge < -0.005 ? "var(--lab-red)" : "var(--text-faint)" }}>
                   {toSignedPercent(combined.edge)}
                 </span>
-                <ChevronDownIcon className="h-3.5 w-3.5 rotate-180" />
+                <ChevronDownIcon
+                  className={`h-3.5 w-3.5 transition-transform duration-300 ${expanded ? "" : "rotate-180"}`}
+                />
               </span>
             </button>
-          ) : (
+
+            {/* Expanding via grid-template-rows (0fr -> 1fr) rather than swapping in a whole other
+                element lets the body grow to its own natural height smoothly, no JS measuring
+                needed — combined with the pill's own border-radius morphing above, the whole thing
+                reads as one shape growing rather than a hard cut between two different elements. */}
             <div
-              className="lab-slide-up lab-slip-sheen max-h-[70vh] overflow-y-auto rounded-3xl shadow-2xl"
-              style={{ background: "var(--lab-surface)", border: "1px solid var(--lab-border)" }}
+              className="relative z-[1]"
+              style={{
+                display: "grid",
+                gridTemplateRows: expanded ? "1fr" : "0fr",
+                transition: "grid-template-rows 0.5s cubic-bezier(0.22, 1, 0.36, 1)",
+              }}
             >
-              <div className="relative z-[1]">
-              <div className="sticky top-0 z-10 rounded-t-3xl pt-2" style={{ background: "var(--lab-surface)" }}>
-                <button
-                  onClick={() => setExpanded(false)}
-                  aria-label="Collapse slip"
-                  className="press flex w-full items-center justify-center py-1 text-text-faint"
+              <div className="min-h-0 overflow-hidden">
+                <div
+                  className="max-h-[60vh] overflow-y-auto px-4 pb-4"
+                  style={{
+                    opacity: expanded ? 1 : 0,
+                    transform: expanded ? "translateY(0)" : "translateY(-6px)",
+                    transition: "opacity 0.3s ease 0.08s, transform 0.35s cubic-bezier(0.22, 1, 0.36, 1) 0.08s",
+                  }}
                 >
-                  <ChevronDownIcon className="h-4 w-4" />
-                </button>
-                <div className="flex items-center justify-between gap-2 px-4 pb-2">
-                  <span className="flex items-center gap-1.5 text-[13px] font-bold text-text">
-                    <TicketIcon className="h-4 w-4" style={{ color: "var(--lab-gold)" }} />
-                    Your slip
-                  </span>
-                  <button onClick={onClear} className="press text-[11px] font-medium text-text-faint hover:text-[var(--lab-red)]">
-                    Clear
-                  </button>
-                </div>
-              </div>
+                  <div className="flex items-center justify-between gap-2 pb-2 pt-1">
+                    <span className="flex items-center gap-1.5 text-[13px] font-bold text-text">
+                      <TicketIcon className="h-4 w-4" style={{ color: "var(--lab-gold)" }} />
+                      Your slip
+                    </span>
+                    <button onClick={onClear} className="press text-[11px] font-medium text-text-faint hover:text-[var(--lab-red)]">
+                      Clear
+                    </button>
+                  </div>
 
-              <div className="space-y-2 px-4 pb-2">
-                {legs.map((leg) => (
-                  <LabLegRow
-                    key={leg.pickId}
-                    leg={leg}
-                    liveMarket={liveMarketFor(leg, livePrices)}
-                    onRemove={() => onRemove(leg.pickId)}
-                  />
-                ))}
-              </div>
+                  <div className="space-y-2">
+                    {legs.map((leg) => (
+                      <LabLegRow
+                        key={leg.pickId}
+                        leg={leg}
+                        liveMarket={liveMarketFor(leg, livePrices)}
+                        onRemove={() => onRemove(leg.pickId)}
+                      />
+                    ))}
+                  </div>
 
-              {legs.length > 1 && (
-                <div className="mx-4 mb-3 space-y-2.5 rounded-2xl p-3.5" style={{ background: "var(--lab-surface-2)" }}>
-                  <p className="flex items-center gap-1.5 text-[11px] font-medium text-text-faint">
-                    <ScaleIcon className="h-3 w-3" />
-                    Combined ({legs.length}-leg parlay)
-                  </p>
-                  <div className="grid grid-cols-3 gap-2">
-                    <LabStat label="Odds" value={`${toDecimalOdds(combined.marketProb)}x`} />
-                    <LabStat label="AI prob" value={toPercent(combined.aiProb)} accent="cyan" />
-                    <LabStat
-                      label="Edge"
-                      value={toSignedPercent(combined.edge)}
-                      accent={combined.edge > 0.005 ? "green" : combined.edge < -0.005 ? "red" : undefined}
-                    />
+                  {legs.length > 1 && (
+                    <div className="mt-2 space-y-2.5 rounded-2xl p-3.5" style={{ background: "var(--lab-bg-2)" }}>
+                      <p className="flex items-center gap-1.5 text-[11px] font-medium text-text-faint">
+                        <ScaleIcon className="h-3 w-3" />
+                        Combined ({legs.length}-leg parlay)
+                      </p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <LabStat label="Odds" value={`${toDecimalOdds(combined.marketProb)}x`} sub={toPercent(combined.marketProb)} />
+                        <LabStat label="AI prob" value={toPercent(combined.aiProb)} accent="cyan" />
+                        <LabStat
+                          label="Edge"
+                          value={toSignedPercent(combined.edge)}
+                          accent={combined.edge > 0.005 ? "green" : combined.edge < -0.005 ? "red" : undefined}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <p className="mb-1.5 mt-3 text-[10px] font-medium uppercase tracking-wide text-text-faint">Stake</p>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {QUICK_STAKES.map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setStake(s)}
+                        className="press rounded-xl py-2 text-[12px] font-bold tabular-nums"
+                        style={
+                          stake === s
+                            ? { background: "var(--lab-gold)", color: "#1a0f05" }
+                            : { background: "var(--lab-bg-2)", color: "var(--text-dim)" }
+                        }
+                      >
+                        €{s}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mt-3">
+                    <button
+                      onClick={handleBuy}
+                      disabled={buying}
+                      className={`lab-cta press flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-[14px] font-bold ${buying ? "lab-buy-pulse" : ""}`}
+                    >
+                      <CoinsIcon className="h-4 w-4" />
+                      {buying ? "Placing..." : `Buy ${formatEur(stake)} at ${toDecimalOdds(combined.marketProb)}x`}
+                    </button>
+                    <p className="mt-2 text-center text-[10px] text-text-faint">
+                      Paper trade only &middot; no real money moves
+                    </p>
                   </div>
                 </div>
-              )}
-
-              <div className="px-4 pb-2">
-                <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-text-faint">Stake</p>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {QUICK_STAKES.map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setStake(s)}
-                      className="press rounded-xl py-2 text-[12px] font-bold tabular-nums"
-                      style={
-                        stake === s
-                          ? { background: "var(--lab-gold)", color: "#1a0f05" }
-                          : { background: "var(--lab-surface-2)", color: "var(--text-dim)" }
-                      }
-                    >
-                      €{s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="px-4 pb-4">
-                <button
-                  onClick={handleBuy}
-                  disabled={buying}
-                  className={`lab-cta press flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-[14px] font-bold ${buying ? "lab-buy-pulse" : ""}`}
-                >
-                  <CoinsIcon className="h-4 w-4" />
-                  {buying ? "Placing..." : `Buy ${formatEur(stake)} at ${toDecimalOdds(combined.marketProb)}x`}
-                </button>
-                <p className="mt-2 text-center text-[10px] text-text-faint">
-                  Paper trade only &middot; no real money moves
-                </p>
-              </div>
               </div>
             </div>
-          )}
+          </div>
         </div>
       )}
     </>
@@ -221,7 +235,7 @@ function LabLegRow({ leg, liveMarket, onRemove }: { leg: SlipLeg; liveMarket: nu
           <span className="ml-1.5 font-normal text-text-faint">&middot; {leg.title}</span>
         </p>
         <p className="text-[10px] tabular-nums text-text-faint">
-          {toDecimalOdds(liveMarket)}x &middot; AI {toPercent(leg.aiProb)} &middot;{" "}
+          {toDecimalOdds(liveMarket)}x ({toPercent(liveMarket)}) &middot; AI {toPercent(leg.aiProb)} &middot;{" "}
           <span style={{ color: edge > 0.005 ? "var(--lab-green)" : edge < -0.005 ? "var(--lab-red)" : undefined }}>
             {toSignedPercent(edge)}
           </span>
@@ -234,13 +248,26 @@ function LabLegRow({ leg, liveMarket, onRemove }: { leg: SlipLeg; liveMarket: nu
   );
 }
 
-function LabStat({ label, value, accent }: { label: string; value: string; accent?: "cyan" | "green" | "red" }) {
+function LabStat({
+  label,
+  value,
+  sub,
+  accent,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  accent?: "cyan" | "green" | "red";
+}) {
   const color = accent === "cyan" ? "var(--lab-cyan)" : accent === "green" ? "var(--lab-green)" : accent === "red" ? "var(--lab-red)" : "var(--text)";
   return (
     <div className="rounded-xl px-2 py-2 text-center" style={{ background: "var(--lab-bg-2)" }}>
       <p className="text-[9px] text-text-faint">{label}</p>
-      <p className="font-display text-[13px] font-bold tabular-nums" style={{ color }}>
-        {value}
+      <p className="flex items-baseline justify-center gap-1">
+        <span className="font-display text-[13px] font-bold tabular-nums" style={{ color }}>
+          {value}
+        </span>
+        {sub && <span className="text-[9px] font-medium tabular-nums text-text-faint">{sub}</span>}
       </p>
     </div>
   );

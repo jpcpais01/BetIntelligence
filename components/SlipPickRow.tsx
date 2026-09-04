@@ -149,8 +149,11 @@ function OddsButton({
         </span>
       )}
       <p className="truncate text-[9px] text-text-faint">{label}</p>
-      <p className="font-display text-[15px] font-bold tabular-nums" style={{ color }}>
-        {toDecimalOdds(market)}
+      <p className="flex items-baseline justify-center gap-1">
+        <span className="font-display text-[15px] font-bold tabular-nums" style={{ color }}>
+          {toDecimalOdds(market)}
+        </span>
+        <span className="text-[9px] font-medium tabular-nums text-text-faint">{toPercent(market)}</span>
       </p>
       <p className="text-[8px] tabular-nums text-text-faint">AI {toPercent(ai)}</p>
     </button>

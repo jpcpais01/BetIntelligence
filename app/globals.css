@@ -346,16 +346,11 @@ body {
   animation: lab-pop-in 0.36s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-@keyframes lab-slide-up {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
-}
-.lab-slide-up {
-  animation: lab-slide-up 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+/* The bet slip bar's pill-to-sheet morph: a springy overshoot on the shape itself (border-radius)
+   while its height grows smoothly (grid-template-rows, set inline in BetSlipBar.tsx) — together
+   they read as one gooey shape stretching open, not two different elements swapping places. */
+.lab-slip-morph {
+  transition: border-radius 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 @keyframes lab-buy-pulse {

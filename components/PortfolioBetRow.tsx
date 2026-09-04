@@ -1,7 +1,7 @@
 import type { PlacedBet } from "@/lib/placedBets";
 import type { HistoryPoint } from "@/lib/oddsHistory";
 import { computeBetValue } from "@/lib/portfolioHistory";
-import { formatEur, formatRelativeTime, toSignedReturnPercent, toDecimalOdds } from "@/lib/format";
+import { formatEur, formatRelativeTime, toSignedReturnPercent, toDecimalOdds, toPercent } from "@/lib/format";
 import { TicketIcon } from "./icons";
 
 export default function PortfolioBetRow({
@@ -30,7 +30,8 @@ export default function PortfolioBetRow({
         <p className="truncate text-[10px] text-text-faint">
           {bet.legs.length > 1 ? `${bet.legs.length}-leg parlay` : bet.legs[0]?.title}
           {" · "}
-          {toDecimalOdds(bet.combined.marketProb)}x &middot; {formatEur(bet.stake)} &middot; {formatRelativeTime(bet.placedAt)}
+          {toDecimalOdds(bet.combined.marketProb)}x ({toPercent(bet.combined.marketProb)}) &middot; {formatEur(bet.stake)}{" "}
+          &middot; {formatRelativeTime(bet.placedAt)}
         </p>
       </div>
       <div className="shrink-0 text-right">

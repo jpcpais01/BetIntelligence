@@ -62,17 +62,16 @@ export default function PicksPage() {
 
   return (
     <div className="mx-auto max-w-md">
-      <header className="safe-top sticky top-0 z-30 border-b border-border-soft bg-bg/85 px-4 pb-3 backdrop-blur-xl">
-        <h1 className="font-display text-[17px] font-bold tracking-tight">Picks</h1>
-        <p className="text-[11px] text-text-faint">Every saved analysis &middot; paper only, no real money</p>
-
-        {picks && picks.length > 0 && (
-          <div className="mt-3 flex gap-1.5 rounded-full bg-surface-2 p-1">
+      {picks && picks.length > 0 ? (
+        <header className="safe-top sticky top-0 z-30 border-b border-border-soft bg-bg/85 px-4 pb-3 backdrop-blur-xl">
+          <div className="flex gap-1.5 rounded-full bg-surface-2 p-1">
             <FilterButton label="All" active={filter === "all"} onClick={() => setFilter("all")} />
             <FilterButton label="Football" active={filter === "football"} onClick={() => setFilter("football")} />
           </div>
-        )}
-      </header>
+        </header>
+      ) : (
+        <div className="safe-top" />
+      )}
 
       <div className="px-4 pt-4">
         {picks && picks.length > 0 && (

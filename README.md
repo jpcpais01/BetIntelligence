@@ -54,7 +54,9 @@ gently desaturated, closely related tones just distinct enough to tell apart at 
 than a set of competing neon hues. Every outcome — the main three-way, the two double-chance combos, any Discover
 market's outcomes — renders through the same button: a label, a big **decimal odds** number
 (`toDecimalOdds`, `lib/format.ts`, e.g. `2.38x`) rather than the percentage-first framing used
-everywhere else, and the AI's own probability underneath. Edge only ever shows as a small "value"
+everywhere else, with its plain percentage equivalent in small letters right next to it (`toPercent`
+of that same probability) for anyone who thinks in implied probability rather than a multiplier —
+and the AI's own probability underneath. Edge only ever shows as a small "value"
 badge (a bolt icon + the edge) when the AI's read clears the market by 2+ points — deliberately the
 *only* place edge appears, and only when it's worth noticing, rather than a number crowding every
 single button whether or not it means anything.
@@ -78,7 +80,11 @@ nothing to reprice and holds at its last known value.
 - Adding a leg surfaces a floating pill at the bottom of the screen — how many bets, the combined
   decimal odds, and the combined edge, all live — over a slow, dim gold sheen that drifts across
   the pill (and the expanded sheet behind it) so the slip always feels quietly alive rather than
-  static. Tapping it expands into the full slip: every leg with its own live odds/edge, a **stake**
+  static. Tapping it doesn't swap in a separate sheet — the same element morphs in place: its
+  border-radius springs from a full pill to a rounded sheet while its body grows open via a
+  `grid-template-rows` transition (`0fr` &rarr; `1fr`, `components/BetSlipBar.tsx`), so the whole
+  thing reads as one shape stretching open rather than two different elements swapping places.
+  Tapping the pill again morphs it back shut the same way. Open, it shows the full slip: every leg with its own live odds/edge, a **stake**
   picker (quick chips of €10/€25/€50/€100), and — with 2+ legs — the combined market and AI
   probability, each the product of every leg's own probability for its chosen outcome
   (`combineSlip`, `lib/betslip.ts`). This math doesn't care what kind of market a leg came from, so a parlay can

@@ -1,7 +1,7 @@
 import type { PlacedBet } from "@/lib/placedBets";
 import { combineSlip } from "@/lib/betslip";
 import { liveKey } from "@/lib/livePrices";
-import { toSignedPercent, toDecimalOdds, formatRelativeTime } from "@/lib/format";
+import { toSignedPercent, toDecimalOdds, toPercent, formatRelativeTime } from "@/lib/format";
 import { TicketIcon } from "./icons";
 
 // A placed bet is a permanent paper-trade record, not a live position — the app has no way to
@@ -33,7 +33,10 @@ export default function PlacedBetCard({ bet, livePrices }: { bet: PlacedBet; liv
             <span className="min-w-0 truncate text-text-dim">
               <span className="font-semibold text-text">{leg.outcomeLabel}</span> &middot; {leg.title}
             </span>
-            <span className="shrink-0 tabular-nums text-text-faint">{toDecimalOdds(liveLegs[i].marketProb)}x</span>
+            <span className="shrink-0 tabular-nums text-text-faint">
+              {toDecimalOdds(liveLegs[i].marketProb)}x{" "}
+              <span className="text-[10px]">({toPercent(liveLegs[i].marketProb)})</span>
+            </span>
           </div>
         ))}
       </div>
@@ -48,8 +51,11 @@ export default function PlacedBetCard({ bet, livePrices }: { bet: PlacedBet; liv
         <div className="flex items-center gap-3 text-right">
           <div>
             <p className="text-[9px] text-text-faint">Odds now</p>
-            <p className="font-display text-[13px] font-bold tabular-nums" style={{ color: "var(--lab-gold)" }}>
-              {toDecimalOdds(live.marketProb)}x
+            <p className="flex items-baseline justify-end gap-1">
+              <span className="font-display text-[13px] font-bold tabular-nums" style={{ color: "var(--lab-gold)" }}>
+                {toDecimalOdds(live.marketProb)}x
+              </span>
+              <span className="text-[9px] font-medium tabular-nums text-text-faint">{toPercent(live.marketProb)}</span>
             </p>
           </div>
           <div>
