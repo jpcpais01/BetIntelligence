@@ -81,8 +81,8 @@ async function run() {
   check("normal: picks the 1X combo when it's the best-edge leg", (normalResult ?? []).every((l) => l.outcomeLabel === "1X"));
   check("calm/easy never see this case since it's favorite-only", buildRiskSlip(comboIsBest, {}, "calm") === null);
 
-  // --- Multiple-of-3 trimming, keeping the highest-edge legs ---
-  // 4 qualifying games for "mega" (1+ edge) should trim down to the best 3, not all 4.
+  // --- Always capped at exactly 3 legs, keeping the highest-edge ones ---
+  // 4 qualifying games for "mega" (1+ edge) should cap down to the best 3, not all 4.
   const fourQualify = [
     fakePick("q1", { home: 0.5, draw: 0.3, away: 0.2 }, { home: 0.51, draw: 0.3, away: 0.19 }), // edge ~1
     fakePick("q2", { home: 0.5, draw: 0.3, away: 0.2 }, { home: 0.53, draw: 0.3, away: 0.17 }), // edge ~3
@@ -90,10 +90,22 @@ async function run() {
     fakePick("q4", { home: 0.5, draw: 0.3, away: 0.2 }, { home: 0.6, draw: 0.3, away: 0.1 }), // edge ~10 (best)
   ];
   const megaResult = buildRiskSlip(fourQualify, {}, "mega");
-  check("mega: 4 qualifying games trims down to a 3-leg slip", megaResult !== null && megaResult.length === 3);
+  check("mega: 4 qualifying games caps down to a 3-leg slip", megaResult !== null && megaResult.length === 3);
   check(
-    "mega: trimming keeps the 3 highest-edge legs, dropping the weakest",
+    "mega: capping keeps the 3 highest-edge legs, dropping the weakest",
     (megaResult ?? []).length === 3 && !(megaResult ?? []).some((l) => l.title === "Homeq1 v Awayq1"),
+  );
+
+  // The exact reported bug: dozens of qualifying games must still cap at exactly 3, never scale
+  // up with however many qualify.
+  const fifteenQualify = Array.from({ length: 15 }, (_, i) =>
+    fakePick(`w${i}`, { home: 0.5, draw: 0.3, away: 0.2 }, { home: 0.5 + (i + 1) * 0.01, draw: 0.3, away: 0.2 - (i + 1) * 0.01 })
+  );
+  const bigResult = buildRiskSlip(fifteenQualify, {}, "mega");
+  check("15 qualifying games still caps at exactly 3 legs, never more", bigResult !== null && bigResult.length === 3);
+  check(
+    "capping from 15 keeps the 3 highest-edge legs (the last 3 fixtures, edge 13/14/15pp)",
+    (bigResult ?? []).map((l) => l.title).sort().join() === ["Homew12 v Awayw12", "Homew13 v Awayw13", "Homew14 v Awayw14"].sort().join(),
   );
 
   // Fewer than 3 qualifying games at all -> null ("not enough games for this mode").

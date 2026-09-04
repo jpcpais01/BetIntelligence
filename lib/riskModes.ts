@@ -64,11 +64,13 @@ function bestCandidateForPick(
   return best;
 }
 
+const SLIP_SIZE = 3;
+
 // Builds an auto-generated slip for one risk mode: at most one leg per game (its single best
 // qualifying outcome, so a correlated pair like a team's win and its own double-chance never both
-// end up in the same parlay), trimmed down to the largest multiple of 3 by taking the
-// highest-edge legs first — so the result is always a clean 3/6/9-leg slip. Returns null when
-// fewer than 3 games qualify at all, which the caller shows as "not enough games for this mode."
+// end up in the same parlay), capped at exactly 3 legs — the highest-edge qualifying games first,
+// whatever kind of bet each one is. Returns null when fewer than 3 games qualify at all, which the
+// caller shows as "not enough games for this mode."
 export function buildRiskSlip(
   picks: SavedPick[],
   livePrices: Record<string, number>,
@@ -82,8 +84,7 @@ export function buildRiskSlip(
     .filter((c): c is Candidate => c !== null)
     .sort((a, b) => b.edge - a.edge);
 
-  const count = Math.floor(candidates.length / 3) * 3;
-  if (count < 3) return null;
+  if (candidates.length < SLIP_SIZE) return null;
 
-  return candidates.slice(0, count).map((c) => legFromPick(c.pick, c.outcome));
+  return candidates.slice(0, SLIP_SIZE).map((c) => legFromPick(c.pick, c.outcome));
 }

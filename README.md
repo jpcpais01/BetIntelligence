@@ -96,9 +96,9 @@ nothing to reprice and holds at its last known value.
   favorite" without actually being the market's pick), needing a 10-point or 5-point AI-vs-market
   edge respectively. Normal, Risky, and Mega open the search to all five leg types (home, draw,
   away, 1X, X2) and progressively lower the bar to 5, 3, and 1 point of edge. Whatever qualifies is
-  trimmed down to the largest multiple of 3 — keeping the highest-edge legs first — so a preset
-  always hands back a clean 3/6/9-leg slip rather than an arbitrary count; fewer than 3 qualifying
-  games shows "Not enough games for &lt;preset&gt; mode." instead of building anything.
+  always capped at exactly 3 legs — the highest-edge qualifying games first, whatever kind of bet
+  each one is — so a preset never floods the slip with every match that happens to qualify; fewer
+  than 3 qualifying games shows "Not enough games for &lt;preset&gt; mode." instead of building anything.
 - Adding a leg surfaces a floating pill at the bottom of the screen — how many bets, the combined
   decimal odds, and the combined edge, all live — over a slow, dim gold sheen that drifts across
   the pill (and the expanded sheet behind it) so the slip always feels quietly alive rather than
