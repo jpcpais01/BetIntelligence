@@ -5,6 +5,7 @@ import {
   __resetRateLimiterForTests,
   __resetLiveWindowCacheForTests,
 } from "../lib/footballData";
+import type { LeagueId } from "../lib/types";
 
 process.env.FOOTBALL_DATA_API_KEY = "test-key";
 
@@ -356,8 +357,10 @@ async function run() {
     check("the error explains it's a free-plan limitation", /free plan/i.test(threw?.message ?? ""), threw?.message);
   }
 
-  // --- getLiveScores: one request per covered league, filtered to live-relevant statuses only,
-  // resilient to one league's fetch failing, and cached across calls within the TTL ---
+  // --- getLiveScores: one request per REQUESTED league (not every league this provider covers —
+  // checking all of them regardless of what's on screen was most of the free tier's entire
+  // budget by itself), filtered to live-relevant statuses only, resilient to one league's fetch
+  // failing, and cached across calls within the TTL ---
   {
     __resetRateLimiterForTests();
     __resetLiveWindowCacheForTests();
@@ -399,8 +402,10 @@ async function run() {
       return ok({ matches: [] });
     }) as unknown as typeof fetch;
 
-    const scores = await getLiveScores();
+    const requestedLeagues: LeagueId[] = ["premier-league", "champions-league", "bundesliga"];
+    const scores = await getLiveScores(requestedLeagues);
     check("returns exactly the 2 live-relevant matches, not the scheduled one", scores.length === 2, JSON.stringify(scores));
+    check("a covered league that wasn't requested (La Liga here) is never fetched", callsByCode.PD === undefined, JSON.stringify(callsByCode));
     const plEntry = scores.find((s) => s.homeTeam === "Arsenal");
     check("the Premier League in-play match is included with the right score", plEntry?.homeGoals === 1 && plEntry?.awayGoals === 0, JSON.stringify(plEntry));
     check("its status label reads as in-play, not raw enum text", plEntry?.statusLabel === "In Play", plEntry?.statusLabel);
@@ -410,7 +415,7 @@ async function run() {
     check("a league whose fetch fails (Bundesliga here) doesn't break the others", !scores.some((s) => s.league === "bundesliga"));
 
     const callsBefore = { ...callsByCode };
-    await getLiveScores();
+    await getLiveScores(requestedLeagues);
     check(
       "a second call within the TTL reuses the cache for leagues that succeeded",
       Object.entries(callsBefore)
@@ -423,6 +428,21 @@ async function run() {
       callsByCode.BL1 === callsBefore.BL1 + 1,
       JSON.stringify(callsByCode)
     );
+  }
+
+  // --- An empty leagues list makes no requests at all — no games on screen plausibly live means
+  // nothing worth checking, not "check everything just in case" ---
+  {
+    __resetRateLimiterForTests();
+    __resetLiveWindowCacheForTests();
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return ok({ matches: [] });
+    }) as unknown as typeof fetch;
+    const scores = await getLiveScores([]);
+    check("an empty leagues list makes no requests", calls === 0, `${calls}`);
+    check("an empty leagues list returns an empty result", scores.length === 0, JSON.stringify(scores));
   }
 
   if (failures.length > 0) {

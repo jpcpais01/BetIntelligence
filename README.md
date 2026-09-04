@@ -35,9 +35,12 @@ A card's full odds refresh happens only every 30 minutes (see
 [Filtering and refreshing](#filtering-and-refreshing)) — fine for pre-match prices, but a "LIVE NOW"
 label with no score would go stale the moment the first goal went in. Once a match's kickoff is
 close enough to plausibly be underway, the page separately polls `/api/games/live-scores` every 40
-seconds, which asks football-data.org (the same provider behind the AI's research digest) for each
-covered league's current matches in one request per league, filtered to just the live/paused/finished
-ones. The result replaces the guessed "LIVE NOW" badge with the real thing — "LIVE 2-1", "HT 1-0",
+seconds, sending along only the leagues that actually have a plausibly-live game on screen right
+now. `getLiveScores` asks football-data.org (the same provider behind the AI's research digest) for
+just those leagues' current matches, one request each, filtered to just the live/paused/finished
+ones — checking every covered league regardless of what's showing used to be most of the free
+tier's entire 10-requests/minute budget by itself, crowding out real analysis requests into 429s.
+The result replaces the guessed "LIVE NOW" badge with the real thing — "LIVE 2-1", "HT 1-0",
 "FT 3-1" — for any match football-data.org covers; everything else (an uncovered league, a match too
 far from kickoff to poll for, a request that fails) just keeps the plain kickoff-time label it
 always had. `MOCK_GAMES=1` skips this entirely, since mock fixtures carry real club names but

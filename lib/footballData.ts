@@ -316,8 +316,10 @@ const LIVE_RELEVANT_STATUSES = new Set(["LIVE", "IN_PLAY", "PAUSED", "FINISHED"]
 
 // Shared across every request to the warm server instance (not per-user), so a page full of
 // visitors polling for live scores at once still costs at most one fetch per league per TTL —
-// this is much shorter than the digest cache above since a live score is only useful fresh.
-const LIVE_WINDOW_CACHE_TTL_MS = 45_000;
+// this is much shorter than the digest cache above since a live score is only useful fresh. Must
+// stay comfortably above the client's own poll interval (app/sports/page.tsx) or every poll would
+// miss the cache and refetch, defeating the point of caching at all.
+const LIVE_WINDOW_CACHE_TTL_MS = 60_000;
 const liveWindowCache = new Map<string, { at: number; matches: FootballDataMatch[] }>();
 
 async function fetchLeagueLiveWindow(code: string): Promise<FootballDataMatch[]> {
@@ -341,13 +343,17 @@ export function __resetLiveWindowCacheForTests(): void {
 }
 
 // Enriches the games list with a real live score instead of a guessed "kickoff was recent enough
-// that it's probably live" label with no score attached. One request per football-data.org-covered
-// league (protected by the same rate limiter as every other call in this module) rather than one
-// per match — a league whose fetch fails just contributes nothing to the result, it never breaks
-// the rest of the games list.
-export async function getLiveScores(): Promise<LiveScoreEntry[]> {
+// that it's probably live" label with no score attached. One request per REQUESTED league (not
+// every league this provider covers — checking all 8 unconditionally on every poll was most of
+// the free tier's entire 10-requests/minute budget by itself, crowding out real digest-building
+// calls into 429s), protected by the same rate limiter as every other call in this module. A
+// league whose fetch fails, or one this provider doesn't cover at all, just contributes nothing to
+// the result rather than breaking the rest of the games list.
+export async function getLiveScores(leagues: LeagueId[]): Promise<LiveScoreEntry[]> {
   const entries = await Promise.all(
-    (Object.entries(COMPETITION_CODE) as [LeagueId, string][]).map(async ([league, code]) => {
+    [...new Set(leagues)].map(async (league) => {
+      const code = COMPETITION_CODE[league];
+      if (!code) return [] as LiveScoreEntry[];
       try {
         const matches = await fetchLeagueLiveWindow(code);
         return matches

@@ -128,20 +128,26 @@ export default function Home() {
     return () => clearInterval(id);
   }, [refresh]);
 
-  // Only poll for live scores while at least one game on screen could plausibly be live — no
-  // point hitting this every 40s when the nearest kickoff is days away.
-  const hasLiveCandidateGames = useMemo(
-    () => (games ?? []).some((g) => isLiveCandidate(g.startTime)),
+  // Only poll for live scores for leagues that actually have a plausibly-live game on screen —
+  // checking every covered league on every poll regardless of what's showing was most of
+  // football-data.org's entire 10-requests/minute budget by itself, starving real match analysis.
+  const liveCandidateLeagues = useMemo(
+    () => [...new Set((games ?? []).filter((g) => isLiveCandidate(g.startTime)).map((g) => g.league))],
     [games]
   );
 
   useEffect(() => {
-    if (!hasLiveCandidateGames) return;
+    if (liveCandidateLeagues.length === 0) return;
 
     let cancelled = false;
     const refreshLiveScores = async () => {
       try {
-        const res = await fetch("/api/games/live-scores", { cache: "no-store" });
+        const res = await fetch("/api/games/live-scores", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ leagues: liveCandidateLeagues }),
+          cache: "no-store",
+        });
         if (!res.ok || cancelled) return;
         const data = await res.json();
         if (!cancelled && Array.isArray(data.liveScores)) setLiveScores(data.liveScores);
@@ -156,7 +162,7 @@ export default function Home() {
       cancelled = true;
       clearInterval(id);
     };
-  }, [hasLiveCandidateGames]);
+  }, [liveCandidateLeagues]);
 
   const liveScoreByGameId = useMemo(() => {
     const map: Record<string, LiveScoreEntry> = {};
