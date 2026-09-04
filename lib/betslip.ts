@@ -20,6 +20,10 @@ export interface SlipLeg {
   outcomeLabel: string; // "Arsenal" / "Draw" / "Chelsea" / "1X" / "X2", or the chosen market outcome's label
   marketProb: number;
   aiProb: number;
+  // The CLOB token this leg's price can be looked up by later (Home's mark-to-market repricing,
+  // lib/portfolioHistory.ts). Null for a double-chance combo (no single token prices "1X") or when
+  // the underlying pick predates this field — those legs just hold at their entry value instead.
+  tokenId?: string | null;
 }
 
 export function legFromPick(pick: SavedPick, outcome: Outcome): SlipLeg {
@@ -31,13 +35,15 @@ export function legFromPick(pick: SavedPick, outcome: Outcome): SlipLeg {
   };
 
   // Double chance is just the sum of the two 1X2 outcomes it covers — both sides (mutually
-  // exclusive, exhaustive with the third) sum to the true probability of "either one hits".
+  // exclusive, exhaustive with the third) sum to the true probability of "either one hits". There
+  // is no single CLOB token for a combo, so it isn't repriceable later.
   if (outcome === "1x") {
     return {
       ...base,
       outcomeLabel: "1X",
       marketProb: pick.market.home + pick.market.draw,
       aiProb: pick.independent.home + pick.independent.draw,
+      tokenId: null,
     };
   }
   if (outcome === "x2") {
@@ -46,6 +52,7 @@ export function legFromPick(pick: SavedPick, outcome: Outcome): SlipLeg {
       outcomeLabel: "X2",
       marketProb: pick.market.draw + pick.market.away,
       aiProb: pick.independent.draw + pick.independent.away,
+      tokenId: null,
     };
   }
 
@@ -54,6 +61,7 @@ export function legFromPick(pick: SavedPick, outcome: Outcome): SlipLeg {
     outcomeLabel: outcome === "draw" ? "Draw" : outcome === "home" ? pick.homeTeam : pick.awayTeam,
     marketProb: pick.market[outcome],
     aiProb: pick.independent[outcome],
+    tokenId: pick.tokenIds?.[outcome] ?? null,
   };
 }
 
@@ -69,6 +77,7 @@ export function legFromMarketPick(pick: SavedMarketPick, outcomeLabel: string): 
     outcomeLabel,
     marketProb: market.price,
     aiProb: ai.probability,
+    tokenId: market.tokenId ?? null,
   };
 }
 

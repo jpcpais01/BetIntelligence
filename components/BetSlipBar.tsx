@@ -2,40 +2,58 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { SlipLeg } from "@/lib/betslip";
-import { combineSlip, legEdge } from "@/lib/betslip";
+import { combineSlip } from "@/lib/betslip";
 import { placeBet } from "@/lib/placedBets";
-import { toPercent, toSignedPercent, toDecimalOdds } from "@/lib/format";
+import { DEFAULT_STAKE, QUICK_STAKES } from "@/lib/portfolio";
+import { liveKey } from "@/lib/livePrices";
+import { toPercent, toSignedPercent, toDecimalOdds, formatEur } from "@/lib/format";
 import { TicketIcon, XCircleIcon, ChevronDownIcon, ScaleIcon, CoinsIcon } from "./icons";
 
 const BUYING_MS = 700;
 const SUCCESS_MS = 2400;
 const CONFETTI_COLORS = ["var(--lab-gold)", "var(--lab-pink)", "var(--lab-cyan)", "var(--lab-green)"];
 
+function liveMarketFor(leg: SlipLeg, livePrices: Record<string, number>): number {
+  return livePrices[liveKey(leg.pickId, leg.outcomeLabel)] ?? leg.marketProb;
+}
+
 export default function BetSlipBar({
   legs,
+  livePrices,
   onRemove,
   onClear,
   onPlaced,
 }: {
   legs: SlipLeg[];
+  livePrices: Record<string, number>;
   onRemove: (pickId: string) => void;
   onClear: () => void;
   onPlaced?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [stake, setStake] = useState(DEFAULT_STAKE);
   const [buying, setBuying] = useState(false);
   const [placedLegCount, setPlacedLegCount] = useState<number | null>(null);
   const [placedOdds, setPlacedOdds] = useState<string | null>(null);
+  const [placedStake, setPlacedStake] = useState<number | null>(null);
 
-  const combined = useMemo(() => combineSlip(legs), [legs]);
+  // Buying always transacts at today's price, not whatever the market showed back when the pick
+  // was analyzed — pricedLegs substitutes each leg's live market probability in before the combined
+  // stats (and the placed-bet snapshot itself) get computed.
+  const pricedLegs = useMemo(
+    () => legs.map((leg) => ({ ...leg, marketProb: liveMarketFor(leg, livePrices) })),
+    [legs, livePrices]
+  );
+  const combined = useMemo(() => combineSlip(pricedLegs), [pricedLegs]);
 
   const handleBuy = () => {
     if (legs.length === 0 || buying) return;
     setBuying(true);
     window.setTimeout(() => {
-      placeBet(legs, combined);
+      placeBet(pricedLegs, combined, stake);
       setPlacedLegCount(legs.length);
       setPlacedOdds(toDecimalOdds(combined.marketProb));
+      setPlacedStake(stake);
       setBuying(false);
       setExpanded(false);
       onClear();
@@ -43,6 +61,7 @@ export default function BetSlipBar({
       window.setTimeout(() => {
         setPlacedLegCount(null);
         setPlacedOdds(null);
+        setPlacedStake(null);
       }, SUCCESS_MS);
     }, BUYING_MS);
   };
@@ -58,7 +77,8 @@ export default function BetSlipBar({
             <p className="text-3xl">🎉</p>
             <p className="mt-2 font-display text-[17px] font-bold text-text">Bet placed!</p>
             <p className="mt-1 text-[12px] text-text-dim">
-              {placedLegCount} leg{placedLegCount === 1 ? "" : "s"} &middot; {placedOdds}x combined odds
+              {placedStake !== null ? formatEur(placedStake) : ""} &middot; {placedLegCount} leg
+              {placedLegCount === 1 ? "" : "s"} &middot; {placedOdds}x
             </p>
             <p className="mt-2 text-[10px] uppercase tracking-wide text-text-faint">
               Paper trade &middot; find it under My Bets
@@ -114,7 +134,12 @@ export default function BetSlipBar({
 
               <div className="space-y-2 px-4 pb-2">
                 {legs.map((leg) => (
-                  <LabLegRow key={leg.pickId} leg={leg} onRemove={() => onRemove(leg.pickId)} />
+                  <LabLegRow
+                    key={leg.pickId}
+                    leg={leg}
+                    liveMarket={liveMarketFor(leg, livePrices)}
+                    onRemove={() => onRemove(leg.pickId)}
+                  />
                 ))}
               </div>
 
@@ -136,6 +161,26 @@ export default function BetSlipBar({
                 </div>
               )}
 
+              <div className="px-4 pb-2">
+                <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-text-faint">Stake</p>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {QUICK_STAKES.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setStake(s)}
+                      className="press rounded-xl py-2 text-[12px] font-bold tabular-nums"
+                      style={
+                        stake === s
+                          ? { background: "var(--lab-gold)", color: "#1a0f05" }
+                          : { background: "var(--lab-surface-2)", color: "var(--text-dim)" }
+                      }
+                    >
+                      €{s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="px-4 pb-4">
                 <button
                   onClick={handleBuy}
@@ -143,7 +188,7 @@ export default function BetSlipBar({
                   className={`lab-cta press flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-[14px] font-bold ${buying ? "lab-buy-pulse" : ""}`}
                 >
                   <CoinsIcon className="h-4 w-4" />
-                  {buying ? "Placing..." : `Buy at ${toDecimalOdds(combined.marketProb)}x`}
+                  {buying ? "Placing..." : `Buy ${formatEur(stake)} at ${toDecimalOdds(combined.marketProb)}x`}
                 </button>
                 <p className="mt-2 text-center text-[10px] text-text-faint">
                   Paper trade only &middot; no real money moves
@@ -157,8 +202,9 @@ export default function BetSlipBar({
   );
 }
 
-function LabLegRow({ leg, onRemove }: { leg: SlipLeg; onRemove: () => void }) {
-  const edge = legEdge(leg);
+function LabLegRow({ leg, liveMarket, onRemove }: { leg: SlipLeg; liveMarket: number; onRemove: () => void }) {
+  const edge = leg.aiProb - liveMarket;
+  const delta = leg.marketProb - liveMarket;
   return (
     <div className="flex items-center justify-between gap-2 rounded-2xl px-3 py-2.5" style={{ background: "var(--lab-surface-2)" }}>
       <div className="min-w-0">
@@ -167,10 +213,13 @@ function LabLegRow({ leg, onRemove }: { leg: SlipLeg; onRemove: () => void }) {
           <span className="ml-1.5 font-normal text-text-faint">&middot; {leg.title}</span>
         </p>
         <p className="text-[10px] tabular-nums text-text-faint">
-          {toDecimalOdds(leg.marketProb)}x &middot; AI {toPercent(leg.aiProb)} &middot;{" "}
+          {toDecimalOdds(liveMarket)}x &middot; AI {toPercent(leg.aiProb)} &middot;{" "}
           <span style={{ color: edge > 0.005 ? "var(--lab-green)" : edge < -0.005 ? "var(--lab-red)" : undefined }}>
             {toSignedPercent(edge)}
           </span>
+        </p>
+        <p className="text-[8px] tabular-nums text-text-faint opacity-70">
+          &Delta; {toSignedPercent(delta)} since analysis
         </p>
       </div>
       <button onClick={onRemove} aria-label="Remove leg" className="press shrink-0 text-text-faint hover:text-[var(--lab-red)]">

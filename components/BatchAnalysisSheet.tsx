@@ -129,6 +129,7 @@ export default function BatchAnalysisSheet({
       independent: r.independent,
       comparison: r.comparison,
       totalCostUsd: totalCost(r.independent.costUsd, r.comparison.costUsd),
+      tokenIds: game.tokenIds,
     });
     setResults((cur) => ({ ...cur, [game.id]: { ...cur[game.id], saved: true } }));
   };

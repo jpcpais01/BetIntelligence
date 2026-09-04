@@ -65,9 +65,25 @@ export function toSignedPercent(p: number): string {
   return `${sign}${pct.toFixed(1)}pp`;
 }
 
+// A relative return (e.g. portfolio P&L vs. baseline) — no "pp" suffix, since that's specific to
+// a percentage-POINT difference between two probabilities, not a proportional change.
+export function toSignedReturnPercent(p: number): string {
+  const pct = p * 100;
+  const sign = pct > 0 ? "+" : "";
+  return `${sign}${pct.toFixed(1)}%`;
+}
+
 export function toDecimalOdds(p: number): string {
   if (p <= 0) return "—";
   return (1 / p).toFixed(2);
+}
+
+// The Home portfolio's paper currency. Always 2 decimals, comma-grouped, sign in front of the
+// symbol (not after the number) — "-€12.34", never "€-12.34".
+export function formatEur(amount: number): string {
+  if (!Number.isFinite(amount)) return "€0.00";
+  const sign = amount < 0 ? "-" : "";
+  return `${sign}€${Math.abs(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 // Analysis costs are typically fractions of a cent, so a flat 2-decimal format would round

@@ -14,6 +14,10 @@ export interface PlacedBet {
   placedAt: string;
   legs: SlipLeg[];
   combined: CombinedSlip;
+  // Paper stake in EUR, spent from the Home portfolio's cash balance when this bet was placed.
+  // Bets placed before this field existed won't have it — callers should treat a missing value as
+  // DEFAULT_STAKE (lib/portfolio.ts) rather than crash or show "€undefined".
+  stake: number;
 }
 
 export function loadPlacedBets(): PlacedBet[] {
@@ -37,12 +41,13 @@ function persist(bets: PlacedBet[]): void {
   }
 }
 
-export function placeBet(legs: SlipLeg[], combined: CombinedSlip): PlacedBet {
+export function placeBet(legs: SlipLeg[], combined: CombinedSlip, stake: number): PlacedBet {
   const bet: PlacedBet = {
     id: `bet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     placedAt: new Date().toISOString(),
     legs,
     combined,
+    stake,
   };
   const next = [bet, ...loadPlacedBets()].slice(0, MAX_ENTRIES);
   persist(next);

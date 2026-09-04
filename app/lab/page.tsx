@@ -6,6 +6,7 @@ import { loadPicks } from "@/lib/picks";
 import { loadMarketPicks } from "@/lib/marketPicks";
 import { loadSlip, saveSlip, legFromPick, legFromMarketPick, type SlipLeg, type Outcome } from "@/lib/betslip";
 import { loadPlacedBets, type PlacedBet } from "@/lib/placedBets";
+import { liveKey, fetchLivePrices, type LivePriceRequest } from "@/lib/livePrices";
 import SlipPickRow from "@/components/SlipPickRow";
 import MarketPickRow from "@/components/MarketPickRow";
 import PlacedBetCard from "@/components/PlacedBetCard";
@@ -31,6 +32,7 @@ export default function LabPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [tab, setTab] = useState<Tab>("build");
   const [openPick, setOpenPick] = useState<AnyPick | null>(null);
+  const [livePrices, setLivePrices] = useState<Record<string, number>>({});
   const requestLogos = useRequestLogos();
 
   useEffect(() => {
@@ -55,6 +57,35 @@ export default function LabPage() {
     ];
     return merged.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
   }, [sportsPicks, marketPicks]);
+
+  // Every picked outcome's live current price, keyed the same way a SlipLeg identifies itself
+  // (liveKey) — one fetch serves the browsing rows below, the slip bar, and My Bets alike, all
+  // reading from this same map. Missing keys (an old pick with no tokenId, or a fetch that hasn't
+  // landed yet) fall back to that pick's own stored snapshot at each call site.
+  useEffect(() => {
+    if (!picks || picks.length === 0) return;
+    const requests: LivePriceRequest[] = [];
+    for (const item of picks) {
+      if (item.kind === "sports") {
+        const p = item.pick;
+        requests.push({ key: liveKey(p.id, p.homeTeam), tokenId: p.tokenIds?.home, fallback: p.market.home });
+        requests.push({ key: liveKey(p.id, "Draw"), tokenId: p.tokenIds?.draw, fallback: p.market.draw });
+        requests.push({ key: liveKey(p.id, p.awayTeam), tokenId: p.tokenIds?.away, fallback: p.market.away });
+      } else {
+        const p = item.pick;
+        for (const o of p.market) {
+          requests.push({ key: liveKey(p.id, o.label), tokenId: o.tokenId, fallback: o.price });
+        }
+      }
+    }
+    let cancelled = false;
+    fetchLivePrices(requests).then((result) => {
+      if (!cancelled) setLivePrices(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [picks]);
 
   const filteredPicks = useMemo(() => {
     if (!picks) return [];
@@ -129,37 +160,37 @@ export default function LabPage() {
         </h1>
         <p className="text-[11px] text-text-faint">Stack picks into a slip, then buy it &middot; paper trade</p>
 
-        <div className="mt-3 flex gap-1.5 rounded-full p-1" style={{ background: "var(--lab-surface-2)" }}>
-          <TabButton label="Build" active={tab === "build"} onClick={() => setTab("build")} />
-          <TabButton
-            label="My Bets"
-            count={placedBets?.length}
-            active={tab === "bets"}
-            onClick={() => setTab("bets")}
-          />
-        </div>
-
         {tab === "build" && (
-          <>
-            <div className="relative mt-3">
-              <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-faint" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search analyzed picks..."
-                className="w-full rounded-full py-2.5 pl-9 pr-3 text-[13px] text-text placeholder:text-text-faint focus:outline-none"
-                style={{ background: "var(--lab-surface-2)", boxShadow: "inset 0 0 0 1px var(--lab-border)" }}
-              />
-            </div>
-
-            {picks && picks.length > 0 && (
-              <div className="mt-3 flex gap-1.5 rounded-full p-1" style={{ background: "var(--lab-surface-2)" }}>
-                <FilterButton label="All" active={filter === "all"} onClick={() => setFilter("all")} />
-                <FilterButton label="Football" active={filter === "football"} onClick={() => setFilter("football")} />
-              </div>
-            )}
-          </>
+          <div className="relative mt-3">
+            <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-faint" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search analyzed picks..."
+              className="w-full rounded-full py-2.5 pl-9 pr-3 text-[13px] text-text placeholder:text-text-faint focus:outline-none"
+              style={{ background: "var(--lab-surface-2)", boxShadow: "inset 0 0 0 1px var(--lab-border)" }}
+            />
+          </div>
         )}
+
+        <div className="mt-3 flex gap-1.5">
+          <div className="flex flex-1 gap-1.5 rounded-full p-1" style={{ background: "var(--lab-surface-2)" }}>
+            <TabButton label="Build" active={tab === "build"} onClick={() => setTab("build")} />
+            <TabButton
+              label="My Bets"
+              count={placedBets?.length}
+              active={tab === "bets"}
+              onClick={() => setTab("bets")}
+            />
+          </div>
+
+          {tab === "build" && picks && picks.length > 0 && (
+            <div className="flex flex-1 gap-1.5 rounded-full p-1" style={{ background: "var(--lab-surface-2)" }}>
+              <FilterButton label="All" active={filter === "all"} onClick={() => setFilter("all")} />
+              <FilterButton label="Football" active={filter === "football"} onClick={() => setFilter("football")} />
+            </div>
+          )}
+        </div>
       </header>
 
       <div className={`px-4 pt-4 ${legs.length > 0 ? "pb-28" : "pb-4"}`}>
@@ -192,6 +223,7 @@ export default function LabPage() {
                     <SlipPickRow
                       key={item.pick.id}
                       pick={item.pick}
+                      livePrices={livePrices}
                       selectedOutcome={legByPickId.get(item.pick.id) ?? null}
                       onPick={(outcome) => handlePickSports(item.pick, outcome)}
                       onOpen={() => setOpenPick(item)}
@@ -200,6 +232,7 @@ export default function LabPage() {
                     <MarketPickRow
                       key={item.pick.id}
                       pick={item.pick}
+                      livePrices={livePrices}
                       selectedOutcomeLabel={legByPickId.get(item.pick.id) ?? null}
                       onPick={(outcomeLabel) => handlePickMarket(item.pick, outcomeLabel)}
                       onOpen={() => setOpenPick(item)}
@@ -228,7 +261,7 @@ export default function LabPage() {
             {placedBets !== null && placedBets.length > 0 && (
               <div className="space-y-3">
                 {placedBets.map((bet) => (
-                  <PlacedBetCard key={bet.id} bet={bet} />
+                  <PlacedBetCard key={bet.id} bet={bet} livePrices={livePrices} />
                 ))}
               </div>
             )}
@@ -238,6 +271,7 @@ export default function LabPage() {
 
       <BetSlipBar
         legs={legs}
+        livePrices={livePrices}
         onRemove={handleRemove}
         onClear={handleClear}
         onPlaced={() => setPlacedBets(loadPlacedBets())}

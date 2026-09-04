@@ -7,8 +7,9 @@ ever sees Polymarket's price, then compares the two to flag markets that might b
 **Sports** is the original, more specialized version of the same idea: upcoming 1X2 matches from
 Polymarket's top 8 European football leagues, with the same blind-then-compare flow.
 
-This is a paper-trading / research tool: there is no real-money betting or wallet integration.
-"Saving a pick" just stores your AI's read in your browser's local storage.
+This is a paper-trading / research tool: there is no real-money betting. "Saving a pick" just
+stores your AI's read in your browser's local storage, and **Home**'s portfolio balance is play
+money you can top up freely — see below.
 
 ## Discover
 
@@ -52,6 +53,16 @@ on the same look. Odds lead with the number a real book shows — **decimal odds
 and any outcome where the AI's read clears the market by 2+ points earns a small "value" badge
 (a bolt icon + the edge) so a spottable edge reads as a find, not just another number in a row.
 
+Every odds figure and edge shown in Lab is **live**, not the snapshot from when you originally
+analyzed the pick — the market moves after that, and showing a stale number would be misleading.
+A shared client-side lookup (`lib/livePrices.ts`) re-fetches each outcome's current price by its
+Polymarket CLOB token id (the same one behind the odds-history chart's `/api/odds-history`, so no
+new API route was needed) and every card, slip leg, and placed bet reads from that one map. A tiny
+"Δ" line under the edge shows how much it's moved since the analysis (or since you bought, on a
+placed bet) — the delta is just `entry market price − current market price`, since the AI's own
+read doesn't change after analysis. A pick saved before this shipped, or a double-chance combo
+(no single token prices "1X"), simply has nothing to reprice and holds at its last known value.
+
 - **Build** tab: search across every saved pick (with the same All/Football filter as Picks), tap
   an outcome to add it as a leg, or tap the pick's own title/teams to open its full analysis
   report. Every football pick also offers **double chance** — **1X** (home win or draw) and **X2**
@@ -59,22 +70,47 @@ and any outcome where the AI's read clears the market by 2+ points earns a small
   market Polymarket sells separately (a partner-league event is a plain 1X2 with no fourth or fifth
   outcome), so both are computed client-side as the sum of the two 1X2 outcomes they cover
   (`legFromPick` in `lib/betslip.ts`), for both the market's own probability and the AI's
-  independent read.
+  independent read — edge included, since a combo's edge is just the sum of the two edges it covers.
 - Adding a leg surfaces a floating pill at the bottom of the screen (leg count, combined decimal
-  odds) that expands into the full slip: every leg with its own odds/edge, and — with 2+ legs — the
-  combined market and AI probability, each the product of every leg's own probability for its
-  chosen outcome (`combineSlip`, `lib/betslip.ts`). This math doesn't care what kind of market a leg
-  came from, so a parlay can freely mix a football result with, say, a crypto price target.
-- **Buy**: tapping the gold **Buy at Nx** button places the slip as a paper bet against the real
-  market odds it was built from — a brief "placing" animation, then a confetti-and-receipt
-  confirmation, and the slip clears. Nothing here is real money (`lib/placedBets.ts` just
-  snapshots the legs and the combined read into local storage, same paper-trading spirit as
-  everywhere else in the app) — there's no wallet or balance, since the app has no way to know how
-  a match or market actually resolved and a stake that only ever gets deducted, never paid back,
-  would be worse than no stake mechanic at all.
-- **My Bets** tab lists every bet you've placed as a ticket-style card — legs, combined odds/edge
-  at the moment you bought it, and a **Pending** status, honestly reflecting that this is a record
-  of what you bought, not a settled result.
+  odds) that expands into the full slip: every leg with its own live odds/edge, a **stake** picker
+  (quick chips of €10/€25/€50/€100), and — with 2+ legs — the combined market and AI probability,
+  each the product of every leg's own probability for its chosen outcome (`combineSlip`,
+  `lib/betslip.ts`). This math doesn't care what kind of market a leg came from, so a parlay can
+  freely mix a football result with, say, a crypto price target.
+- **Buy**: tapping the gold **Buy €N at Nx** button places the slip as a paper bet at today's
+  market price (not whatever it was at analysis time) — a brief "placing" animation, then a
+  confetti-and-receipt confirmation, and the slip clears. The stake is spent from the play-money
+  balance Home tracks (see below); `lib/placedBets.ts` snapshots the legs, the live entry price,
+  and the stake into local storage.
+- **My Bets** tab lists every bet you've placed as a ticket-style card — legs, live odds/edge (with
+  the same Δ-since-bought line), and a **Pending** status, honestly reflecting that this is a record
+  of what you bought, not a settled result — the app has no way to know how a match or market
+  actually resolved.
+
+## Home: a paper portfolio
+
+**Home** (`app/home/page.tsx`, the leftmost tab) is a sleek, dark portfolio dashboard: a big
+portfolio-value number, an all-time gain/loss line, a value-over-time graph, and your most recent
+placed bets with their own live P&L.
+
+- **Balance**: starts at a seeded €1,000 (`STARTING_BALANCE`, `lib/portfolio.ts`) the first time
+  you ever open Home, and you can freely **Add funds** afterwards (quick chips or a custom amount)
+  — it's play money, so topping up is just for keeping the paper-trading loop going, never a real
+  transaction.
+- **The graph only moves on price, never on a deposit.** Every deposit you've ever made is simply
+  summed into one flat baseline (`totalDeposited`) as if it had all happened before the graph even
+  starts — a €500 top-up never appears as a fake spike. The only thing that moves the line above or
+  below that baseline is the **mark-to-market value of your open bets**: each leg is repriced by the
+  same live-price mechanism Lab uses, using the market's own price-history (`/api/odds-history`) to
+  reconstruct what your portfolio would have been worth at each point over the past week
+  (`buildPortfolioSeries`, `lib/portfolioHistory.ts`) — the same "buy a share at p0, it's worth p1
+  now" math as a real prediction-market position, generalized across every leg in a parlay and
+  summed across every bet you've placed. A leg that can't be repriced (no token, or the pick
+  predates this feature) just holds at its stake, never fabricating a number.
+- **Recent bets** lists your last 5 placed bets — legs, stake, current live value, and P&L in both
+  € and % — with a **Show 10** toggle to see more. Nothing here is a real trade; it's the same
+  paper-trade philosophy as the rest of the app, just tracked in one place with real numbers instead
+  of just probabilities.
 
 ## Odds history
 
@@ -263,16 +299,18 @@ required to run AI analysis.
 
 ```
 app/
-  page.tsx                            Discover — trending markets across all of Polymarket (home)
+  home/page.tsx                       Home — portfolio balance, value graph, recent bets
+  page.tsx                            Discover — trending markets across all of Polymarket
   sports/page.tsx                     Sports — the original football-only game list
   picks/page.tsx                      Every saved analysis, football and Discover, merged
-  lab/page.tsx                        Build a single/multi bet from any saved pick
+  lab/page.tsx                        Build a single/multi bet from any saved pick and buy it
   api/markets/route.ts                Fetches + normalizes Discover's trending markets
   api/analyze/market/predict/route.ts Discover step 1: independent AI prediction (any market)
   api/analyze/market/compare/route.ts Discover step 2: compare prediction against market odds
   api/games/route.ts                  Fetches + normalizes Sports' Polymarket games
   api/analyze/predict/route.ts        Sports step 1: independent AI prediction
   api/analyze/compare/route.ts        Sports step 2: compare prediction against market odds
+  api/odds-history/route.ts           Proxies Polymarket's CLOB price-history, per outcome token
 components/                           UI components (game/market cards, analysis sheets, etc.)
 lib/                                  Polymarket + OpenRouter integrations, types, formatting, storage
 ```

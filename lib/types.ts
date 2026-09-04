@@ -97,6 +97,11 @@ export interface SavedPick {
   research?: ResearchSummary<Probabilities>;
   // independent.costUsd + comparison.costUsd, precomputed at save time for convenient display.
   totalCostUsd?: number;
+  // Carried over from the Game this was analyzed from, so a slip leg built from this pick can
+  // later look up live price history for mark-to-market. Undefined for picks saved before this
+  // field existed — those just can't be repriced, which lib/portfolioHistory.ts treats as "hold
+  // at entry value" rather than guessing.
+  tokenIds?: OutcomeTokenIds;
 }
 
 // Generalized versions of the above for the Discover feed — any Polymarket market, not just

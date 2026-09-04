@@ -42,16 +42,17 @@ async function run() {
 
   check("empty store returns []", loadPlacedBets().length === 0);
 
-  const bet = placeBet([fakeLeg("pick-1")], combined);
+  const bet = placeBet([fakeLeg("pick-1")], combined, 10);
   check("placeBet returns a bet with an id and timestamp", typeof bet.id === "string" && typeof bet.placedAt === "string");
   check("placeBet round-trips the legs", loadPlacedBets()[0].legs[0].pickId === "pick-1");
   check("placeBet round-trips the combined snapshot", loadPlacedBets()[0].combined.edge === 0.07);
+  check("placeBet round-trips the stake", loadPlacedBets()[0].stake === 10);
 
-  const bet2 = placeBet([fakeLeg("pick-2")], combined);
+  const bet2 = placeBet([fakeLeg("pick-2")], combined, 25);
   check("newest bet is prepended (most recent first)", loadPlacedBets()[0].id === bet2.id);
   check("older bet is still present", loadPlacedBets().some((b) => b.id === bet.id));
 
-  for (let i = 0; i < 105; i++) placeBet([fakeLeg(`bulk-${i}`)], combined);
+  for (let i = 0; i < 105; i++) placeBet([fakeLeg(`bulk-${i}`)], combined, 10);
   check("store is capped at 100 entries", loadPlacedBets().length === 100);
   check("newest bulk entry survived", loadPlacedBets()[0].legs[0].pickId === "bulk-104");
   check("oldest bulk entry was evicted", !loadPlacedBets().some((b) => b.legs[0].pickId === "bulk-0"));

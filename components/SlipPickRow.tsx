@@ -1,5 +1,6 @@
 import type { SavedPick } from "@/lib/types";
 import type { Outcome } from "@/lib/betslip";
+import { liveKey } from "@/lib/livePrices";
 import { toPercent, toSignedPercent, toDecimalOdds } from "@/lib/format";
 import Avatar from "./Avatar";
 import { ChevronRightIcon, BoltIcon } from "./icons";
@@ -16,11 +17,16 @@ const OUTCOME_COLOR: Record<"home" | "draw" | "away", string> = {
 
 export default function SlipPickRow({
   pick,
+  livePrices,
   selectedOutcome,
   onPick,
   onOpen,
 }: {
   pick: SavedPick;
+  // Current market price per outcome, keyed by liveKey(pick.id, outcomeLabel) — falls back to
+  // this pick's own analysis-time snapshot (pick.market) wherever a key is missing (no tokenId on
+  // this pick, or the fetch hasn't landed yet).
+  livePrices: Record<string, number>;
   // The slip stores the resolved display label (team name / "Draw"), not the raw enum — this
   // component compares against that label to decide which button is highlighted, but still
   // reports the Outcome enum to onPick since that's what legFromPick needs to index into
@@ -29,6 +35,10 @@ export default function SlipPickRow({
   onPick: (outcome: Outcome) => void;
   onOpen: () => void;
 }) {
+  const liveHome = livePrices[liveKey(pick.id, pick.homeTeam)] ?? pick.market.home;
+  const liveDraw = livePrices[liveKey(pick.id, "Draw")] ?? pick.market.draw;
+  const liveAway = livePrices[liveKey(pick.id, pick.awayTeam)] ?? pick.market.away;
+
   return (
     <div className="rounded-3xl p-3.5" style={{ background: "var(--lab-surface)", border: "1px solid var(--lab-border)" }}>
       <div className="mb-2.5 flex items-center gap-2 text-[11px] text-text-faint">
@@ -50,7 +60,8 @@ export default function SlipPickRow({
           label={firstWord(pick.homeTeam)}
           outcome="home"
           ai={pick.independent.home}
-          market={pick.market.home}
+          entryMarket={pick.market.home}
+          liveMarket={liveHome}
           active={selectedOutcome === pick.homeTeam}
           onClick={() => onPick("home")}
         />
@@ -58,7 +69,8 @@ export default function SlipPickRow({
           label="Draw"
           outcome="draw"
           ai={pick.independent.draw}
-          market={pick.market.draw}
+          entryMarket={pick.market.draw}
+          liveMarket={liveDraw}
           active={selectedOutcome === "Draw"}
           onClick={() => onPick("draw")}
         />
@@ -66,7 +78,8 @@ export default function SlipPickRow({
           label={firstWord(pick.awayTeam)}
           outcome="away"
           ai={pick.independent.away}
-          market={pick.market.away}
+          entryMarket={pick.market.away}
+          liveMarket={liveAway}
           active={selectedOutcome === pick.awayTeam}
           onClick={() => onPick("away")}
         />
@@ -77,7 +90,8 @@ export default function SlipPickRow({
           label="1X"
           sublabel={`${firstWord(pick.homeTeam)} or draw`}
           ai={pick.independent.home + pick.independent.draw}
-          market={pick.market.home + pick.market.draw}
+          entryMarket={pick.market.home + pick.market.draw}
+          liveMarket={liveHome + liveDraw}
           active={selectedOutcome === "1X"}
           onClick={() => onPick("1x")}
         />
@@ -85,7 +99,8 @@ export default function SlipPickRow({
           label="X2"
           sublabel={`Draw or ${firstWord(pick.awayTeam)}`}
           ai={pick.independent.draw + pick.independent.away}
-          market={pick.market.draw + pick.market.away}
+          entryMarket={pick.market.draw + pick.market.away}
+          liveMarket={liveDraw + liveAway}
           active={selectedOutcome === "X2"}
           onClick={() => onPick("x2")}
         />
@@ -98,22 +113,32 @@ function firstWord(name: string): string {
   return name.split(" ")[0];
 }
 
+// Delta shows the drift between "edge as of the analysis" and "edge right now" — entirely
+// captured by how much the market itself moved, since the AI's read is a fixed number from
+// analysis time. Sign convention: positive delta means the edge has widened since analysis.
+function edgeDelta(entryMarket: number, liveMarket: number): number {
+  return entryMarket - liveMarket;
+}
+
 function OutcomeButton({
   label,
   outcome,
   ai,
-  market,
+  entryMarket,
+  liveMarket,
   active,
   onClick,
 }: {
   label: string;
   outcome: "home" | "draw" | "away";
   ai: number;
-  market: number;
+  entryMarket: number;
+  liveMarket: number;
   active: boolean;
   onClick: () => void;
 }) {
-  const edge = ai - market;
+  const edge = ai - liveMarket;
+  const delta = edgeDelta(entryMarket, liveMarket);
   const isValue = edge >= VALUE_EDGE_THRESHOLD;
   const color = OUTCOME_COLOR[outcome];
   return (
@@ -136,9 +161,12 @@ function OutcomeButton({
       )}
       <p className="truncate text-[10px] text-text-faint">{label}</p>
       <p className="font-display text-[17px] font-bold tabular-nums" style={{ color }}>
-        {toDecimalOdds(market)}
+        {toDecimalOdds(liveMarket)}
       </p>
       <p className="text-[9px] tabular-nums text-text-faint">AI {toPercent(ai)}</p>
+      <p className="text-[7px] tabular-nums text-text-faint opacity-70">
+        &Delta; {toSignedPercent(delta)} since analysis
+      </p>
     </button>
   );
 }
@@ -150,26 +178,43 @@ function ComboButton({
   label,
   sublabel,
   ai,
-  market,
+  entryMarket,
+  liveMarket,
   active,
   onClick,
 }: {
   label: string;
   sublabel: string;
   ai: number;
-  market: number;
+  entryMarket: number;
+  liveMarket: number;
   active: boolean;
   onClick: () => void;
 }) {
+  // A double-chance edge is just the sum of the two 1X2 edges it covers (e.g. 1X's edge = the
+  // home edge + the draw edge) — already true here since `ai`/`entryMarket`/`liveMarket` are
+  // themselves sums of the two outcomes it covers.
+  const edge = ai - liveMarket;
+  const delta = edgeDelta(entryMarket, liveMarket);
+  const isValue = edge >= VALUE_EDGE_THRESHOLD;
   return (
     <button
       onClick={onClick}
-      className="press flex items-center justify-between gap-2 rounded-2xl px-2.5 py-1.5 text-left"
+      className="press relative flex items-center justify-between gap-2 rounded-2xl px-2.5 py-1.5 text-left"
       style={{
         background: active ? "rgba(var(--lab-gold-rgb), 0.14)" : "rgba(255,255,255,0.03)",
         boxShadow: active ? "inset 0 0 0 1.5px var(--lab-gold)" : "inset 0 0 0 1px var(--lab-border)",
       }}
     >
+      {isValue && (
+        <span
+          className="absolute -top-1.5 -right-1.5 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[8px] font-bold"
+          style={{ background: "var(--lab-green)", color: "#052018" }}
+        >
+          <BoltIcon className="h-2 w-2" />
+          {toSignedPercent(edge)}
+        </span>
+      )}
       <div className="min-w-0">
         <p className="text-[11px] font-semibold" style={{ color: active ? "var(--lab-gold)" : "var(--text-dim)" }}>
           {label}
@@ -178,9 +223,15 @@ function ComboButton({
       </div>
       <div className="shrink-0 text-right">
         <p className="font-display text-[13px] font-bold tabular-nums" style={{ color: "var(--lab-gold)" }}>
-          {toDecimalOdds(market)}
+          {toDecimalOdds(liveMarket)}
         </p>
-        <p className="text-[9px] tabular-nums text-text-faint">AI {toPercent(ai)}</p>
+        <p className="text-[9px] tabular-nums text-text-faint">
+          AI {toPercent(ai)} &middot;{" "}
+          <span style={{ color: edge > 0.005 ? "var(--lab-green)" : edge < -0.005 ? "var(--lab-red)" : undefined }}>
+            {toSignedPercent(edge)}
+          </span>
+        </p>
+        <p className="text-[7px] tabular-nums text-text-faint opacity-70">&Delta; {toSignedPercent(delta)}</p>
       </div>
     </button>
   );

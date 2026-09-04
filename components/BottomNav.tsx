@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CompassIcon, TrophyIcon, BookmarkIcon, TicketIcon } from "./icons";
+import { HomeIcon, CompassIcon, TrophyIcon, BookmarkIcon, TicketIcon } from "./icons";
 
 const TABS = [
+  { href: "/home", label: "Home", icon: HomeIcon },
   { href: "/", label: "Discover", icon: CompassIcon },
   { href: "/sports", label: "Sports", icon: TrophyIcon },
   { href: "/picks", label: "Picks", icon: BookmarkIcon },

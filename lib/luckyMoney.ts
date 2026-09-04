@@ -2,7 +2,7 @@
 // "reward" if tapped in time. Deliberately not real money and not persisted anywhere — it's just
 // a bit of fun, not a feature that needs to survive a reload or sync across tabs.
 export const MIN_DELAY_MS = 10_000;
-export const MAX_DELAY_MS = 30_000;
+export const MAX_DELAY_MS = 10_000_000;
 export const MIN_REWARD_EUR = 0.0001;
 export const MAX_REWARD_EUR = 0.01;
 

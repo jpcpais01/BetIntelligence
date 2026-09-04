@@ -212,6 +212,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
       comparison,
       research: toFootballResearchSummary(runs),
       totalCostUsd: totalCost(independent.costUsd, comparison.costUsd),
+      tokenIds: game.tokenIds,
     });
     setSaved(true);
   };

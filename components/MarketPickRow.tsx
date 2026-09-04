@@ -1,4 +1,5 @@
 import type { SavedMarketPick } from "@/lib/types";
+import { liveKey } from "@/lib/livePrices";
 import { toPercent, toSignedPercent, toDecimalOdds } from "@/lib/format";
 import { ChevronRightIcon, BoltIcon } from "./icons";
 
@@ -7,11 +8,13 @@ const OUTCOME_COLORS = ["var(--lab-gold)", "var(--lab-cyan)", "var(--lab-pink)",
 
 export default function MarketPickRow({
   pick,
+  livePrices,
   selectedOutcomeLabel,
   onPick,
   onOpen,
 }: {
   pick: SavedMarketPick;
+  livePrices: Record<string, number>;
   selectedOutcomeLabel: string | null;
   onPick: (outcomeLabel: string) => void;
   onOpen: () => void;
@@ -30,9 +33,11 @@ export default function MarketPickRow({
 
       <div className="flex flex-wrap gap-1.5">
         {pick.independent.outcomes.map((o, i) => {
-          const marketPrice = pick.market.find((m) => m.label === o.label)?.price ?? 0;
+          const entryMarket = pick.market.find((m) => m.label === o.label)?.price ?? 0;
+          const liveMarket = livePrices[liveKey(pick.id, o.label)] ?? entryMarket;
           const active = selectedOutcomeLabel === o.label;
-          const edge = o.probability - marketPrice;
+          const edge = o.probability - liveMarket;
+          const delta = entryMarket - liveMarket;
           const isValue = edge >= VALUE_EDGE_THRESHOLD;
           const color = OUTCOME_COLORS[i % OUTCOME_COLORS.length];
           return (
@@ -56,9 +61,12 @@ export default function MarketPickRow({
               )}
               <p className="truncate text-[10px] text-text-faint">{o.label}</p>
               <p className="font-display text-[17px] font-bold tabular-nums" style={{ color }}>
-                {toDecimalOdds(marketPrice)}
+                {toDecimalOdds(liveMarket)}
               </p>
               <p className="text-[9px] tabular-nums text-text-faint">AI {toPercent(o.probability)}</p>
+              <p className="text-[7px] tabular-nums text-text-faint opacity-70">
+                &Delta; {toSignedPercent(delta)} since analysis
+              </p>
             </button>
           );
         })}

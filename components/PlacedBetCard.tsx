@@ -1,13 +1,24 @@
 import type { PlacedBet } from "@/lib/placedBets";
+import { combineSlip } from "@/lib/betslip";
+import { liveKey } from "@/lib/livePrices";
 import { toSignedPercent, toDecimalOdds, formatRelativeTime } from "@/lib/format";
 import { TicketIcon } from "./icons";
 
 // A placed bet is a permanent paper-trade record, not a live position — the app has no way to
 // know how a match or market actually resolved, so every entry just shows "Pending" rather than
-// fabricating a win/loss. Styled like a ticket stub: a dashed divider separates "what you bought"
-// from the payout snapshot, same visual language real sportsbook confirmations use.
-export default function PlacedBetCard({ bet }: { bet: PlacedBet }) {
+// fabricating a win/loss. Odds and edge are repriced against the current market (same livePrices
+// map Lab's build view uses), with a small delta showing how much has moved since you bought.
+// Styled like a ticket stub: a dashed divider separates "what you bought" from the live snapshot,
+// same visual language real sportsbook confirmations use.
+export default function PlacedBetCard({ bet, livePrices }: { bet: PlacedBet; livePrices: Record<string, number> }) {
   const { legs, combined } = bet;
+  const liveLegs = legs.map((leg) => ({
+    ...leg,
+    marketProb: livePrices[liveKey(leg.pickId, leg.outcomeLabel)] ?? leg.marketProb,
+  }));
+  const live = combineSlip(liveLegs);
+  const edgeDelta = live.edge - combined.edge;
+
   return (
     <div className="overflow-hidden rounded-3xl" style={{ background: "var(--lab-surface)", border: "1px solid var(--lab-border)" }}>
       <div className="flex items-center justify-between gap-2 px-4 pt-3.5 pb-2.5">
@@ -19,12 +30,12 @@ export default function PlacedBetCard({ bet }: { bet: PlacedBet }) {
       </div>
 
       <div className="space-y-1.5 px-4">
-        {legs.map((leg) => (
+        {legs.map((leg, i) => (
           <div key={leg.pickId} className="flex items-center justify-between gap-2 text-[11px]">
             <span className="min-w-0 truncate text-text-dim">
               <span className="font-semibold text-text">{leg.outcomeLabel}</span> &middot; {leg.title}
             </span>
-            <span className="shrink-0 tabular-nums text-text-faint">{toDecimalOdds(leg.marketProb)}x</span>
+            <span className="shrink-0 tabular-nums text-text-faint">{toDecimalOdds(liveLegs[i].marketProb)}x</span>
           </div>
         ))}
       </div>
@@ -38,19 +49,20 @@ export default function PlacedBetCard({ bet }: { bet: PlacedBet }) {
         </div>
         <div className="flex items-center gap-3 text-right">
           <div>
-            <p className="text-[9px] text-text-faint">Odds</p>
+            <p className="text-[9px] text-text-faint">Odds now</p>
             <p className="font-display text-[13px] font-bold tabular-nums" style={{ color: "var(--lab-gold)" }}>
-              {toDecimalOdds(combined.marketProb)}x
+              {toDecimalOdds(live.marketProb)}x
             </p>
           </div>
           <div>
-            <p className="text-[9px] text-text-faint">Edge</p>
+            <p className="text-[9px] text-text-faint">Edge now</p>
             <p
               className="font-display text-[13px] font-bold tabular-nums"
-              style={{ color: combined.edge > 0.005 ? "var(--lab-green)" : combined.edge < -0.005 ? "var(--lab-red)" : "var(--text)" }}
+              style={{ color: live.edge > 0.005 ? "var(--lab-green)" : live.edge < -0.005 ? "var(--lab-red)" : "var(--text)" }}
             >
-              {toSignedPercent(combined.edge)}
+              {toSignedPercent(live.edge)}
             </p>
+            <p className="text-[7px] tabular-nums text-text-faint opacity-70">&Delta; {toSignedPercent(edgeDelta)} since bought</p>
           </div>
         </div>
       </div>
