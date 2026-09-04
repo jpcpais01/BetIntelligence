@@ -105,6 +105,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
                 homeTeam: game.homeTeam,
                 awayTeam: game.awayTeam,
                 leagueName: game.leagueName,
+                league: game.league,
                 startTime: game.startTime,
                 model,
               },

@@ -171,47 +171,63 @@ hitting Polymarket at all.
 
 ## How the AI analysis works
 
-Tapping **AI Analyze** on a match runs a three-step process against
-[`deepseek/deepseek-v4-flash-0731`](https://openrouter.ai/deepseek/deepseek-v4-flash-0731) (or whichever model is selected)
-via OpenRouter:
+Tapping **AI Analyze** runs against [`deepseek/deepseek-v4-flash-0731`](https://openrouter.ai/deepseek/deepseek-v4-flash-0731)
+(or whichever model is selected) via OpenRouter, but the first step differs between football (Sports) and Discover markets.
 
-1. **Research** — a call with web access (OpenRouter's `:online` plugin) that does nothing but research the match and
-   organize what it finds into a plain-text digest: form, injuries/suspensions, key players, head-to-head history, and other
-   context. This step's system prompt explicitly forbids it from ever mentioning betting odds, bookmaker lines, or
-   prediction-market prices anywhere in that digest — if a source it reads mentions a price, it's instructed to silently
-   omit that part and keep only the underlying facts.
-2. **Independent read** — a *separate* call, with no web access of its own, that only ever sees the digest from step 1 (never
-   the raw web) and produces the 1X2 probability estimate from it.
-3. **Market comparison** — the app then reveals Polymarket's implied probabilities for the same match and asks the model to
+**Football** (`lib/apiFootball.ts`, `lib/openrouter.ts`):
+
+1. **Research** — *not* a web search. An AI web-search pass here used to give wrong data (stale injuries, mixed-up form,
+   invented head-to-head records) often enough to be worse than useless, so this step is now a plain data fetch against
+   [API-Football](https://www.api-football.com/) with no LLM involved at all: each club's last 5 completed results, injuries
+   and suspensions reported for that exact fixture, the last 5 head-to-head meetings, and the fixture's own live status —
+   whether it's started yet, and if so the current score and elapsed minutes, straight from API-Football's own kickoff time
+   rather than assuming Polymarket's original schedule still holds. All of it is formatted into the same kind of plain-text
+   digest the next step expects. There's no fallback to web search if a team or fixture can't be matched on API-Football —
+   the analysis fails with a clear error rather than quietly falling back to a shakier source.
+2. **Independent read** — an OpenRouter call, no web access, that only ever sees that digest and produces the 1X2 probability
+   estimate from it.
+3. **Market comparison** — the app reveals Polymarket's implied probabilities for the same match and asks the model to
    compare its independent view against the market, explain any disagreement, and flag whether it thinks a specific outcome
    looks mispriced.
 
-Every one of these calls — system prompt and user prompt alike, all three steps, football and Discover markets both — also
+**Discover markets** (`lib/openrouterMarkets.ts`) — any non-football question, where no equivalent structured API exists —
+keep the original three-step shape:
+
+1. **Research** — a call with web access (OpenRouter's `:online` plugin) that does nothing but research the question and
+   organize what it finds into a plain-text digest: recent news, relevant data, expert analysis, and historical base rates.
+   This step's system prompt explicitly forbids it from ever mentioning betting odds, bookmaker lines, or prediction-market
+   prices anywhere in that digest — if a source it reads mentions a price, it's instructed to silently omit that part and
+   keep only the underlying facts.
+2. **Independent read** — a *separate* call, with no web access of its own, that only ever sees the digest from step 1 (never
+   the raw web) and produces a probability estimate for every listed outcome from it.
+3. **Market comparison** — same idea as football's: reveal the market's implied probabilities and ask for a comparison.
+
+Every one of these calls — system prompt and user prompt alike, every step, football and Discover markets both — also
 carries the real current date and time (`nowLine`/`withNow` in `lib/openrouter.ts`, computed fresh on every call rather than
 baked into a prompt string built once at server start). A model has no reliable sense of "today" from its training data
-alone, and that matters most for step 1: its system prompt explicitly tells it to weigh the most recent news, results, and
-injury updates far more heavily than older context, and to trust whichever source is more recent when two disagree — the
-whole point of giving it live web access is to catch what's actually current, not to average it in with stale context.
-Every system prompt also ends with a short "Soul" line setting the model's persona for the read it's about to give: *"You are
-wise, you are advanced, you are super intelligent and smart, you are logical and certain, you are bold, you go for it, you
-trust your decision."*
+alone, and Discover's research step is told to weigh the most recent news far more heavily than older context, trusting
+whichever source is more recent when two disagree — the whole point of giving it live web access is to catch what's
+actually current, not to average it in with stale context. Every system prompt also ends with a short "Soul" line setting
+the model's persona for the read it's about to give: *"You are wise, you are advanced, you are super intelligent and smart,
+you are logical and certain, you are bold, you go for it, you trust your decision."*
 
-All three results are shown in the UI as a guided reveal, and the whole thing can be saved to **My Picks**.
+All results are shown in the UI as a guided reveal, and the whole thing can be saved to **My Picks**.
 Saving is keyed by the match/market's own id (`lib/picks.ts`, `lib/marketPicks.ts`), so re-analyzing
 and re-saving the same game or market replaces its previous save rather than adding a duplicate —
 My Picks always holds your latest read on a given match or market, never several stale ones side by side.
 
-**Why two calls instead of one for the "independent" read:** OpenRouter's `:online` step isn't an isolated browsing session —
-it's a single search pass that runs before the model answers, and whatever it finds is merged straight into the same context
-the model then writes its estimate from. A single model doing both "search the web" and "form an opinion" in one call could
-plausibly see the real odds mid-search (a betting aggregator, a news piece citing the market price, or, for Discover, the
+**Why Discover still splits research and judgment into two calls:** OpenRouter's `:online` step isn't an isolated browsing
+session — it's a single search pass that runs before the model answers, and whatever it finds is merged straight into the
+same context the model then writes its estimate from. A single model doing both "search the web" and "form an opinion" in
+one call could plausibly see the real odds mid-search (a betting aggregator, a news piece citing the market price, or the
 very Polymarket market being asked about) and have them sitting right there in context while it writes a number it's
-supposed to have reached independently. Splitting research and judgment into two separate calls (`lib/openrouter.ts`,
-`lib/openrouterMarkets.ts`) means the step that forms the actual estimate has no web access at all — it can only ever see
-what the research step chose to hand it, and that step's entire job is a summary with the odds already stripped out. It's
-still not a mathematical guarantee (the digest step could in principle slip up), so both steps carry an explicit
-"never mention/disregard odds" instruction as defense in depth, but it's a meaningfully stronger boundary than trusting one
-model to browse and then talk itself out of what it just saw.
+supposed to have reached independently. Splitting research and judgment into two separate calls means the step that forms
+the actual estimate has no web access at all — it can only ever see what the research step chose to hand it, and that
+step's entire job is a summary with the odds already stripped out. It's still not a mathematical guarantee (the digest step
+could in principle slip up), so both steps carry an explicit "never mention/disregard odds" instruction as defense in
+depth, but it's a meaningfully stronger boundary than trusting one model to browse and then talk itself out of what it just
+saw. Football sidesteps this problem a different way: there's no web search in its pipeline to anchor on in the first
+place.
 
 ### Running research more than once
 
@@ -224,6 +240,14 @@ then averages them (`lib/aggregate.ts`) into the single read that gets compared 
 — the result shows each run's own numbers plus how much they agreed with each other (a plain-
 language agreement label plus the per-run breakdown), so you can tell a stable read from one that's
 basically a coin flip. That merged, multi-run read is what gets saved with the pick.
+
+For football specifically, since research is no longer an LLM call, running it more than once means
+several independent-read passes over the *same* API-Football digest rather than several fresh
+searches — still meaningfully different runs, since the predict step's own sampling varies each
+time, but the diversity comes entirely from that step now rather than from re-researching too.
+`lib/apiFootball.ts` also caches a match's digest for a couple of minutes specifically so that
+burst of parallel runs doesn't spend several of API-Football's limited daily requests fetching data
+that would come back identical anyway.
 
 The "researching" screen itself is a small centered popup — not the full-width sheet used once
 results are in, and with no way to dismiss it mid-analysis — with a pulsing radar animation rather
@@ -346,6 +370,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | Variable | Required | Description |
 | --- | --- | --- |
 | `OPENROUTER_API_KEY` | Yes (for real analysis) | API key from [openrouter.ai/keys](https://openrouter.ai/keys). |
+| `API_FOOTBALL_KEY` | Yes (for football analysis) | Free-tier key from [api-football.com](https://www.api-football.com/) — used directly against `v3.football.api-sports.io`, not the RapidAPI host. Powers football's entire research step (form, injuries, fixture status/score); Discover markets don't use it. |
 | `NEXT_PUBLIC_APP_URL` | No | Sent to OpenRouter as the app's referer/title for their dashboards. |
 | `MOCK_GAMES` | No | Set to `1` to serve built-in sample matches instead of calling Polymarket. Useful for local UI work without network access. |
 | `MOCK_MARKETS` | No | Set to `1` to serve built-in sample Discover markets instead of calling Polymarket. |
@@ -368,6 +393,10 @@ required to run AI analysis.
 - **Analysis**: [OpenRouter](https://openrouter.ai/) chat completions — `lib/openrouter.ts` for
   Sports' football-specific prompts, `lib/openrouterMarkets.ts` for Discover's generalized
   any-market prompts (both share the same request/retry/JSON-parsing core in `lib/openrouter.ts`).
+- **Football match data**: [API-Football](https://www.api-football.com/) (`v3.football.api-sports.io`)
+  — `lib/apiFootball.ts` fetches each team's recent form, injuries/suspensions for the exact
+  fixture, head-to-head history, and the fixture's own live status/score, and feeds that straight
+  into the football research digest above. No fallback to web search on a miss.
 
 ## Project structure
 

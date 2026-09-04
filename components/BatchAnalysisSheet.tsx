@@ -72,6 +72,7 @@ export default function BatchAnalysisSheet({
               homeTeam: game.homeTeam,
               awayTeam: game.awayTeam,
               leagueName: game.leagueName,
+              league: game.league,
               startTime: game.startTime,
               model,
             },

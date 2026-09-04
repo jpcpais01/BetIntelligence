@@ -1,6 +1,7 @@
 import { requestJson, getIndependentPrediction } from "../lib/openrouter";
 
 process.env.OPENROUTER_API_KEY = "test-key";
+process.env.API_FOOTBALL_KEY = "test-key";
 
 const GOOD_JSON = JSON.stringify({
   homeWinProb: 0.5,
@@ -177,77 +178,234 @@ interface CapturedRequest {
   messages: { role: string; content: string }[];
 }
 
-// getIndependentPrediction now runs a two-stage pipeline: a research call (web access, produces
-// a prose digest) followed by a predict call (no web access, only ever sees that digest). These
-// checks verify the wiring itself — the separation is the actual defense against the model
-// anchoring its "independent" read on odds its own web search happened to surface.
-async function runTwoStageWiringChecks(failures: string[]) {
+interface ApiFootballTeamFixture {
+  id: number;
+  name: string;
+}
+
+function apiOk(response: unknown) {
+  return {
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    json: async () => ({ response, errors: [] }),
+    text: async () => "",
+  };
+}
+
+function apiFootballFixture(opts: {
+  id: number;
+  date: string;
+  home: ApiFootballTeamFixture;
+  away: ApiFootballTeamFixture;
+  status: { long: string; short: string; elapsed: number | null };
+  goals: { home: number | null; away: number | null };
+}) {
+  return {
+    fixture: { id: opts.id, date: opts.date, status: opts.status },
+    teams: { home: opts.home, away: opts.away },
+    goals: opts.goals,
+  };
+}
+
+// A fetch mock that dispatches api-football.io requests to canned per-endpoint responses (by
+// matching bits of the URL) and forwards anything else (OpenRouter) to a separate handler.
+function makeMixedFetch(opts: {
+  home: ApiFootballTeamFixture;
+  away: ApiFootballTeamFixture;
+  fixtures?: unknown[];
+  homeForm?: unknown[];
+  awayForm?: unknown[];
+  injuries?: unknown[];
+  h2h?: unknown[];
+  onOpenRouterRequest: (body: CapturedRequest) => unknown;
+}) {
+  return (async (url: unknown, init?: RequestInit) => {
+    const u = String(url);
+    if (u.includes("v3.football.api-sports.io")) {
+      if (u.includes("/teams?")) return apiOk([{ team: opts.home }, { team: opts.away }]);
+      if (u.includes("/fixtures/headtohead")) return apiOk(opts.h2h ?? []);
+      if (u.includes("/injuries?fixture=")) return apiOk(opts.injuries ?? []);
+      if (u.includes(`team=${opts.home.id}`) && u.includes("last=")) return apiOk(opts.homeForm ?? []);
+      if (u.includes(`team=${opts.away.id}`) && u.includes("last=")) return apiOk(opts.awayForm ?? []);
+      if (u.includes("from=") && u.includes("to=")) return apiOk(opts.fixtures ?? []);
+      throw new Error(`Unhandled API-Football URL in test: ${u}`);
+    }
+    const body = JSON.parse(init?.body as string) as CapturedRequest;
+    return opts.onOpenRouterRequest(body);
+  }) as unknown as typeof fetch;
+}
+
+// The football pipeline used to be a two-stage pipeline where an AI web-search pass built the
+// digest handed to the predict step. That search turned out to give wrong data often enough to be
+// worse than useless, so it's now a single OpenRouter call (predict only) fed a digest built
+// straight from API-Football's structured match data (lib/apiFootball.ts) — no web search, no
+// fallback to it if a team or fixture can't be resolved there.
+//
+// Each block below uses a different league — lib/apiFootball.ts caches a league's team roster
+// in-memory per (league, season) for the life of the process to save API-Football's daily quota,
+// and this file's test cases all share that same process, so reusing one league across blocks
+// would silently serve an earlier block's cached teams instead of exercising this block's mock.
+async function runFootballPipelineChecks(failures: string[]) {
   const check = (name: string, cond: boolean, detail?: string) => {
     if (!cond) failures.push(detail ? `${name}: ${detail}` : name);
     console.log(`  ${cond ? "ok" : "FAIL"}  ${name}`);
   };
 
-  const DIGEST = "Form: Arsenal have won 4 of their last 5 league matches. Injuries: Chelsea missing two starting defenders.";
-  const requests: CapturedRequest[] = [];
-  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
-    const body = JSON.parse(init?.body as string) as CapturedRequest;
-    requests.push(body);
-    if (requests.length === 1) {
-      return completion(
-        {
-          content: DIGEST,
-          annotations: [{ type: "url_citation", url_citation: { url: "https://news.example/1", title: "Match preview" } }],
-        },
-        "stop",
-        { cost: 0.0018 }
-      );
+  const home = { id: 42, name: "Arsenal" };
+  const away = { id: 49, name: "Chelsea" };
+  const kickoff = "2026-01-15T20:00:00.000Z";
+
+  // --- Happy path: a not-yet-started match with form, injuries, and H2H all present ---
+  {
+    const requests: CapturedRequest[] = [];
+    globalThis.fetch = makeMixedFetch({
+      home,
+      away,
+      fixtures: [
+        apiFootballFixture({
+          id: 900001,
+          date: kickoff,
+          home,
+          away,
+          status: { long: "Not Started", short: "NS", elapsed: null },
+          goals: { home: null, away: null },
+        }),
+      ],
+      homeForm: [
+        apiFootballFixture({
+          id: 1,
+          date: "2026-01-08T15:00:00.000Z",
+          home,
+          away: { id: 99, name: "Fulham" },
+          status: { long: "Match Finished", short: "FT", elapsed: 90 },
+          goals: { home: 3, away: 1 },
+        }),
+      ],
+      awayForm: [
+        apiFootballFixture({
+          id: 2,
+          date: "2026-01-08T15:00:00.000Z",
+          home: { id: 100, name: "Everton" },
+          away,
+          status: { long: "Match Finished", short: "FT", elapsed: 90 },
+          goals: { home: 2, away: 2 },
+        }),
+      ],
+      injuries: [{ player: { name: "Bukayo Saka", type: "Missing Fixture", reason: "Hamstring Injury" }, team: { id: home.id } }],
+      h2h: [
+        apiFootballFixture({
+          id: 3,
+          date: "2025-05-01T15:00:00.000Z",
+          home,
+          away,
+          status: { long: "Match Finished", short: "FT", elapsed: 90 },
+          goals: { home: 1, away: 1 },
+        }),
+      ],
+      onOpenRouterRequest: (body) => {
+        requests.push(body);
+        return completion({ content: GOOD_JSON }, "stop", { cost: 0.0009 });
+      },
+    });
+
+    const result = await getIndependentPrediction({
+      homeTeam: "Arsenal",
+      awayTeam: "Chelsea",
+      leagueName: "Premier League",
+      league: "premier-league",
+      startTime: kickoff,
+    });
+
+    check("makes exactly one OpenRouter call (predict only, no research call)", requests.length === 1, `made ${requests.length}`);
+    check("the predict call does NOT request web search", requests[0]?.model.endsWith(":online") === false, requests[0]?.model);
+
+    const predictSystemPrompt = requests[0]?.messages.find((m) => m.role === "system")?.content ?? "";
+    check(
+      "the predict system prompt guards against odds leaking through anyway",
+      /must not/i.test(predictSystemPrompt) && /disregard/i.test(predictSystemPrompt)
+    );
+
+    const predictUserPrompt = requests[0]?.messages.find((m) => m.role === "user")?.content ?? "";
+    check("the digest includes each team's recent form", /3-1 vs Fulham/.test(predictUserPrompt) && /2-2 at Everton/.test(predictUserPrompt));
+    check("the digest includes the reported injury", /Saka/.test(predictUserPrompt) && /Hamstring/.test(predictUserPrompt));
+    check("the digest includes head-to-head history", /1-1/.test(predictUserPrompt));
+    check("the digest notes the match hasn't started yet", /has not started yet/.test(predictUserPrompt));
+
+    check("no sources are returned (no web search happened)", (result.sources ?? []).length === 0, JSON.stringify(result.sources));
+    check("cost is just the single predict call's cost, not a sum of two", Math.abs((result.costUsd ?? 0) - 0.0009) < 0.00001, `got ${result.costUsd}`);
+  }
+
+  // --- A live match: current score and elapsed minutes should show up in the digest ---
+  {
+    const liveHome = { id: 142, name: "Liverpool" };
+    const liveAway = { id: 149, name: "Everton" };
+    const liveKickoff = "2026-02-01T15:00:00.000Z";
+    let predictUserPrompt = "";
+    globalThis.fetch = makeMixedFetch({
+      home: liveHome,
+      away: liveAway,
+      fixtures: [
+        apiFootballFixture({
+          id: 900002,
+          date: liveKickoff,
+          home: liveHome,
+          away: liveAway,
+          status: { long: "Second Half", short: "2H", elapsed: 63 },
+          goals: { home: 2, away: 1 },
+        }),
+      ],
+      onOpenRouterRequest: (body) => {
+        predictUserPrompt = body.messages.find((m) => m.role === "user")?.content ?? "";
+        return completion({ content: GOOD_JSON }, "stop", { cost: 0.0009 });
+      },
+    });
+
+    await getIndependentPrediction({
+      homeTeam: "Liverpool",
+      awayTeam: "Everton",
+      leagueName: "La Liga",
+      league: "la-liga",
+      startTime: liveKickoff,
+    });
+
+    check("a live match's digest reports the current score", /Liverpool 2-1 Everton/.test(predictUserPrompt), predictUserPrompt.slice(0, 300));
+    check("a live match's digest reports elapsed minutes", /63'/.test(predictUserPrompt), predictUserPrompt.slice(0, 300));
+  }
+
+  // --- No fallback: an unresolvable team fails the whole analysis, with no OpenRouter call at all ---
+  {
+    let openRouterCalls = 0;
+    globalThis.fetch = makeMixedFetch({
+      home: { id: 900, name: "Nonexistent FC" },
+      away: { id: 901, name: "Also Missing FC" },
+      onOpenRouterRequest: () => {
+        openRouterCalls++;
+        return completion({ content: GOOD_JSON }, "stop", { cost: 0.0009 });
+      },
+    });
+
+    let threw: Error | null = null;
+    try {
+      await getIndependentPrediction({
+        homeTeam: "Totally Unknown Rovers",
+        awayTeam: "Chelsea",
+        leagueName: "Bundesliga",
+        league: "bundesliga",
+        startTime: "2026-03-01T15:00:00.000Z",
+      });
+    } catch (err) {
+      threw = err instanceof Error ? err : new Error(String(err));
     }
-    return completion({ content: GOOD_JSON }, "stop", { cost: 0.0009 });
-  }) as unknown as typeof fetch;
 
-  const result = await getIndependentPrediction({
-    homeTeam: "Arsenal",
-    awayTeam: "Chelsea",
-    leagueName: "Premier League",
-    startTime: new Date().toISOString(),
-  });
-
-  check("makes exactly two calls (research, then predict)", requests.length === 2, `made ${requests.length}`);
-
-  const researchSystemPrompt = requests[0]?.messages.find((m) => m.role === "system")?.content ?? "";
-  const predictSystemPrompt = requests[1]?.messages.find((m) => m.role === "system")?.content ?? "";
-
-  check("the research call requests web search (:online)", requests[0]?.model.endsWith(":online") ?? false, requests[0]?.model);
-  check("the predict call does NOT request web search", requests[1]?.model.endsWith(":online") === false, requests[1]?.model);
-
-  check(
-    "the research system prompt forbids ever mentioning odds/prices",
-    /never mention/i.test(researchSystemPrompt) && /odds/i.test(researchSystemPrompt),
-    researchSystemPrompt.slice(0, 120)
-  );
-  check(
-    "the predict system prompt also guards against odds leaking through anyway",
-    /must not/i.test(predictSystemPrompt) && /disregard/i.test(predictSystemPrompt)
-  );
-
-  const predictUserPrompt = requests[1]?.messages.find((m) => m.role === "user")?.content ?? "";
-  check(
-    "stage 1's digest text is what stage 2 actually reasons over",
-    predictUserPrompt.includes(DIGEST),
-    "digest missing from the predict call's prompt"
-  );
-
-  check(
-    "the returned sources are the research call's citations",
-    result.sources?.length === 1 && result.sources[0].url === "https://news.example/1",
-    JSON.stringify(result.sources)
-  );
-
-  check(
-    "the returned cost is the sum of the research and predict calls",
-    Math.abs((result.costUsd ?? 0) - 0.0027) < 0.00001,
-    `got ${result.costUsd}`
-  );
+    check("an unmatched team throws rather than falling back to anything else", threw !== null);
+    check(
+      "the error names the team that couldn't be found",
+      /Totally Unknown Rovers/.test(threw?.message ?? ""),
+      threw?.message
+    );
+    check("no OpenRouter call is made when the match can't be resolved", openRouterCalls === 0, `made ${openRouterCalls}`);
+  }
 }
 
 // Cost tracking: OpenRouter only returns a dollar cost when asked via `usage: { include: true }`
@@ -319,7 +477,7 @@ async function run() {
   const failures: string[] = [];
 
   await runResilienceCases(failures);
-  await runTwoStageWiringChecks(failures);
+  await runFootballPipelineChecks(failures);
   await runCostTrackingChecks(failures);
 
   if (failures.length > 0) {

@@ -253,3 +253,9 @@ export function getLeague(id: LeagueId): LeagueConfig {
   if (!league) throw new Error(`Unknown league id: ${id}`);
   return league;
 }
+
+// Server-side: validates a (possibly untrusted, client-supplied) league id before it's used to
+// look up an API-Football league id or run any other lookup keyed by LeagueId.
+export function isLeagueId(value: unknown): value is LeagueId {
+  return typeof value === "string" && LEAGUES.some((l) => l.id === value);
+}
