@@ -24,9 +24,9 @@ export function ListCheckIcon({ className }: { className?: string }) {
   );
 }
 
-export function TicketIcon({ className }: { className?: string }) {
+export function TicketIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
+    <svg viewBox="0 0 24 24" fill="none" className={className} style={style}>
       <path
         d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 1 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 1 0 0-4V8Z"
         stroke="currentColor"
@@ -241,6 +241,26 @@ export function FlameIcon({ className, style }: { className?: string; style?: Re
         d="M12 2.5c1 2.5-.5 4-1.7 5.4C9 9.2 8 10.6 8 12.5a4 4 0 0 0 8 0c0-1 -.3-1.9-.8-2.7.9.5 1.8 1.6 1.8 3.2a5 5 0 0 1-10 0c0-3.2 2.2-4.8 3.6-6.4C11.6 5.4 12.3 4.2 12 2.5Z"
         fill="currentColor"
       />
+    </svg>
+  );
+}
+
+export function BoltIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} style={style}>
+      <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function CoinsIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} style={style}>
+      <ellipse cx="9" cy="7" rx="6" ry="3.2" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M3 7v4c0 1.77 2.69 3.2 6 3.2s6-1.43 6-3.2V7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M3 11v4c0 1.77 2.69 3.2 6 3.2 1.1 0 2.13-.18 3-.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <ellipse cx="16.5" cy="13.5" rx="4.5" ry="2.4" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M12 13.5v3c0 1.33 2.02 2.4 4.5 2.4s4.5-1.07 4.5-2.4v-3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }

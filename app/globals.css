@@ -298,6 +298,113 @@ body {
   border-right: 2px solid var(--hud-color, var(--d-accent));
 }
 
+/* Lab — the bet-slip builder gets its own "modern sportsbook" identity: a deep violet/indigo
+   ground instead of the app's usual near-black, gold as the one CTA/winnings color, and chunky
+   pill shapes instead of the sharp/soft-rounded corners used elsewhere. Scoped to .lab so nothing
+   outside it is affected. */
+.lab {
+  --lab-bg: #150b28;
+  --lab-bg-2: #1c0f36;
+  --lab-surface: #1f1440;
+  --lab-surface-2: #291a52;
+  --lab-border: #3a2568;
+  --lab-gold: #ffc94d;
+  --lab-gold-rgb: 255, 201, 77;
+  --lab-pink: #ff4fa3;
+  --lab-pink-rgb: 255, 79, 163;
+  --lab-cyan: #3ee6c4;
+  --lab-cyan-rgb: 62, 230, 196;
+  --lab-green: #34e0a1;
+  --lab-red: #ff5c72;
+}
+
+.lab-hero {
+  background:
+    radial-gradient(120% 100% at 15% 0%, rgba(var(--lab-gold-rgb), 0.22), transparent 55%),
+    radial-gradient(120% 100% at 100% 0%, rgba(var(--lab-pink-rgb), 0.24), transparent 55%),
+    var(--lab-bg);
+}
+
+.lab-cta {
+  background: linear-gradient(135deg, var(--lab-gold), #ff9f4d);
+  color: #1a0f05;
+  box-shadow: 0 6px 20px rgba(var(--lab-gold-rgb), 0.35);
+}
+
+@keyframes lab-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+.lab-pop-in {
+  animation: lab-pop-in 0.36s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes lab-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+.lab-slide-up {
+  animation: lab-slide-up 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes lab-buy-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.96);
+    box-shadow: 0 3px 12px rgba(var(--lab-gold-rgb), 0.25);
+  }
+}
+.lab-buy-pulse {
+  animation: lab-buy-pulse 0.55s ease-in-out infinite;
+}
+
+@keyframes lab-coin-bounce {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.18) rotate(-6deg);
+  }
+  60% {
+    transform: scale(0.95) rotate(3deg);
+  }
+}
+.lab-coin-bounce {
+  animation: lab-coin-bounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes lab-confetti-fall {
+  0% {
+    transform: translateY(-16px) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(160px) rotate(420deg);
+    opacity: 0;
+  }
+}
+.lab-confetti-piece {
+  position: absolute;
+  top: 0;
+  animation-name: lab-confetti-fall;
+  animation-timing-function: ease-in;
+  animation-fill-mode: forwards;
+}
+
 @keyframes marquee {
   from {
     transform: translateX(0);

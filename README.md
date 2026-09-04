@@ -39,20 +39,42 @@ Every analysis you save, whether it came from Discover or Sports, shows up toget
   once) in a read-only detail sheet (`components/PickDetailSheet.tsx` /
   `components/MarketPickDetailSheet.tsx`).
 - **Lab** (formerly "Slip") builds a single or multi-leg (parlay) bet from any combination of your
-  saved picks, football and Discover markets alike: search across all of them (with the same
-  All/Football filter as Picks), tap an outcome on each to add it as a leg, or tap the pick's own
-  title/teams to open its full analysis report instead. With 2+ legs, the combined market probability and
-  combined AI probability are each the product of every leg's own probability for its chosen
-  outcome (`lib/betslip.ts`) — the gap between the two is how much more, or less, likely the AI
-  thinks the whole parlay is than the market's pricing implies. This math doesn't care what kind
-  of market a leg came from, so a parlay can freely mix a football result with, say, a crypto
-  price target.
-- Every football pick in Lab also offers **double chance**: **1X** (home win or draw) and **X2**
-  (draw or away win), shown as a compact secondary row beneath the main three-way buttons. Neither
-  is a market Polymarket sells separately — a partner-league event is a plain 1X2 with no fourth or
-  fifth outcome — so both are computed client-side as the sum of the two 1X2 outcomes they cover
+  saved picks, football and Discover markets alike, then lets you place it as a paper bet — see
+  below for how it looks and works.
+
+### Lab: a sportsbook-style slip
+
+Lab is deliberately styled unlike the rest of the app — a deep violet/gold "modern sportsbook"
+theme (`.lab` in `app/globals.css`, its own CSS custom properties alongside the neutral palette
+Sports/Picks use and the green-phosphor terminal look Discover uses) instead of another variation
+on the same look. Odds lead with the number a real book shows — **decimal odds** (`toDecimalOdds`,
+`lib/format.ts`), e.g. `2.38x` — rather than the percentage-first framing used everywhere else,
+and any outcome where the AI's read clears the market by 2+ points earns a small "value" badge
+(a bolt icon + the edge) so a spottable edge reads as a find, not just another number in a row.
+
+- **Build** tab: search across every saved pick (with the same All/Football filter as Picks), tap
+  an outcome to add it as a leg, or tap the pick's own title/teams to open its full analysis
+  report. Every football pick also offers **double chance** — **1X** (home win or draw) and **X2**
+  (draw or away win) — as a compact secondary row beneath the main three-way buttons. Neither is a
+  market Polymarket sells separately (a partner-league event is a plain 1X2 with no fourth or fifth
+  outcome), so both are computed client-side as the sum of the two 1X2 outcomes they cover
   (`legFromPick` in `lib/betslip.ts`), for both the market's own probability and the AI's
-  independent read. They slot into a parlay exactly like any other leg.
+  independent read.
+- Adding a leg surfaces a floating pill at the bottom of the screen (leg count, combined decimal
+  odds) that expands into the full slip: every leg with its own odds/edge, and — with 2+ legs — the
+  combined market and AI probability, each the product of every leg's own probability for its
+  chosen outcome (`combineSlip`, `lib/betslip.ts`). This math doesn't care what kind of market a leg
+  came from, so a parlay can freely mix a football result with, say, a crypto price target.
+- **Buy**: tapping the gold **Buy at Nx** button places the slip as a paper bet against the real
+  market odds it was built from — a brief "placing" animation, then a confetti-and-receipt
+  confirmation, and the slip clears. Nothing here is real money (`lib/placedBets.ts` just
+  snapshots the legs and the combined read into local storage, same paper-trading spirit as
+  everywhere else in the app) — there's no wallet or balance, since the app has no way to know how
+  a match or market actually resolved and a stake that only ever gets deducted, never paid back,
+  would be worse than no stake mechanic at all.
+- **My Bets** tab lists every bet you've placed as a ticket-style card — legs, combined odds/edge
+  at the moment you bought it, and a **Pending** status, honestly reflecting that this is a record
+  of what you bought, not a settled result.
 
 ## Odds history
 

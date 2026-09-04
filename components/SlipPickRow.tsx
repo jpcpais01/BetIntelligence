@@ -1,13 +1,17 @@
 import type { SavedPick } from "@/lib/types";
 import type { Outcome } from "@/lib/betslip";
-import { toPercent } from "@/lib/format";
+import { toPercent, toSignedPercent, toDecimalOdds } from "@/lib/format";
 import Avatar from "./Avatar";
-import { ChevronRightIcon } from "./icons";
+import { ChevronRightIcon, BoltIcon } from "./icons";
+
+// A meaningfully positive AI-vs-market edge earns a small "value" badge — the whole point of a
+// gamified slip is making a spottable edge feel like a find, not just another number in a row.
+const VALUE_EDGE_THRESHOLD = 0.02;
 
 const OUTCOME_COLOR: Record<"home" | "draw" | "away", string> = {
-  home: "var(--home)",
-  draw: "var(--draw)",
-  away: "var(--away)",
+  home: "var(--lab-pink)",
+  draw: "var(--lab-gold)",
+  away: "var(--lab-cyan)",
 };
 
 export default function SlipPickRow({
@@ -26,7 +30,7 @@ export default function SlipPickRow({
   onOpen: () => void;
 }) {
   return (
-    <div className="rounded-2xl border border-border-soft bg-surface p-3.5">
+    <div className="rounded-3xl p-3.5" style={{ background: "var(--lab-surface)", border: "1px solid var(--lab-border)" }}>
       <div className="mb-2.5 flex items-center gap-2 text-[11px] text-text-faint">
         <span>{pick.leagueFlag}</span>
         <span className="truncate">{pick.leagueName}</span>
@@ -34,9 +38,9 @@ export default function SlipPickRow({
 
       <button onClick={onOpen} className="press mb-3 flex w-full items-center gap-2 text-left">
         <Avatar name={pick.homeTeam} size={20} />
-        <span className="truncate text-[13px] font-medium">{pick.homeTeam}</span>
+        <span className="truncate text-[13px] font-medium text-text">{pick.homeTeam}</span>
         <span className="shrink-0 text-[11px] text-text-faint">v</span>
-        <span className="truncate text-[13px] font-medium">{pick.awayTeam}</span>
+        <span className="truncate text-[13px] font-medium text-text">{pick.awayTeam}</span>
         <Avatar name={pick.awayTeam} size={20} />
         <ChevronRightIcon className="ml-auto h-3.5 w-3.5 shrink-0 text-text-faint" />
       </button>
@@ -109,19 +113,32 @@ function OutcomeButton({
   active: boolean;
   onClick: () => void;
 }) {
+  const edge = ai - market;
+  const isValue = edge >= VALUE_EDGE_THRESHOLD;
+  const color = OUTCOME_COLOR[outcome];
   return (
     <button
       onClick={onClick}
-      className={`press rounded-xl px-2 py-2 text-center ring-1 ring-inset ${
-        active ? "bg-surface-2 ring-2" : "bg-surface-2/60 ring-border-soft"
-      }`}
-      style={active ? { boxShadow: `inset 0 0 0 1.5px ${OUTCOME_COLOR[outcome]}` } : undefined}
+      className="press relative rounded-2xl px-2 py-2.5 text-center"
+      style={{
+        background: active ? "var(--lab-surface-2)" : "rgba(255,255,255,0.03)",
+        boxShadow: active ? `inset 0 0 0 1.5px ${color}` : "inset 0 0 0 1px var(--lab-border)",
+      }}
     >
+      {isValue && (
+        <span
+          className="absolute -top-1.5 -right-1.5 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[8px] font-bold"
+          style={{ background: "var(--lab-green)", color: "#052018" }}
+        >
+          <BoltIcon className="h-2 w-2" />
+          {toSignedPercent(edge)}
+        </span>
+      )}
       <p className="truncate text-[10px] text-text-faint">{label}</p>
-      <p className="font-display text-[14px] font-semibold tabular-nums" style={{ color: OUTCOME_COLOR[outcome] }}>
-        {toPercent(ai)}
+      <p className="font-display text-[17px] font-bold tabular-nums" style={{ color }}>
+        {toDecimalOdds(market)}
       </p>
-      <p className="text-[10px] tabular-nums text-text-faint">mkt {toPercent(market)}</p>
+      <p className="text-[9px] tabular-nums text-text-faint">AI {toPercent(ai)}</p>
     </button>
   );
 }
@@ -147,17 +164,23 @@ function ComboButton({
   return (
     <button
       onClick={onClick}
-      className={`press flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-left ring-1 ring-inset ${
-        active ? "bg-accent-2/12 ring-accent-2" : "bg-surface-2/60 ring-border-soft"
-      }`}
+      className="press flex items-center justify-between gap-2 rounded-2xl px-2.5 py-1.5 text-left"
+      style={{
+        background: active ? "rgba(var(--lab-gold-rgb), 0.14)" : "rgba(255,255,255,0.03)",
+        boxShadow: active ? "inset 0 0 0 1.5px var(--lab-gold)" : "inset 0 0 0 1px var(--lab-border)",
+      }}
     >
       <div className="min-w-0">
-        <p className={`text-[11px] font-semibold ${active ? "text-accent-2" : "text-text-dim"}`}>{label}</p>
+        <p className="text-[11px] font-semibold" style={{ color: active ? "var(--lab-gold)" : "var(--text-dim)" }}>
+          {label}
+        </p>
         <p className="truncate text-[9px] text-text-faint">{sublabel}</p>
       </div>
       <div className="shrink-0 text-right">
-        <p className="font-display text-[12px] font-semibold tabular-nums text-accent-2">{toPercent(ai)}</p>
-        <p className="text-[9px] tabular-nums text-text-faint">mkt {toPercent(market)}</p>
+        <p className="font-display text-[13px] font-bold tabular-nums" style={{ color: "var(--lab-gold)" }}>
+          {toDecimalOdds(market)}
+        </p>
+        <p className="text-[9px] tabular-nums text-text-faint">AI {toPercent(ai)}</p>
       </div>
     </button>
   );
