@@ -174,16 +174,20 @@ hitting Polymarket at all.
 Tapping **AI Analyze** runs against [`deepseek/deepseek-v4-flash-0731`](https://openrouter.ai/deepseek/deepseek-v4-flash-0731)
 (or whichever model is selected) via OpenRouter, but the first step differs between football (Sports) and Discover markets.
 
-**Football** (`lib/apiFootball.ts`, `lib/openrouter.ts`):
+**Football** (`lib/footballData.ts`, `lib/openrouter.ts`):
 
 1. **Research** — *not* a web search. An AI web-search pass here used to give wrong data (stale injuries, mixed-up form,
    invented head-to-head records) often enough to be worse than useless, so this step is now a plain data fetch against
-   [API-Football](https://www.api-football.com/) with no LLM involved at all: each club's last 5 completed results, injuries
-   and suspensions reported for that exact fixture, the last 5 head-to-head meetings, and the fixture's own live status —
-   whether it's started yet, and if so the current score and elapsed minutes, straight from API-Football's own kickoff time
-   rather than assuming Polymarket's original schedule still holds. All of it is formatted into the same kind of plain-text
-   digest the next step expects. There's no fallback to web search if a team or fixture can't be matched on API-Football —
-   the analysis fails with a clear error rather than quietly falling back to a shakier source.
+   [football-data.org](https://www.football-data.org/) with no LLM involved at all: each club's last 5 completed results,
+   the last 5 head-to-head meetings, and the fixture's own live status — whether it's started yet, and if so the current
+   score, straight from football-data.org's own kickoff time rather than assuming Polymarket's original schedule still
+   holds. All of it is formatted into a plain-text digest the next step reasons over. There's no fallback to web search if
+   a team or fixture can't be matched there — the analysis fails with a clear error rather than quietly falling back to a
+   shakier source. (This app first tried [API-Football](https://www.api-football.com/) instead — its free plan looked
+   equivalent on paper, including an injuries endpoint, but locks every endpoint to old completed seasons in practice,
+   making it useless for a current match. football-data.org's free tier has no such season lock, covering 7 of the 8
+   leagues below — everything except Belgian Pro League, which has no free-tier code — but it has no injuries endpoint at
+   any tier, so that section of the digest is simply gone rather than replaced with something unreliable.)
 2. **Independent read** — an OpenRouter call, no web access, that only ever sees that digest and produces the 1X2 probability
    estimate from it.
 3. **Market comparison** — the app reveals Polymarket's implied probabilities for the same match and asks the model to
@@ -242,12 +246,12 @@ language agreement label plus the per-run breakdown), so you can tell a stable r
 basically a coin flip. That merged, multi-run read is what gets saved with the pick.
 
 For football specifically, since research is no longer an LLM call, running it more than once means
-several independent-read passes over the *same* API-Football digest rather than several fresh
+several independent-read passes over the *same* football-data.org digest rather than several fresh
 searches — still meaningfully different runs, since the predict step's own sampling varies each
 time, but the diversity comes entirely from that step now rather than from re-researching too.
-`lib/apiFootball.ts` also caches a match's digest for a couple of minutes specifically so that
-burst of parallel runs doesn't spend several of API-Football's limited daily requests fetching data
-that would come back identical anyway.
+`lib/footballData.ts` also caches a match's digest for a couple of minutes specifically so that a
+burst of parallel runs doesn't spend several of the free tier's 10-requests-per-minute budget
+fetching data that would come back identical anyway.
 
 The "researching" screen itself is a small centered popup — not the full-width sheet used once
 results are in, and with no way to dismiss it mid-analysis — with a pulsing radar animation rather
@@ -370,7 +374,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | Variable | Required | Description |
 | --- | --- | --- |
 | `OPENROUTER_API_KEY` | Yes (for real analysis) | API key from [openrouter.ai/keys](https://openrouter.ai/keys). |
-| `API_FOOTBALL_KEY` | Yes (for football analysis) | Free-tier key from [api-football.com](https://www.api-football.com/) — used directly against `v3.football.api-sports.io`, not the RapidAPI host. Powers football's entire research step (form, injuries, fixture status/score); Discover markets don't use it. |
+| `FOOTBALL_DATA_API_KEY` | Yes (for football analysis) | Free key from [football-data.org](https://www.football-data.org/client/register). Powers football's entire research step (form, head-to-head, fixture status/score); Discover markets don't use it. |
 | `NEXT_PUBLIC_APP_URL` | No | Sent to OpenRouter as the app's referer/title for their dashboards. |
 | `MOCK_GAMES` | No | Set to `1` to serve built-in sample matches instead of calling Polymarket. Useful for local UI work without network access. |
 | `MOCK_MARKETS` | No | Set to `1` to serve built-in sample Discover markets instead of calling Polymarket. |
@@ -393,10 +397,11 @@ required to run AI analysis.
 - **Analysis**: [OpenRouter](https://openrouter.ai/) chat completions — `lib/openrouter.ts` for
   Sports' football-specific prompts, `lib/openrouterMarkets.ts` for Discover's generalized
   any-market prompts (both share the same request/retry/JSON-parsing core in `lib/openrouter.ts`).
-- **Football match data**: [API-Football](https://www.api-football.com/) (`v3.football.api-sports.io`)
-  — `lib/apiFootball.ts` fetches each team's recent form, injuries/suspensions for the exact
-  fixture, head-to-head history, and the fixture's own live status/score, and feeds that straight
-  into the football research digest above. No fallback to web search on a miss.
+- **Football match data**: [football-data.org](https://www.football-data.org/) (`api.football-data.org/v4`)
+  — `lib/footballData.ts` fetches each team's recent form, head-to-head history, and the fixture's
+  own live status/score, and feeds that straight into the football research digest above. No
+  injuries data (this source doesn't have an injuries endpoint at any tier) and no fallback to web
+  search on a miss.
 
 ## Project structure
 
