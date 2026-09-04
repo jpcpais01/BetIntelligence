@@ -152,6 +152,16 @@ function normalizeTeamName(name: string): string {
     .trim();
 }
 
+// Word tokens with founding-year-style pure numbers dropped (e.g. "09" in "BV Borussia 09
+// Dortmund", "1899" in "TSG 1899 Hoffenheim") — those numbers are exactly the kind of extra token
+// a club's full legal name carries that a shorter display name never does, so keeping them would
+// make an otherwise-good match fail on nothing but a number sitting between the real words.
+function significantWords(name: string): string[] {
+  return normalizeTeamName(name)
+    .split(" ")
+    .filter((w) => w.length > 0 && !/^\d+$/.test(w));
+}
+
 function findBestTeamMatch(teams: FootballDataTeam[], name: string): FootballDataTeam | null {
   const target = normalizeTeamName(name);
   const exact = teams.find((t) => normalizeTeamName(t.name) === target || (t.shortName && normalizeTeamName(t.shortName) === target));
@@ -159,10 +169,22 @@ function findBestTeamMatch(teams: FootballDataTeam[], name: string): FootballDat
   // Polymarket sometimes shortens or lengthens a club's display name (e.g. "Newcastle" vs
   // "Newcastle United") — a substring match either direction covers that without getting too
   // loose, since we're only ever matching within the ~20 teams of the one league we already know.
+  const substring = teams.find((t) => {
+    const n = normalizeTeamName(t.name);
+    return n.includes(target) || target.includes(n);
+  });
+  if (substring) return substring;
+  // A full legal name (Polymarket's "BV Borussia 09 Dortmund" vs football-data.org's "Borussia
+  // Dortmund") isn't a substring match either direction — the founding-year number sits between
+  // the real words and breaks contiguity. Falling back to "every significant word of one name
+  // appears in the other's word set" (order-independent, numbers ignored) catches that case too.
+  const targetWords = new Set(significantWords(name));
   return (
     teams.find((t) => {
-      const n = normalizeTeamName(t.name);
-      return n.includes(target) || target.includes(n);
+      const words = significantWords(t.name);
+      if (words.length === 0) return false;
+      const wordsSet = new Set(words);
+      return words.every((w) => targetWords.has(w)) || [...targetWords].every((w) => wordsSet.has(w));
     }) ?? null
   );
 }

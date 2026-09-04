@@ -198,7 +198,7 @@ async function run() {
   {
     __resetRateLimiterForTests();
     const home = { id: 3, name: "Bayern Munich" };
-    const away = { id: 4, name: "Dortmund" };
+    const away = { id: 4, name: "Borussia Dortmund" };
     const urls: string[] = [];
     globalThis.fetch = makeFootballDataFetch({
       rosterTeams: [home, away],
@@ -207,8 +207,36 @@ async function run() {
       fixtures: [match({ id: 11, date: "2026-09-20T18:30:00.000Z", home, away, status: "SCHEDULED", homeGoals: null, awayGoals: null })],
       urls,
     });
-    await buildFootballDigest({ homeTeam: "Bayern Munich", awayTeam: "Dortmund", league: "bundesliga", startTime: "2026-09-20T18:30:00.000Z" });
+    await buildFootballDigest({ homeTeam: "Bayern Munich", awayTeam: "Borussia Dortmund", league: "bundesliga", startTime: "2026-09-20T18:30:00.000Z" });
     check("bundesliga resolves to competition code BL1", urls.some((u) => u.includes("/competitions/BL1/teams")), urls.join(" | "));
+  }
+
+  // --- A club's full legal name (as Polymarket sometimes gives it) still matches a roster entry
+  // that's missing the extra words/numbers, even when a founding-year number sits between the real
+  // words and breaks contiguous substring matching. Reuses the BL1 roster cached just above, where
+  // football-data.org's own name is "Borussia Dortmund" with no "BV" or "09" in it. ---
+  {
+    __resetRateLimiterForTests();
+    const home = { id: 3, name: "Bayern Munich" };
+    const away = { id: 4, name: "Borussia Dortmund" };
+    globalThis.fetch = makeFootballDataFetch({
+      rosterTeams: [home, away],
+      home,
+      away,
+      fixtures: [match({ id: 41, date: "2026-09-27T18:30:00.000Z", home, away, status: "SCHEDULED", homeGoals: null, awayGoals: null })],
+      urls: [],
+    });
+    const digest = await buildFootballDigest({
+      homeTeam: "Bayern Munich",
+      awayTeam: "BV Borussia 09 Dortmund",
+      league: "bundesliga",
+      startTime: "2026-09-27T18:30:00.000Z",
+    });
+    check(
+      "a full legal name with a founding-year number ('BV Borussia 09 Dortmund') still matches",
+      digest.text.includes("Bayern Munich"),
+      digest.text.slice(0, 200)
+    );
   }
 
   // --- Team name matching: exact and substring (shortened display name) ---
