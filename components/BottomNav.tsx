@@ -5,8 +5,8 @@ import { usePathname } from "next/navigation";
 import { HomeIcon, CompassIcon, TrophyIcon, BookmarkIcon, TicketIcon } from "./icons";
 
 const TABS = [
-  { href: "/home", label: "Home", icon: HomeIcon },
-  { href: "/", label: "Discover", icon: CompassIcon },
+  { href: "/", label: "Home", icon: HomeIcon },
+  { href: "/discover", label: "Discover", icon: CompassIcon },
   { href: "/sports", label: "Sports", icon: TrophyIcon },
   { href: "/picks", label: "Picks", icon: BookmarkIcon },
   { href: "/lab", label: "Lab", icon: TicketIcon },

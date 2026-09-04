@@ -92,10 +92,10 @@ export default function BetSlipBar({
           {!expanded ? (
             <button
               onClick={() => setExpanded(true)}
-              className="lab-pop-in press flex w-full items-center justify-between gap-3 rounded-full px-4 py-3 shadow-xl"
+              className="lab-pop-in lab-slip-sheen press flex w-full items-center justify-between gap-3 rounded-full px-4 py-3 shadow-xl"
               style={{ background: "var(--lab-surface-2)", border: "1px solid var(--lab-border)" }}
             >
-              <span className="flex items-center gap-2">
+              <span className="relative z-[1] flex items-center gap-2">
                 <span
                   key={legs.length}
                   className="lab-coin-bounce flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] font-bold"
@@ -104,19 +104,23 @@ export default function BetSlipBar({
                   {legs.length}
                 </span>
                 <span className="text-[12px] font-semibold text-text">
-                  {legs.length === 1 ? "1 leg" : `${legs.length}-leg parlay`}
+                  {legs.length} bet{legs.length === 1 ? "" : "s"}
                 </span>
               </span>
-              <span className="flex items-center gap-1.5 text-[12px] font-bold tabular-nums" style={{ color: "var(--lab-gold)" }}>
+              <span className="relative z-[1] flex items-center gap-1.5 text-[12px] font-bold tabular-nums" style={{ color: "var(--lab-gold)" }}>
                 {toDecimalOdds(combined.marketProb)}x
+                <span style={{ color: combined.edge > 0.005 ? "var(--lab-green)" : combined.edge < -0.005 ? "var(--lab-red)" : "var(--text-faint)" }}>
+                  {toSignedPercent(combined.edge)}
+                </span>
                 <ChevronDownIcon className="h-3.5 w-3.5 rotate-180" />
               </span>
             </button>
           ) : (
             <div
-              className="lab-slide-up max-h-[70vh] overflow-y-auto rounded-3xl shadow-2xl"
+              className="lab-slide-up lab-slip-sheen max-h-[70vh] overflow-y-auto rounded-3xl shadow-2xl"
               style={{ background: "var(--lab-surface)", border: "1px solid var(--lab-border)" }}
             >
+              <div className="relative z-[1]">
               <div className="sticky top-0 z-10 rounded-t-3xl pt-2" style={{ background: "var(--lab-surface)" }}>
                 <button
                   onClick={() => setExpanded(false)}
@@ -197,6 +201,7 @@ export default function BetSlipBar({
                 <p className="mt-2 text-center text-[10px] text-text-faint">
                   Paper trade only &middot; no real money moves
                 </p>
+              </div>
               </div>
             </div>
           )}

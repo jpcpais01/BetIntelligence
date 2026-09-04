@@ -1,11 +1,12 @@
 # BetIntelligence
 
-AI odds-intelligence for Polymarket prediction markets. **Discover** (the home tab) covers
-*everything* on Polymarket — politics, crypto, business, entertainment, science, sports, anything
-— and lets an LLM independently research and form its own probability read on a market before it
-ever sees Polymarket's price, then compares the two to flag markets that might be mispriced.
-**Sports** is the original, more specialized version of the same idea: upcoming 1X2 matches from
-Polymarket's top 8 European football leagues, with the same blind-then-compare flow.
+AI odds-intelligence for Polymarket prediction markets. **Home** (`/`, the app's default tab) is
+your paper-trading portfolio — see below. **Discover** covers *everything else* on Polymarket —
+politics, crypto, business, entertainment, science, sports, anything — and lets an LLM
+independently research and form its own probability read on a market before it ever sees
+Polymarket's price, then compares the two to flag markets that might be mispriced. **Sports** is
+the original, more specialized version of the same idea: upcoming 1X2 matches from Polymarket's
+top 8 European football leagues, with the same blind-then-compare flow.
 
 This is a paper-trading / research tool: there is no real-money betting. "Saving a pick" just
 stores your AI's read in your browser's local storage, and **Home**'s portfolio balance is play
@@ -13,7 +14,7 @@ money you can top up freely — see below.
 
 ## Discover
 
-The **Discover** tab (`app/page.tsx`) is a trending feed of Polymarket's highest-volume markets
+The **Discover** tab (`app/discover/page.tsx`) is a trending feed of Polymarket's highest-volume markets
 across every category, refreshed from a live sweep of Polymarket's Gamma API (`lib/allMarkets.ts`)
 — no fixed list of categories or leagues, whatever is actually trending shows up. Tap a category
 chip to filter, or **Analyze** any card to run the same independent-research-then-compare flow
@@ -45,10 +46,12 @@ Every analysis you save, whether it came from Discover or Sports, shows up toget
 
 ### Lab: a sportsbook-style slip
 
-Lab is deliberately styled unlike the rest of the app — a deep violet/gold "modern sportsbook"
-theme (`.lab` in `app/globals.css`, its own CSS custom properties alongside the neutral palette
+Lab is deliberately styled unlike the rest of the app — a deep violet "modern sportsbook" theme
+(`.lab` in `app/globals.css`, its own CSS custom properties alongside the neutral palette
 Sports/Picks use and the green-phosphor terminal look Discover uses) instead of another variation
-on the same look. Every outcome — the main three-way, the two double-chance combos, any Discover
+on the same look. One muted gold carries every accent, selection ring, and CTA; home/draw/away get
+gently desaturated, closely related tones just distinct enough to tell apart at a glance, rather
+than a set of competing neon hues. Every outcome — the main three-way, the two double-chance combos, any Discover
 market's outcomes — renders through the same button: a label, a big **decimal odds** number
 (`toDecimalOdds`, `lib/format.ts`, e.g. `2.38x`) rather than the percentage-first framing used
 everywhere else, and the AI's own probability underneath. Edge only ever shows as a small "value"
@@ -72,11 +75,13 @@ nothing to reprice and holds at its last known value.
   outcome), so both are computed client-side as the sum of the two 1X2 outcomes they cover
   (`legFromPick` in `lib/betslip.ts`), for both the market's own probability and the AI's
   independent read — edge included, since a combo's edge is just the sum of the two edges it covers.
-- Adding a leg surfaces a floating pill at the bottom of the screen (leg count, combined decimal
-  odds) that expands into the full slip: every leg with its own live odds/edge, a **stake** picker
-  (quick chips of €10/€25/€50/€100), and — with 2+ legs — the combined market and AI probability,
-  each the product of every leg's own probability for its chosen outcome (`combineSlip`,
-  `lib/betslip.ts`). This math doesn't care what kind of market a leg came from, so a parlay can
+- Adding a leg surfaces a floating pill at the bottom of the screen — how many bets, the combined
+  decimal odds, and the combined edge, all live — over a slow, dim gold sheen that drifts across
+  the pill (and the expanded sheet behind it) so the slip always feels quietly alive rather than
+  static. Tapping it expands into the full slip: every leg with its own live odds/edge, a **stake**
+  picker (quick chips of €10/€25/€50/€100), and — with 2+ legs — the combined market and AI
+  probability, each the product of every leg's own probability for its chosen outcome
+  (`combineSlip`, `lib/betslip.ts`). This math doesn't care what kind of market a leg came from, so a parlay can
   freely mix a football result with, say, a crypto price target.
 - **Buy**: tapping the gold **Buy €N at Nx** button places the slip as a paper bet at today's
   market price (not whatever it was at analysis time) — a brief "placing" animation, then a
@@ -90,7 +95,7 @@ nothing to reprice and holds at its last known value.
 
 ## Home: a paper portfolio
 
-**Home** (`app/home/page.tsx`, the leftmost tab) is a sleek, dark portfolio dashboard: a big
+**Home** (`app/page.tsx` — the app's default/root route) is a sleek, dark portfolio dashboard: a big
 portfolio-value number, an all-time gain/loss line, a value-over-time graph, and your most recent
 placed bets with their own live P&L.
 
@@ -300,8 +305,8 @@ required to run AI analysis.
 
 ```
 app/
-  home/page.tsx                       Home — portfolio balance, value graph, recent bets
-  page.tsx                            Discover — trending markets across all of Polymarket
+  page.tsx                            Home (default route) — portfolio balance, value graph, recent bets
+  discover/page.tsx                   Discover — trending markets across all of Polymarket
   sports/page.tsx                     Sports — the original football-only game list
   picks/page.tsx                      Every saved analysis, football and Discover, merged
   lab/page.tsx                        Build a single/multi bet from any saved pick and buy it

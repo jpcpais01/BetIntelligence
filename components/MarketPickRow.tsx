@@ -4,7 +4,7 @@ import { toPercent, toSignedPercent, toDecimalOdds } from "@/lib/format";
 import { ChevronRightIcon, BoltIcon } from "./icons";
 
 const VALUE_EDGE_THRESHOLD = 0.02;
-const OUTCOME_COLORS = ["var(--lab-gold)", "var(--lab-cyan)", "var(--lab-pink)", "#9b8cff", "#ff9f4d", "#5cc9ff"];
+const OUTCOME_COLORS = ["var(--lab-gold)", "var(--lab-cyan)", "var(--lab-pink)", "#9089b0", "#b58f66", "#7f9e8f"];
 
 export default function MarketPickRow({
   pick,

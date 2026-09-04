@@ -299,36 +299,37 @@ body {
 }
 
 /* Lab — the bet-slip builder gets its own "modern sportsbook" identity: a deep violet/indigo
-   ground instead of the app's usual near-black, gold as the one CTA/winnings color, and chunky
-   pill shapes instead of the sharp/soft-rounded corners used elsewhere. Scoped to .lab so nothing
-   outside it is affected. */
+   ground instead of the app's usual near-black, and chunky pill shapes instead of the
+   sharp/soft-rounded corners used elsewhere. Scoped to .lab so nothing outside it is affected.
+   One muted gold carries every accent/CTA; home/draw/away get gently desaturated tones just
+   distinct enough to tell apart, rather than a competing set of neon hues. */
 .lab {
   --lab-bg: #150b28;
   --lab-bg-2: #1c0f36;
   --lab-surface: #1f1440;
   --lab-surface-2: #291a52;
   --lab-border: #3a2568;
-  --lab-gold: #ffc94d;
-  --lab-gold-rgb: 255, 201, 77;
-  --lab-pink: #ff4fa3;
-  --lab-pink-rgb: 255, 79, 163;
-  --lab-cyan: #3ee6c4;
-  --lab-cyan-rgb: 62, 230, 196;
-  --lab-green: #34e0a1;
-  --lab-red: #ff5c72;
+  --lab-gold: #d9b46a;
+  --lab-gold-rgb: 217, 180, 106;
+  --lab-pink: #c99aa3;
+  --lab-pink-rgb: 201, 154, 163;
+  --lab-cyan: #8fabc4;
+  --lab-cyan-rgb: 143, 171, 196;
+  --lab-green: #55b98c;
+  --lab-red: #cf7681;
 }
 
 .lab-hero {
   background:
-    radial-gradient(120% 100% at 15% 0%, rgba(var(--lab-gold-rgb), 0.22), transparent 55%),
-    radial-gradient(120% 100% at 100% 0%, rgba(var(--lab-pink-rgb), 0.24), transparent 55%),
+    radial-gradient(120% 100% at 15% 0%, rgba(var(--lab-gold-rgb), 0.12), transparent 55%),
+    radial-gradient(120% 100% at 100% 0%, rgba(155, 140, 210, 0.12), transparent 55%),
     var(--lab-bg);
 }
 
 .lab-cta {
-  background: linear-gradient(135deg, var(--lab-gold), #ff9f4d);
+  background: linear-gradient(135deg, var(--lab-gold), #a9803f);
   color: #1a0f05;
-  box-shadow: 0 6px 20px rgba(var(--lab-gold-rgb), 0.35);
+  box-shadow: 0 6px 20px rgba(var(--lab-gold-rgb), 0.3);
 }
 
 @keyframes lab-pop-in {
@@ -403,6 +404,32 @@ body {
   animation-name: lab-confetti-fall;
   animation-timing-function: ease-in;
   animation-fill-mode: forwards;
+}
+
+/* A slow, dim diagonal sheen that continuously drifts across the bet slip's own surface (both
+   the collapsed pill and the expanded sheet) — an ambient sense of motion behind the numbers,
+   never bright enough to compete with them. */
+@keyframes lab-slip-sheen {
+  0% {
+    background-position: -60% 0;
+  }
+  100% {
+    background-position: 160% 0;
+  }
+}
+.lab-slip-sheen {
+  position: relative;
+  overflow: hidden;
+}
+.lab-slip-sheen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(100deg, transparent 35%, rgba(var(--lab-gold-rgb), 0.1) 50%, transparent 65%);
+  background-size: 250% 100%;
+  animation: lab-slip-sheen 7s linear infinite;
+  pointer-events: none;
 }
 
 @keyframes marquee {
