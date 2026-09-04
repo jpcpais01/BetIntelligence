@@ -1,4 +1,5 @@
 import { requestJson, getIndependentPrediction } from "../lib/openrouter";
+import { __resetRateLimiterForTests } from "../lib/footballData";
 
 process.env.OPENROUTER_API_KEY = "test-key";
 process.env.API_FOOTBALL_KEY = "test-key";
@@ -253,6 +254,7 @@ async function runFootballPipelineChecks(failures: string[]) {
 
   // --- Happy path: a not-yet-started match with form and H2H present ---
   {
+    __resetRateLimiterForTests();
     const requests: CapturedRequest[] = [];
     globalThis.fetch = makeMixedFetch({
       home,
@@ -299,6 +301,7 @@ async function runFootballPipelineChecks(failures: string[]) {
 
   // --- A live match: current score should show up in the digest ---
   {
+    __resetRateLimiterForTests();
     const liveHome = { id: 142, name: "Liverpool" };
     const liveAway = { id: 149, name: "Everton" };
     const liveKickoff = "2026-02-01T15:00:00.000Z";
@@ -327,6 +330,7 @@ async function runFootballPipelineChecks(failures: string[]) {
 
   // --- No fallback: an unresolvable team fails the whole analysis, with no OpenRouter call at all ---
   {
+    __resetRateLimiterForTests();
     let openRouterCalls = 0;
     globalThis.fetch = makeMixedFetch({
       home: { id: 900, name: "Nonexistent FC" },
@@ -361,6 +365,7 @@ async function runFootballPipelineChecks(failures: string[]) {
 
   // --- No fallback: a league with no free-tier football-data.org code fails clearly ---
   {
+    __resetRateLimiterForTests();
     let openRouterCalls = 0;
     globalThis.fetch = (async () => {
       openRouterCalls++;

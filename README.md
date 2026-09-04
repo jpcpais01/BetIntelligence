@@ -251,7 +251,13 @@ searches — still meaningfully different runs, since the predict step's own sam
 time, but the diversity comes entirely from that step now rather than from re-researching too.
 `lib/footballData.ts` also caches a match's digest for a couple of minutes specifically so that a
 burst of parallel runs doesn't spend several of the free tier's 10-requests-per-minute budget
-fetching data that would come back identical anyway.
+fetching data that would come back identical anyway. On top of that cache, every call to
+football-data.org goes through an in-process sliding-window throttle that tracks the last 60
+seconds of requests and makes a new call wait for a free slot rather than firing blindly — so
+normal single-instance use shouldn't hit the limit at all. If a 429 does slip through anyway (a
+separate serverless instance doesn't share that in-memory window), the client reads football-data.org's
+own "Wait N seconds" message out of the error body and waits that exact duration before a single
+retry, instead of guessing.
 
 The "researching" screen itself is a small centered popup — not the full-width sheet used once
 results are in, and with no way to dismiss it mid-analysis — with a pulsing radar animation rather

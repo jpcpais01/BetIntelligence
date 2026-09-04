@@ -63,26 +63,72 @@ const STATUS_LABEL: Record<string, string> = {
   CANCELED: "Cancelled",
 };
 
+// The free tier allows 10 requests/minute — easy to exceed since a single match's digest alone
+// takes 4-5 calls, and several matches analyzed within the same minute (a batch analysis, or a
+// couple of one-off Analyze taps in quick succession) share that same budget. Rather than firing
+// every call immediately and hoping, this tracks a rolling 60s window of request timestamps
+// in-process and makes a call WAIT for a free slot before it's ever sent, so the app self-throttles
+// down to the real limit instead of ever hitting a 429 under normal single-instance use. This is
+// necessarily best-effort — separate concurrent serverless instances don't share this in-memory
+// state — so a 429 can still happen; footballDataFetch below still recovers from one if it does.
+const RATE_LIMIT_MAX_REQUESTS = 10;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const requestTimestamps: number[] = [];
+
+async function waitForRateLimitSlot(): Promise<void> {
+  for (;;) {
+    const now = Date.now();
+    while (requestTimestamps.length > 0 && now - requestTimestamps[0] >= RATE_LIMIT_WINDOW_MS) {
+      requestTimestamps.shift();
+    }
+    if (requestTimestamps.length < RATE_LIMIT_MAX_REQUESTS) {
+      requestTimestamps.push(now);
+      return;
+    }
+    // Nothing awaits between the length check above and this wait, so two concurrent callers
+    // can't both slip through the same slot — the next iteration re-checks after sleeping.
+    const waitMs = RATE_LIMIT_WINDOW_MS - (now - requestTimestamps[0]) + 100;
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+}
+
+// Test-only: the rate limiter above is shared module state, so a selftest that fires many mocked
+// "requests" in quick succession would otherwise trip real multi-second waits meant for the real
+// API. Exported so scripts/football-data-selftest.ts can clear it between cases.
+export function __resetRateLimiterForTests(): void {
+  requestTimestamps.length = 0;
+}
+
+// football-data.org's 429 body names exactly how long to wait (e.g. "Wait 57 seconds.") — reading
+// that instead of guessing means a single retry actually lands instead of hitting the same wall
+// again a moment later. Exported so the selftest can check the parsing directly rather than
+// waiting out real retry delays.
+export function parseRetryAfterSeconds(body: string): number {
+  const match = body.match(/wait (\d+) seconds?/i);
+  const seconds = match ? Number(match[1]) : 60;
+  return Math.min(Math.max(seconds, 1), 65);
+}
+
 async function footballDataFetch<T>(path: string): Promise<T> {
   const apiKey = process.env.FOOTBALL_DATA_API_KEY;
   if (!apiKey) {
     throw new Error("FOOTBALL_DATA_API_KEY is not configured. Add it to your environment to enable football analysis.");
   }
 
-  const attempt = async (): Promise<Response> =>
-    fetch(`${FOOTBALL_DATA_URL}${path}`, {
+  const attempt = async (): Promise<Response> => {
+    await waitForRateLimitSlot();
+    return fetch(`${FOOTBALL_DATA_URL}${path}`, {
       headers: { "X-Auth-Token": apiKey },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
+  };
 
   let res: Response;
   try {
     res = await attempt();
-    // The free tier's 10-requests/minute cap is easy to brush against when several "research
-    // runs" fire in parallel for the same match — one short retry covers that burst without
-    // treating a real, sustained failure as retryable forever.
     if (res.status === 429) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const body = await res.text().catch(() => "");
+      await new Promise((resolve) => setTimeout(resolve, parseRetryAfterSeconds(body) * 1000));
       res = await attempt();
     }
   } catch (err) {
