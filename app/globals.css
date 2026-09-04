@@ -298,38 +298,55 @@ body {
   border-right: 2px solid var(--hud-color, var(--d-accent));
 }
 
-/* Lab — the bet-slip builder gets its own "modern sportsbook" identity: a deep violet/indigo
-   ground instead of the app's usual near-black, and chunky pill shapes instead of the
-   sharp/soft-rounded corners used elsewhere. Scoped to .lab so nothing outside it is affected.
-   One muted gold carries every accent/CTA; home/draw/away get gently desaturated tones just
-   distinct enough to tell apart, rather than a competing set of neon hues. */
+/* Lab — a very dark, restrained "private members' club" identity: near-black ground, soft
+   translucent silver glass boxes, and muted accents instead of the app's usual neutral palette.
+   Scoped to .lab so nothing outside it is affected. One muted silver carries every accent/CTA;
+   home/draw/away get gently desaturated tones just distinct enough to tell apart, rather than a
+   competing set of neon hues.
+
+   The bet slip itself (components/BetSlipBar.tsx) is the one deliberate exception: it keeps its
+   original "modern sportsbook" violet-and-gold identity via the --slip-* variables below, so it
+   reads as a livelier object sitting on top of the page's calmer silver surface, not blending
+   into it — the contrast is the point. */
 .lab {
-  --lab-bg: #150b28;
-  --lab-bg-2: #1c0f36;
-  --lab-surface: #1f1440;
-  --lab-surface-2: #291a52;
-  --lab-border: #3a2568;
-  --lab-gold: #d9b46a;
-  --lab-gold-rgb: 217, 180, 106;
-  --lab-pink: #c99aa3;
-  --lab-pink-rgb: 201, 154, 163;
-  --lab-cyan: #8fabc4;
-  --lab-cyan-rgb: 143, 171, 196;
-  --lab-green: #55b98c;
-  --lab-red: #cf7681;
+  --lab-bg: #0a0a0d;
+  --lab-bg-2: #101114;
+  --lab-surface: rgba(255, 255, 255, 0.045);
+  --lab-surface-2: rgba(255, 255, 255, 0.075);
+  --lab-border: rgba(255, 255, 255, 0.1);
+  --lab-gold: #c9cdd6;
+  --lab-gold-rgb: 201, 205, 214;
+  --lab-pink: #b7a3ac;
+  --lab-pink-rgb: 183, 163, 172;
+  --lab-cyan: #9db0c2;
+  --lab-cyan-rgb: 157, 176, 194;
+  --lab-green: #7fae95;
+  --lab-red: #bf8686;
+
+  --slip-bg: #150b28;
+  --slip-bg-2: #1c0f36;
+  --slip-surface: #1f1440;
+  --slip-surface-2: #291a52;
+  --slip-border: #3a2568;
+  --slip-gold: #d9b46a;
+  --slip-gold-rgb: 217, 180, 106;
+  --slip-pink: #c99aa3;
+  --slip-cyan: #8fabc4;
+  --slip-green: #55b98c;
+  --slip-red: #cf7681;
 }
 
 .lab-hero {
   background:
-    radial-gradient(120% 100% at 15% 0%, rgba(var(--lab-gold-rgb), 0.12), transparent 55%),
-    radial-gradient(120% 100% at 100% 0%, rgba(155, 140, 210, 0.12), transparent 55%),
+    radial-gradient(120% 100% at 15% 0%, rgba(var(--lab-gold-rgb), 0.07), transparent 55%),
+    radial-gradient(120% 100% at 100% 0%, rgba(var(--lab-gold-rgb), 0.04), transparent 55%),
     var(--lab-bg);
 }
 
 .lab-cta {
-  background: linear-gradient(135deg, var(--lab-gold), #a9803f);
+  background: linear-gradient(135deg, var(--slip-gold), #a9803f);
   color: #1a0f05;
-  box-shadow: 0 6px 20px rgba(var(--lab-gold-rgb), 0.3);
+  box-shadow: 0 6px 20px rgba(var(--slip-gold-rgb), 0.3);
 }
 
 @keyframes lab-pop-in {
@@ -360,7 +377,7 @@ body {
   }
   50% {
     transform: scale(0.96);
-    box-shadow: 0 3px 12px rgba(var(--lab-gold-rgb), 0.25);
+    box-shadow: 0 3px 12px rgba(var(--slip-gold-rgb), 0.25);
   }
 }
 .lab-buy-pulse {
@@ -421,7 +438,7 @@ body {
   position: absolute;
   inset: 0;
   z-index: 0;
-  background: linear-gradient(100deg, transparent 35%, rgba(var(--lab-gold-rgb), 0.1) 50%, transparent 65%);
+  background: linear-gradient(100deg, transparent 35%, rgba(var(--slip-gold-rgb), 0.1) 50%, transparent 65%);
   background-size: 250% 100%;
   animation: lab-slip-sheen 7s linear infinite;
   pointer-events: none;

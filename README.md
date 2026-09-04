@@ -46,12 +46,20 @@ Every analysis you save, whether it came from Discover or Sports, shows up toget
 
 ### Lab: a sportsbook-style slip
 
-Lab is deliberately styled unlike the rest of the app — a deep violet "modern sportsbook" theme
-(`.lab` in `app/globals.css`, its own CSS custom properties alongside the neutral palette
+Lab is deliberately styled unlike the rest of the app — a very dark, restrained "private members'
+club" look (`.lab` in `app/globals.css`, its own CSS custom properties alongside the neutral palette
 Sports/Picks use and the green-phosphor terminal look Discover uses) instead of another variation
-on the same look. One muted gold carries every accent, selection ring, and CTA; home/draw/away get
-gently desaturated, closely related tones just distinct enough to tell apart at a glance, rather
-than a set of competing neon hues. Every outcome — the main three-way, the two double-chance combos, any Discover
+on the same look. One muted silver carries every accent, selection ring, and CTA over soft
+translucent glass boxes; home/draw/away get gently desaturated, closely related tones just distinct
+enough to tell apart at a glance, rather than a set of competing hues.
+
+The one deliberate exception is the bet slip itself (below) — it keeps its own separate, livelier
+violet-and-gold "modern sportsbook" identity (`--slip-*` custom properties, same file), so it reads
+as a distinct object sitting on top of the page's calmer silver surface rather than blending into
+it. Every other Lab surface — the header, the outcome tiles, placed-bet cards — uses the page's
+`--lab-*` variables and follows the dark-silver look.
+
+Every outcome — the main three-way, the two double-chance combos, any Discover
 market's outcomes — renders through the same button: a label, a big **decimal odds** number
 (`toDecimalOdds`, `lib/format.ts`, e.g. `2.38x`) rather than the percentage-first framing used
 everywhere else, with its plain percentage equivalent in small letters right next to it (`toPercent`
@@ -238,13 +246,17 @@ choice is remembered in your browser (`lib/models.ts`) and sent with every predi
 the API routes resolve it against a small server-side whitelist, so nothing free-text ever reaches
 OpenRouter as a model id.
 
-Every OpenRouter request explicitly disables reasoning (`reasoning: { enabled: false }` in
-`lib/openrouter.ts`). Reasoning-capable releases — DeepSeek's in particular — default to a "high"
-reasoning effort on OpenRouter, which silently burns a large hidden chain-of-thought token budget
-before the model ever writes the prose or JSON we actually asked for. Left on, that's most of why
-an analysis could feel like it hangs, and it made the length-triggered retry (see above) fail the
-same way on every attempt since the budget kept going to reasoning instead of the answer. None of
-our prompts want visible reasoning, so it's off everywhere.
+Every OpenRouter request asks for the lightest reasoning effort OpenRouter allows
+(`reasoning: { effort: "low" }` in `lib/openrouter.ts`). Reasoning-capable releases — DeepSeek's in
+particular — default to a "high" reasoning effort, silently burning a large hidden chain-of-thought
+token budget before the model ever writes the prose or JSON we actually asked for; that's most of
+why an analysis could feel like it hangs, and it made the length-triggered retry (see above) fail
+the same way on every attempt since the budget kept going to reasoning instead of the answer. This
+is a request, not a hard disable, on purpose: some providers mandate reasoning for their endpoint
+and reject an outright `enabled: false` with a 400 ("Reasoning is mandatory ... cannot be
+disabled"), which briefly broke every model except DeepSeek before this was caught. `callOpenRouter`
+also carries a one-shot fallback for that exact error — it retries once with no `reasoning` field
+at all — so one provider's quirk can't take the whole roster down again.
 
 Tap the select icon in the header to pick up to 10 matches and analyze them all in one batch —
 they run through the same two-step process sequentially (not in parallel, to stay well within

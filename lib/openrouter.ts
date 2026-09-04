@@ -85,6 +85,40 @@ function usageCost(data: unknown): number | null {
   return Number.isFinite(cost) ? cost : null;
 }
 
+function buildBody(
+  messages: ChatMessage[],
+  online: boolean,
+  maxTokens: number,
+  model: string,
+  reasoning: boolean
+): string {
+  return JSON.stringify({
+    model: online ? `${model}:online` : model,
+    messages,
+    temperature: 0.4,
+    max_tokens: maxTokens,
+    usage: { include: true },
+    // Reasoning-capable models (DeepSeek's releases in particular) default to an expensive "high"
+    // reasoning effort on OpenRouter, burning a large hidden token budget on chain-of-thought
+    // before ever emitting the JSON/prose we actually asked for — turning what should be a quick
+    // call into a multi-minute one, and starving max_tokens so badly that the length-triggered
+    // retry below can fail the same way on every attempt. None of our prompts want visible
+    // reasoning, so every call asks for the lightest effort OpenRouter allows. It's just a request,
+    // not a hard disable: some models mandate reasoning and reject `enabled: false` outright (a
+    // 400 "cannot be disabled" error), so this never tries to fully turn it off — see the retry
+    // in callOpenRouter for the one place that still needs to react if a model refuses even this.
+    ...(reasoning ? { reasoning: { effort: "low" } } : {}),
+  });
+}
+
+// A model whose provider mandates reasoning and rejects any attempt to touch it — OpenRouter
+// surfaces this as a 400 whose message says as much. Rather than hard-failing the whole analysis,
+// callOpenRouter retries once with no `reasoning` field at all, so that one model's provider quirk
+// doesn't take down the whole roster.
+function isReasoningRejectedError(status: number, body: string): boolean {
+  return status === 400 && /reasoning/i.test(body) && /mandatory|cannot be (disabled|changed)/i.test(body);
+}
+
 async function callOpenRouter(
   messages: ChatMessage[],
   online: boolean,
@@ -98,30 +132,19 @@ async function callOpenRouter(
     );
   }
 
+  const headers = {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+    "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "https://betintelligence.app",
+    "X-Title": "BetIntelligence",
+  };
+
   let res: Response;
   try {
     res = await fetch(OPENROUTER_URL, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "https://betintelligence.app",
-        "X-Title": "BetIntelligence",
-      },
-      body: JSON.stringify({
-        model: online ? `${model}:online` : model,
-        messages,
-        temperature: 0.4,
-        max_tokens: maxTokens,
-        usage: { include: true },
-        // Reasoning-capable models (DeepSeek's releases in particular) default to an expensive
-        // "high" reasoning effort on OpenRouter, burning a large hidden token budget on chain-of-
-        // thought before ever emitting the JSON/prose we actually asked for — turning what should
-        // be a quick call into a multi-minute one, and starving max_tokens so badly that the
-        // length-triggered retry above can fail the same way on every attempt. None of our prompts
-        // want visible reasoning, so it's switched off for every model, every call.
-        reasoning: { enabled: false },
-      }),
+      headers,
+      body: buildBody(messages, online, maxTokens, model, true),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (err) {
@@ -131,7 +154,28 @@ async function callOpenRouter(
   }
 
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
+    let body = await res.text().catch(() => "");
+
+    if (isReasoningRejectedError(res.status, body)) {
+      try {
+        res = await fetch(OPENROUTER_URL, {
+          method: "POST",
+          headers,
+          body: buildBody(messages, online, maxTokens, model, false),
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+      } catch (err) {
+        throw new RetryableError(
+          `Could not reach OpenRouter: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        return finishCompletion(data);
+      }
+      body = await res.text().catch(() => "");
+    }
+
     const detail = `${res.status} ${body.slice(0, 300)}`;
     // Rate limits and provider hiccups are worth another go; auth/quota problems are not.
     if (res.status === 429 || res.status >= 500) {
@@ -141,7 +185,10 @@ async function callOpenRouter(
   }
 
   const data = await res.json().catch(() => null);
+  return finishCompletion(data);
+}
 
+function finishCompletion(data: unknown): Completion {
   // OpenRouter can return HTTP 200 with an error payload instead of a completion.
   const errorPayload = (data as Record<string, unknown>)?.error;
   if (errorPayload) {

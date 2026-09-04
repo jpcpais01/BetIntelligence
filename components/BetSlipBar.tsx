@@ -11,7 +11,7 @@ import { TicketIcon, XCircleIcon, ChevronDownIcon, ScaleIcon, CoinsIcon } from "
 
 const BUYING_MS = 700;
 const SUCCESS_MS = 2400;
-const CONFETTI_COLORS = ["var(--lab-gold)", "var(--lab-pink)", "var(--lab-cyan)", "var(--lab-green)"];
+const CONFETTI_COLORS = ["var(--slip-gold)", "var(--slip-pink)", "var(--slip-cyan)", "var(--slip-green)"];
 
 function liveMarketFor(leg: SlipLeg, livePrices: Record<string, number>): number {
   return livePrices[liveKey(leg.pickId, leg.outcomeLabel)] ?? leg.marketProb;
@@ -72,7 +72,7 @@ export default function BetSlipBar({
     <>
       {placedLegCount !== null && (
         <div className="pointer-events-none fixed inset-0 z-[80] flex items-center justify-center px-6">
-          <div className="lab-pop-in relative overflow-visible rounded-3xl border border-[var(--lab-gold)]/40 bg-[var(--lab-surface)] px-7 py-6 text-center shadow-2xl">
+          <div className="lab-pop-in relative overflow-visible rounded-3xl border border-[var(--slip-gold)]/40 bg-[var(--slip-surface)] px-7 py-6 text-center shadow-2xl">
             <ConfettiBurst />
             <p className="text-3xl">🎉</p>
             <p className="mt-2 font-display text-[17px] font-bold text-text">Bet placed!</p>
@@ -88,12 +88,12 @@ export default function BetSlipBar({
       )}
 
       {legs.length > 0 && (
-        <div className="fixed inset-x-0 bottom-[calc(74px+env(safe-area-inset-bottom))] z-[45] mx-auto max-w-md px-4">
+        <div className="fixed inset-x-0 bottom-[calc(92px+env(safe-area-inset-bottom))] z-[45] mx-auto max-w-md px-4">
           <div
             className="lab-slip-sheen lab-slip-morph shadow-xl"
             style={{
-              background: "var(--lab-surface-2)",
-              border: "1px solid var(--lab-border)",
+              background: "var(--slip-surface-2)",
+              border: "1px solid var(--slip-border)",
               borderRadius: expanded ? "28px" : "999px",
             }}
           >
@@ -105,7 +105,7 @@ export default function BetSlipBar({
                 <span
                   key={legs.length}
                   className="lab-coin-bounce flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] font-bold"
-                  style={{ background: "var(--lab-gold)", color: "#1a0f05" }}
+                  style={{ background: "var(--slip-gold)", color: "#1a0f05" }}
                 >
                   {legs.length}
                 </span>
@@ -113,9 +113,9 @@ export default function BetSlipBar({
                   {legs.length} bet{legs.length === 1 ? "" : "s"}
                 </span>
               </span>
-              <span className="flex items-center gap-1.5 text-[12px] font-bold tabular-nums" style={{ color: "var(--lab-gold)" }}>
+              <span className="flex items-center gap-1.5 text-[12px] font-bold tabular-nums" style={{ color: "var(--slip-gold)" }}>
                 {toDecimalOdds(combined.marketProb)}x
-                <span style={{ color: combined.edge > 0.005 ? "var(--lab-green)" : combined.edge < -0.005 ? "var(--lab-red)" : "var(--text-faint)" }}>
+                <span style={{ color: combined.edge > 0.005 ? "var(--slip-green)" : combined.edge < -0.005 ? "var(--slip-red)" : "var(--text-faint)" }}>
                   {toSignedPercent(combined.edge)}
                 </span>
                 <ChevronDownIcon
@@ -147,10 +147,10 @@ export default function BetSlipBar({
                 >
                   <div className="flex items-center justify-between gap-2 pb-2 pt-1">
                     <span className="flex items-center gap-1.5 text-[13px] font-bold text-text">
-                      <TicketIcon className="h-4 w-4" style={{ color: "var(--lab-gold)" }} />
+                      <TicketIcon className="h-4 w-4" style={{ color: "var(--slip-gold)" }} />
                       Your slip
                     </span>
-                    <button onClick={onClear} className="press text-[11px] font-medium text-text-faint hover:text-[var(--lab-red)]">
+                    <button onClick={onClear} className="press text-[11px] font-medium text-text-faint hover:text-[var(--slip-red)]">
                       Clear
                     </button>
                   </div>
@@ -167,7 +167,7 @@ export default function BetSlipBar({
                   </div>
 
                   {legs.length > 1 && (
-                    <div className="mt-2 space-y-2.5 rounded-2xl p-3.5" style={{ background: "var(--lab-bg-2)" }}>
+                    <div className="mt-2 space-y-2.5 rounded-2xl p-3.5" style={{ background: "var(--slip-bg-2)" }}>
                       <p className="flex items-center gap-1.5 text-[11px] font-medium text-text-faint">
                         <ScaleIcon className="h-3 w-3" />
                         Combined ({legs.length}-leg parlay)
@@ -193,8 +193,8 @@ export default function BetSlipBar({
                         className="press rounded-xl py-2 text-[12px] font-bold tabular-nums"
                         style={
                           stake === s
-                            ? { background: "var(--lab-gold)", color: "#1a0f05" }
-                            : { background: "var(--lab-bg-2)", color: "var(--text-dim)" }
+                            ? { background: "var(--slip-gold)", color: "#1a0f05" }
+                            : { background: "var(--slip-bg-2)", color: "var(--text-dim)" }
                         }
                       >
                         €{s}
@@ -228,7 +228,7 @@ export default function BetSlipBar({
 function LabLegRow({ leg, liveMarket, onRemove }: { leg: SlipLeg; liveMarket: number; onRemove: () => void }) {
   const edge = leg.aiProb - liveMarket;
   return (
-    <div className="flex items-center justify-between gap-2 rounded-2xl px-3 py-2.5" style={{ background: "var(--lab-surface-2)" }}>
+    <div className="flex items-center justify-between gap-2 rounded-2xl px-3 py-2.5" style={{ background: "var(--slip-surface-2)" }}>
       <div className="min-w-0">
         <p className="truncate text-[12px] font-medium text-text">
           {leg.outcomeLabel}
@@ -236,12 +236,12 @@ function LabLegRow({ leg, liveMarket, onRemove }: { leg: SlipLeg; liveMarket: nu
         </p>
         <p className="text-[10px] tabular-nums text-text-faint">
           {toDecimalOdds(liveMarket)}x ({toPercent(liveMarket)}) &middot; AI {toPercent(leg.aiProb)} &middot;{" "}
-          <span style={{ color: edge > 0.005 ? "var(--lab-green)" : edge < -0.005 ? "var(--lab-red)" : undefined }}>
+          <span style={{ color: edge > 0.005 ? "var(--slip-green)" : edge < -0.005 ? "var(--slip-red)" : undefined }}>
             {toSignedPercent(edge)}
           </span>
         </p>
       </div>
-      <button onClick={onRemove} aria-label="Remove leg" className="press shrink-0 text-text-faint hover:text-[var(--lab-red)]">
+      <button onClick={onRemove} aria-label="Remove leg" className="press shrink-0 text-text-faint hover:text-[var(--slip-red)]">
         <XCircleIcon className="h-4 w-4" />
       </button>
     </div>
@@ -259,9 +259,9 @@ function LabStat({
   sub?: string;
   accent?: "cyan" | "green" | "red";
 }) {
-  const color = accent === "cyan" ? "var(--lab-cyan)" : accent === "green" ? "var(--lab-green)" : accent === "red" ? "var(--lab-red)" : "var(--text)";
+  const color = accent === "cyan" ? "var(--slip-cyan)" : accent === "green" ? "var(--slip-green)" : accent === "red" ? "var(--slip-red)" : "var(--text)";
   return (
-    <div className="rounded-xl px-2 py-2 text-center" style={{ background: "var(--lab-bg-2)" }}>
+    <div className="rounded-xl px-2 py-2 text-center" style={{ background: "var(--slip-bg-2)" }}>
       <p className="text-[9px] text-text-faint">{label}</p>
       <p className="flex items-baseline justify-center gap-1">
         <span className="font-display text-[13px] font-bold tabular-nums" style={{ color }}>
