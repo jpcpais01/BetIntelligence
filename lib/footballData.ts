@@ -230,22 +230,43 @@ export interface FootballDigest {
   text: string;
 }
 
-// A short in-memory cache keyed by the exact match, mainly so the "research runs" stepper (which
-// fires several parallel requests for the *same* match) doesn't burn through the 10-requests/
-// minute free-tier limit on data that would come back identical every time.
-const DIGEST_CACHE_TTL_MS = 2 * 60_000;
-const digestCache = new Map<string, { at: number; digest: FootballDigest }>();
-
-export async function buildFootballDigest(input: {
+interface FootballDigestInput {
   homeTeam: string;
   awayTeam: string;
   league: LeagueId;
   startTime: string;
-}): Promise<FootballDigest> {
+}
+
+// A short in-memory cache keyed by the exact match, mainly so a *later* research run (or a fresh
+// analysis of the same match within a couple of minutes) doesn't repeat calls for data that would
+// come back identical every time.
+const DIGEST_CACHE_TTL_MS = 2 * 60_000;
+const digestCache = new Map<string, { at: number; digest: FootballDigest }>();
+
+// The "research runs" stepper fires several parallel calls for the *same* match at once. Those all
+// miss the cache above simultaneously (none of them has finished long enough to have populated it
+// yet), so without this they'd each independently repeat the whole ~5-request fetch pipeline —
+// N runs would cost N times the API calls for identical data. Tracking the in-flight promise per
+// cache key means only the first caller actually talks to football-data.org; every concurrent
+// caller for the same match just awaits that same promise.
+const inFlightDigestRequests = new Map<string, Promise<FootballDigest>>();
+
+export async function buildFootballDigest(input: FootballDigestInput): Promise<FootballDigest> {
   const cacheKey = `${input.league}|${input.homeTeam}|${input.awayTeam}|${input.startTime}`;
   const cached = digestCache.get(cacheKey);
   if (cached && Date.now() - cached.at < DIGEST_CACHE_TTL_MS) return cached.digest;
 
+  const inFlight = inFlightDigestRequests.get(cacheKey);
+  if (inFlight) return inFlight;
+
+  const request = fetchFootballDigest(input, cacheKey).finally(() => {
+    inFlightDigestRequests.delete(cacheKey);
+  });
+  inFlightDigestRequests.set(cacheKey, request);
+  return request;
+}
+
+async function fetchFootballDigest(input: FootballDigestInput, cacheKey: string): Promise<FootballDigest> {
   const code = COMPETITION_CODE[input.league];
   if (!code) {
     throw new Error(

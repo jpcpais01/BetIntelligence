@@ -249,9 +249,13 @@ For football specifically, since research is no longer an LLM call, running it m
 several independent-read passes over the *same* football-data.org digest rather than several fresh
 searches — still meaningfully different runs, since the predict step's own sampling varies each
 time, but the diversity comes entirely from that step now rather than from re-researching too.
-`lib/footballData.ts` also caches a match's digest for a couple of minutes specifically so that a
-burst of parallel runs doesn't spend several of the free tier's 10-requests-per-minute budget
-fetching data that would come back identical anyway. On top of that cache, every call to
+Those N runs fire as N parallel requests, all for the exact same match at the exact same instant —
+so a 2-minute resolved-value cache alone doesn't help, since every one of them misses it before the
+first has finished long enough to populate it. `lib/footballData.ts` coalesces this: concurrent
+calls for the same match share a single in-flight fetch, so 5 parallel runs still cost one round of
+football-data.org calls (~5 requests total), not five. Once that shared fetch resolves, the result
+also lands in the 2-minute cache so a *later* run (or a fresh analysis of the same match within a
+couple of minutes) skips the network entirely too. On top of both of those, every call to
 football-data.org goes through an in-process sliding-window throttle that tracks the last 60
 seconds of requests and makes a new call wait for a free slot rather than firing blindly — so
 normal single-instance use shouldn't hit the limit at all. If a 429 does slip through anyway (a

@@ -128,6 +128,53 @@ async function run() {
     check("it actually waited roughly the parsed duration, not zero and not the old blind guess", elapsedMs >= 900 && elapsedMs < 5000, `${elapsedMs}ms`);
   }
 
+  // --- Concurrent calls for the exact same match are coalesced into a single fetch pipeline
+  // rather than each repeating it — this is what makes running research N times in parallel
+  // (the research-runs stepper) cost one round of API calls instead of N. ---
+  {
+    __resetRateLimiterForTests();
+    // Reuses the Arsenal/Chelsea identities the earlier premier-league tests already cached the
+    // roster with (teamsCache is keyed only by competition code) — a fresh, previously-unused team
+    // pair here would 404 against that stale cached roster and fail for an unrelated reason.
+    const home = { id: 1, name: "Arsenal" };
+    const away = { id: 2, name: "Chelsea" };
+    const fixtureCalls = { count: 0 };
+    const formCalls = { count: 0 };
+    const h2hCalls = { count: 0 };
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/competitions/")) return ok({ teams: [home, away] });
+      if (u.includes("/head2head")) {
+        h2hCalls.count++;
+        return ok({ matches: [] });
+      }
+      if (u.includes(`/teams/${home.id}/matches`) || u.includes(`/teams/${away.id}/matches`)) {
+        formCalls.count++;
+        return ok({ matches: [] });
+      }
+      if (u.includes("/matches?")) {
+        fixtureCalls.count++;
+        return ok({
+          matches: [
+            match({ id: 40, date: "2026-12-01T15:00:00.000Z", home, away, status: "SCHEDULED", homeGoals: null, awayGoals: null }),
+          ],
+        });
+      }
+      throw new Error(`Unhandled URL in coalescing test: ${u}`);
+    }) as unknown as typeof fetch;
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        buildFootballDigest({ homeTeam: "Arsenal", awayTeam: "Chelsea", league: "premier-league", startTime: "2026-12-01T15:00:00.000Z" })
+      )
+    );
+
+    check("5 concurrent runs make only 1 fixture-lookup call, not 5", fixtureCalls.count === 1, `${fixtureCalls.count}`);
+    check("5 concurrent runs make only 2 form calls (one per team), not 10", formCalls.count === 2, `${formCalls.count}`);
+    check("5 concurrent runs make only 1 head-to-head call, not 5", h2hCalls.count === 1, `${h2hCalls.count}`);
+    check("all 5 concurrent runs get the identical digest text", results.every((r) => r.text === results[0].text));
+  }
+
   // --- Uses the right competition code for each league (no season param needed or sent) ---
   {
     __resetRateLimiterForTests();
