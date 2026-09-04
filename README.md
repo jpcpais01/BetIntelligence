@@ -29,6 +29,20 @@ together everywhere a pick is shown: **Picks** and **Lab**.
 The **Sports** tab (`app/sports/page.tsx`) is the original football-only experience — see below
 for how its AI analysis, filtering, and caching work.
 
+### Live scores on the card
+
+A card's odds refresh only every 30 minutes (see [Filtering and refreshing](#filtering-and-refreshing))
+— fine for pre-match prices, but a "LIVE NOW" label with no score would go stale the moment the
+first goal went in. Once a match's kickoff is close enough to plausibly be underway, the page
+separately polls `/api/games/live-scores` every 40 seconds, which asks football-data.org (the same
+provider behind the AI's research digest) for each covered league's current matches in one request
+per league, filtered to just the live/paused/finished ones. The result replaces the guessed "LIVE
+NOW" badge with the real thing — "LIVE 2-1", "HT 1-0", "FT 3-1" — for any match football-data.org
+covers; everything else (an uncovered league, a match too far from kickoff to poll for, a request
+that fails) just keeps the plain kickoff-time label it always had. `MOCK_GAMES=1` skips this
+entirely, since mock fixtures carry real club names but synthetic kickoff times and would otherwise
+risk picking up an unrelated real match between two same-named clubs.
+
 ## Picks and Lab: one shared view across both
 
 Every analysis you save, whether it came from Discover or Sports, shows up together:
@@ -415,7 +429,9 @@ required to run AI analysis.
   any-market prompts (both share the same request/retry/JSON-parsing core in `lib/openrouter.ts`).
 - **Football match data**: [football-data.org](https://www.football-data.org/) (`api.football-data.org/v4`)
   — `lib/footballData.ts` fetches each team's recent form, head-to-head history, and the fixture's
-  own live status/score, and feeds that straight into the football research digest above. No
+  own live status/score, and feeds that straight into the football research digest above. The same
+  provider also powers the games list's live-score badge (`getLiveScores`, one request per covered
+  league rather than per match) — see [Live scores on the card](#live-scores-on-the-card). No
   fallback to web search on a miss.
 - **Football injuries/availability**: [Big Balls Sports Data](https://bigballsdata.com/)
   (`api.bigballsdata.com/v1`) — `lib/bigBallsData.ts` fetches each covered league's current injury

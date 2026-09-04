@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Game } from "@/lib/types";
 import type { LastAnalysisEntry } from "@/lib/lastAnalysis";
+import type { LiveScoreEntry } from "@/lib/footballData";
 import { formatCompactNumber, formatKickoff, formatRelativeTime, toPercent, toSignedPercent, formatCostUsd } from "@/lib/format";
 import { isTopGame } from "@/lib/topTeams";
 import { agreementLabel, agreementTone } from "@/lib/aggregate";
@@ -21,6 +22,7 @@ export default function GameCard({
   selected = false,
   onToggleSelect,
   lastAnalysis,
+  liveScore,
 }: {
   game: Game;
   onAnalyze: (game: Game) => void;
@@ -29,9 +31,18 @@ export default function GameCard({
   selected?: boolean;
   onToggleSelect?: (game: Game) => void;
   lastAnalysis?: LastAnalysisEntry | null;
+  liveScore?: LiveScoreEntry | null;
 }) {
-  const { label: kickoffLabel, isLive } = formatKickoff(game.startTime);
+  const { label: kickoffLabel, isLive: heuristicLive } = formatKickoff(game.startTime);
   const top = isTopGame(game);
+
+  // A real score from football-data.org (when available) replaces the plain "LIVE NOW" guess with
+  // the actual result — "LIVE 2-1", "HT 1-0", or "FT 3-1" — falling back to the existing
+  // kickoff-based label for leagues/matches this enrichment doesn't cover.
+  const scoreLabel = liveScore
+    ? `${liveScore.status === "FINISHED" ? "FT" : liveScore.status === "PAUSED" ? "HT" : "LIVE"} ${liveScore.homeGoals ?? "-"}-${liveScore.awayGoals ?? "-"}`
+    : null;
+  const isLive = liveScore ? liveScore.status !== "FINISHED" : heuristicLive;
 
   return (
     <div
@@ -62,7 +73,7 @@ export default function GameCard({
           className={`shrink-0 text-[11px] tabular-nums ${isLive ? "font-medium text-accent-3" : "text-text-faint"}`}
         >
           {isLive && <span className="pulse-dot mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-accent-3 align-middle" />}
-          {kickoffLabel}
+          {scoreLabel ?? kickoffLabel}
         </span>
       </div>
 

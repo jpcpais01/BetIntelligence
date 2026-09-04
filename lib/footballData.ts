@@ -299,3 +299,72 @@ ${h2h.length > 0 ? h2h.map((f) => `- ${f.date}: ${f.summary}`).join("\n") : "No 
   digestCache.set(cacheKey, { at: Date.now(), digest });
   return digest;
 }
+
+export interface LiveScoreEntry {
+  league: LeagueId;
+  homeTeam: string;
+  awayTeam: string;
+  status: string;
+  statusLabel: string;
+  homeGoals: number | null;
+  awayGoals: number | null;
+}
+
+// Only these statuses are worth showing on the games list — a scheduled/postponed/cancelled match
+// still uses the plain kickoff-time label the card already shows, no enrichment needed for those.
+const LIVE_RELEVANT_STATUSES = new Set(["LIVE", "IN_PLAY", "PAUSED", "FINISHED"]);
+
+// Shared across every request to the warm server instance (not per-user), so a page full of
+// visitors polling for live scores at once still costs at most one fetch per league per TTL —
+// this is much shorter than the digest cache above since a live score is only useful fresh.
+const LIVE_WINDOW_CACHE_TTL_MS = 45_000;
+const liveWindowCache = new Map<string, { at: number; matches: FootballDataMatch[] }>();
+
+async function fetchLeagueLiveWindow(code: string): Promise<FootballDataMatch[]> {
+  const cached = liveWindowCache.get(code);
+  if (cached && Date.now() - cached.at < LIVE_WINDOW_CACHE_TTL_MS) return cached.matches;
+
+  const now = Date.now();
+  const from = new Date(now - 86_400_000).toISOString().slice(0, 10);
+  const to = new Date(now + 86_400_000).toISOString().slice(0, 10);
+  const response = await footballDataFetch<{ matches: FootballDataMatch[] }>(
+    `/matches?competitions=${code}&dateFrom=${from}&dateTo=${to}`
+  );
+  liveWindowCache.set(code, { at: now, matches: response.matches });
+  return response.matches;
+}
+
+// Test-only: clears the live-window cache so selftest cases don't see stale matches from an
+// earlier case sharing the same competition code.
+export function __resetLiveWindowCacheForTests(): void {
+  liveWindowCache.clear();
+}
+
+// Enriches the games list with a real live score instead of a guessed "kickoff was recent enough
+// that it's probably live" label with no score attached. One request per football-data.org-covered
+// league (protected by the same rate limiter as every other call in this module) rather than one
+// per match — a league whose fetch fails just contributes nothing to the result, it never breaks
+// the rest of the games list.
+export async function getLiveScores(): Promise<LiveScoreEntry[]> {
+  const entries = await Promise.all(
+    (Object.entries(COMPETITION_CODE) as [LeagueId, string][]).map(async ([league, code]) => {
+      try {
+        const matches = await fetchLeagueLiveWindow(code);
+        return matches
+          .filter((m) => LIVE_RELEVANT_STATUSES.has(m.status))
+          .map((m): LiveScoreEntry => ({
+            league,
+            homeTeam: m.homeTeam.name,
+            awayTeam: m.awayTeam.name,
+            status: m.status,
+            statusLabel: STATUS_LABEL[m.status] ?? m.status,
+            homeGoals: m.score.fullTime.home,
+            awayGoals: m.score.fullTime.away,
+          }));
+      } catch {
+        return [];
+      }
+    })
+  );
+  return entries.flat();
+}

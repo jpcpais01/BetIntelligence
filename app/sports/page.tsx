@@ -20,6 +20,22 @@ import {
 } from "@/lib/gamesCache";
 import { loadSelectedLeagues, saveSelectedLeagues } from "@/lib/leaguePrefs";
 import { loadLastAnalyses, type LastAnalysisEntry } from "@/lib/lastAnalysis";
+import type { LiveScoreEntry } from "@/lib/footballData";
+import { teamNamesMatch } from "@/lib/teamNameMatching";
+
+// Polling cadence for live scores — much faster than the 30-minute odds refresh, since a score is
+// only useful if it's actually current.
+const LIVE_SCORE_POLL_MS = 40_000;
+// A game is worth polling for once its kickoff is close enough that it could plausibly be live —
+// from 15 minutes before kickoff (so a match going live mid-session gets picked up promptly,
+// without waiting on a manual refresh) through 6 hours after (long enough to keep showing a
+// finished match's final score for a while).
+function isLiveCandidate(startTime: string): boolean {
+  const t = new Date(startTime).getTime();
+  if (!Number.isFinite(t)) return false;
+  const now = Date.now();
+  return t <= now + 15 * 60_000 && t >= now - 6 * 3_600_000;
+}
 
 export default function Home() {
   const [games, setGames] = useState<Game[] | null>(null);
@@ -34,6 +50,7 @@ export default function Home() {
   const [batchGames, setBatchGames] = useState<Game[] | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const [lastAnalysisMap, setLastAnalysisMap] = useState<Record<string, LastAnalysisEntry>>({});
+  const [liveScores, setLiveScores] = useState<LiveScoreEntry[]>([]);
 
   const MAX_BATCH = 10;
   const requestLogos = useRequestLogos();
@@ -81,6 +98,47 @@ export default function Home() {
     const id = setInterval(() => void refresh(), REFRESH_INTERVAL_MS);
     return () => clearInterval(id);
   }, [refresh]);
+
+  // Only poll for live scores while at least one game on screen could plausibly be live — no
+  // point hitting this every 40s when the nearest kickoff is days away.
+  const hasLiveCandidateGames = useMemo(
+    () => (games ?? []).some((g) => isLiveCandidate(g.startTime)),
+    [games]
+  );
+
+  useEffect(() => {
+    if (!hasLiveCandidateGames) return;
+
+    let cancelled = false;
+    const refreshLiveScores = async () => {
+      try {
+        const res = await fetch("/api/games/live-scores", { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.liveScores)) setLiveScores(data.liveScores);
+      } catch {
+        // Best-effort enrichment — cards just keep whatever live score they last had (or none).
+      }
+    };
+
+    void refreshLiveScores();
+    const id = setInterval(() => void refreshLiveScores(), LIVE_SCORE_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [hasLiveCandidateGames]);
+
+  const liveScoreByGameId = useMemo(() => {
+    const map: Record<string, LiveScoreEntry> = {};
+    for (const g of games ?? []) {
+      const match = liveScores.find(
+        (s) => s.league === g.league && teamNamesMatch(s.homeTeam, g.homeTeam) && teamNamesMatch(s.awayTeam, g.awayTeam)
+      );
+      if (match) map[g.id] = match;
+    }
+    return map;
+  }, [games, liveScores]);
 
   // Every team currently listed gets its crest requested — not just a curated "top club" list —
   // so the whole league, not a handful of elite names, shows real logos.
@@ -267,6 +325,7 @@ export default function Home() {
                 selected={selectedIds.has(game.id)}
                 onToggleSelect={toggleGameSelected}
                 lastAnalysis={lastAnalysisMap[game.id] ?? null}
+                liveScore={liveScoreByGameId[game.id] ?? null}
               />
             ))}
           </div>
