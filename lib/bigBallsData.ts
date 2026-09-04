@@ -49,8 +49,14 @@ interface BigBallsInjuriesResponse {
   injuries?: BigBallsInjuryRecord[];
 }
 
+// `as BigBallsInjuriesResponse` on the parsed JSON only tells TypeScript what shape to expect —
+// it doesn't check anything at runtime. If the real API's shape differs from what was guessed
+// (this provider's exact schema was never verified with a live call, see the module comment
+// above), `injuries` could come back as something other than an array; Array.isArray here is
+// what actually stops that from becoming a hard crash a few lines later at `.filter(...)`.
 function extractInjuries(response: BigBallsInjuriesResponse): BigBallsInjuryRecord[] {
-  return response.data?.injuries ?? response.injuries ?? [];
+  const injuries = response.data?.injuries ?? response.injuries;
+  return Array.isArray(injuries) ? injuries : [];
 }
 
 function recordTeamName(record: BigBallsInjuryRecord): string | null {

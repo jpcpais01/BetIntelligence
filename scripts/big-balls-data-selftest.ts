@@ -117,6 +117,25 @@ async function run() {
     check("requests the ucl league key for champions-league", requestedUrl.includes("league=ucl"), requestedUrl);
   }
 
+  // --- A real production bug: the actual API's shape turned out not to match what was guessed
+  // (this provider's schema was never verified with a live call), so `injuries` came back as
+  // something other than an array. That must soft-fail to "not available" like everything else
+  // here, not crash the whole analysis with "X.filter is not a function". ---
+  {
+    __resetInjuriesCacheForTests();
+    process.env.BIG_BALLS_API_KEY = "test-key";
+    globalThis.fetch = (async () => ok({ data: { injuries: { unexpected: "shape" } } })) as unknown as typeof fetch;
+    let threw = false;
+    let digest = "";
+    try {
+      digest = await buildInjuryDigest({ homeTeam: "Arsenal", awayTeam: "Chelsea", league: "premier-league" });
+    } catch {
+      threw = true;
+    }
+    check("an unexpected (non-array) injuries shape never throws", !threw);
+    check("an unexpected shape soft-fails to 'not available'", digest.includes("not available"), digest);
+  }
+
   // --- A non-ok response or thrown fetch both soft-fail rather than throwing ---
   {
     __resetInjuriesCacheForTests();
