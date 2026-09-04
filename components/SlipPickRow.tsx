@@ -42,22 +42,22 @@ export default function SlipPickRow({
   const liveAway = livePrices[liveKey(pick.id, pick.awayTeam)] ?? pick.market.away;
 
   return (
-    <div className="rounded-3xl p-3.5" style={{ background: "var(--lab-surface)", border: "1px solid var(--lab-border)" }}>
-      <div className="mb-2.5 flex items-center gap-2 text-[11px] text-text-faint">
+    <div className="rounded-2xl p-2.5" style={{ background: "var(--lab-surface)", border: "1px solid var(--lab-border)" }}>
+      <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-text-faint">
         <span>{pick.leagueFlag}</span>
         <span className="truncate">{pick.leagueName}</span>
       </div>
 
-      <button onClick={onOpen} className="press mb-3 flex w-full items-center gap-2 text-left">
-        <Avatar name={pick.homeTeam} size={20} />
-        <span className="truncate text-[13px] font-medium text-text">{pick.homeTeam}</span>
-        <span className="shrink-0 text-[11px] text-text-faint">v</span>
-        <span className="truncate text-[13px] font-medium text-text">{pick.awayTeam}</span>
-        <Avatar name={pick.awayTeam} size={20} />
-        <ChevronRightIcon className="ml-auto h-3.5 w-3.5 shrink-0 text-text-faint" />
+      <button onClick={onOpen} className="press mb-2 flex w-full items-center gap-1.5 text-left">
+        <Avatar name={pick.homeTeam} size={18} />
+        <span className="truncate text-[12px] font-medium text-text">{pick.homeTeam}</span>
+        <span className="shrink-0 text-[10px] text-text-faint">v</span>
+        <span className="truncate text-[12px] font-medium text-text">{pick.awayTeam}</span>
+        <Avatar name={pick.awayTeam} size={18} />
+        <ChevronRightIcon className="ml-auto h-3 w-3 shrink-0 text-text-faint" />
       </button>
 
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid grid-cols-3 gap-1">
         <OddsButton
           label={firstWord(pick.homeTeam)}
           color={OUTCOME_COLOR.home}
@@ -84,7 +84,7 @@ export default function SlipPickRow({
         />
       </div>
 
-      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+      <div className="mt-1 grid grid-cols-2 gap-1">
         <OddsButton
           label="1X"
           color={OUTCOME_COLOR.combo}
@@ -133,7 +133,7 @@ function OddsButton({
   return (
     <button
       onClick={onClick}
-      className="press relative rounded-2xl px-2 py-2.5 text-center"
+      className="press relative rounded-xl px-1.5 py-1.5 text-center"
       style={{
         background: active ? "var(--lab-surface-2)" : "rgba(255,255,255,0.03)",
         boxShadow: active ? `inset 0 0 0 1.5px ${color}` : "inset 0 0 0 1px var(--lab-border)",
@@ -141,18 +141,18 @@ function OddsButton({
     >
       {isValue && (
         <span
-          className="absolute -top-1.5 -right-1.5 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[8px] font-bold"
+          className="absolute -top-1 -right-1 flex items-center gap-0.5 rounded-full px-1 py-0.5 text-[7px] font-bold"
           style={{ background: "var(--lab-green)", color: "#052018" }}
         >
-          <BoltIcon className="h-2 w-2" />
+          <BoltIcon className="h-1.5 w-1.5" />
           {toSignedPercent(edge)}
         </span>
       )}
-      <p className="truncate text-[10px] text-text-faint">{label}</p>
-      <p className="font-display text-[17px] font-bold tabular-nums" style={{ color }}>
+      <p className="truncate text-[9px] text-text-faint">{label}</p>
+      <p className="font-display text-[15px] font-bold tabular-nums" style={{ color }}>
         {toDecimalOdds(market)}
       </p>
-      <p className="text-[9px] tabular-nums text-text-faint">AI {toPercent(ai)}</p>
+      <p className="text-[8px] tabular-nums text-text-faint">AI {toPercent(ai)}</p>
     </button>
   );
 }
