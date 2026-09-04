@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Game } from "@/lib/types";
+import type { Game, Probabilities } from "@/lib/types";
 import type { LastAnalysisEntry } from "@/lib/lastAnalysis";
 import type { LiveScoreEntry } from "@/lib/footballData";
 import { formatCompactNumber, formatKickoff, formatRelativeTime, toPercent, toSignedPercent, formatCostUsd } from "@/lib/format";
@@ -14,6 +14,10 @@ import ResearchRunsStepper from "./ResearchRunsStepper";
 import OddsHistoryChart from "./OddsHistoryChart";
 import { SparkleIcon, StarIcon, CheckIcon, BrainIcon, ChevronDownIcon, TrendingUpIcon } from "./icons";
 
+function hasKickedOff(startTime: string): boolean {
+  return Date.now() >= new Date(startTime).getTime();
+}
+
 export default function GameCard({
   game,
   onAnalyze,
@@ -23,6 +27,7 @@ export default function GameCard({
   onToggleSelect,
   lastAnalysis,
   liveScore,
+  liveOdds,
 }: {
   game: Game;
   onAnalyze: (game: Game) => void;
@@ -32,9 +37,14 @@ export default function GameCard({
   onToggleSelect?: (game: Game) => void;
   lastAnalysis?: LastAnalysisEntry | null;
   liveScore?: LiveScoreEntry | null;
+  // Polled every few seconds once this match has kicked off (see app/sports/page.tsx) — falls
+  // back to the plain snapshot from the last full games refresh for anything not yet live.
+  liveOdds?: Probabilities | null;
 }) {
   const { label: kickoffLabel, isLive: heuristicLive } = formatKickoff(game.startTime);
   const top = isTopGame(game);
+  const started = hasKickedOff(game.startTime);
+  const effectiveOdds = liveOdds ?? game.odds;
 
   // A real score from football-data.org (when available) replaces the plain "LIVE NOW" guess with
   // the actual result — "LIVE 2-1", "HT 1-0", or "FT 3-1" — falling back to the existing
@@ -81,7 +91,7 @@ export default function GameCard({
         <div className="flex items-center gap-2.5">
           <Avatar name={game.homeTeam} size={26} />
           <div className="min-w-0 flex-1">
-            <OutcomeBar label={game.homeTeam} pct={game.odds.home} color="home" size="sm" />
+            <OutcomeBar label={game.homeTeam} pct={effectiveOdds.home} color="home" size="sm" />
           </div>
         </div>
 
@@ -90,25 +100,29 @@ export default function GameCard({
           <div className="h-1 flex-1 overflow-hidden rounded-full bg-surface-2">
             <div
               className="grow-bar h-full rounded-full"
-              style={{ width: `${game.odds.draw * 100}%`, background: "var(--draw)", opacity: 0.9 }}
+              style={{ width: `${effectiveOdds.draw * 100}%`, background: "var(--draw)", opacity: 0.9 }}
             />
           </div>
           <span className="shrink-0 text-[11px] tabular-nums text-text-faint">
-            {Math.round(game.odds.draw * 100)}%
+            {Math.round(effectiveOdds.draw * 100)}%
           </span>
         </div>
 
         <div className="flex items-center gap-2.5">
           <Avatar name={game.awayTeam} size={26} />
           <div className="min-w-0 flex-1">
-            <OutcomeBar label={game.awayTeam} pct={game.odds.away} color="away" size="sm" />
+            <OutcomeBar label={game.awayTeam} pct={effectiveOdds.away} color="away" size="sm" />
           </div>
         </div>
       </div>
 
-      {!selectMode && <PriceHistoryPanel game={game} />}
+      {!selectMode && <PriceHistoryPanel game={game} odds={effectiveOdds} />}
 
-      {!selectMode && lastAnalysis && <LastAnalysisPanel game={game} entry={lastAnalysis} />}
+      {/* Once the match has kicked off, a pre-match analysis is stale — hiding it here means the
+          card only ever shows a "last analysis" that was actually formed live (form, live score,
+          injuries) rather than a snapshot from before the game started. Re-tapping Analyze after
+          kickoff produces a fresh one, which then shows normally until the NEXT match starts. */}
+      {!selectMode && !started && lastAnalysis && <LastAnalysisPanel game={game} entry={lastAnalysis} />}
 
       <div className="flex items-center justify-between gap-3 border-t border-border-soft pt-3">
         <span className="text-[11px] tabular-nums text-text-faint">
@@ -134,7 +148,7 @@ export default function GameCard({
 // A small collapsed-by-default dropdown showing how this match's 1X2 odds have moved over the
 // past week — only offered when Polymarket actually gave us a CLOB token id for at least one
 // side, since there's nothing to chart otherwise.
-function PriceHistoryPanel({ game }: { game: Game }) {
+function PriceHistoryPanel({ game, odds }: { game: Game; odds: Probabilities }) {
   const [expanded, setExpanded] = useState(false);
   const { tokenIds } = game;
   if (!tokenIds || (!tokenIds.home && !tokenIds.draw && !tokenIds.away)) return null;
@@ -157,9 +171,9 @@ function PriceHistoryPanel({ game }: { game: Game }) {
           <OddsHistoryChart
             surfaceColor="var(--surface-2)"
             outcomes={[
-              { label: firstWord(game.homeTeam), tokenId: tokenIds.home, current: game.odds.home, color: "var(--home)" },
-              { label: "Draw", tokenId: tokenIds.draw, current: game.odds.draw, color: "var(--draw)" },
-              { label: firstWord(game.awayTeam), tokenId: tokenIds.away, current: game.odds.away, color: "var(--away)" },
+              { label: firstWord(game.homeTeam), tokenId: tokenIds.home, current: odds.home, color: "var(--home)" },
+              { label: "Draw", tokenId: tokenIds.draw, current: odds.draw, color: "var(--draw)" },
+              { label: firstWord(game.awayTeam), tokenId: tokenIds.away, current: odds.away, color: "var(--away)" },
             ]}
           />
         </div>

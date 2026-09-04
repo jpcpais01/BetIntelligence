@@ -1,6 +1,6 @@
 import { matchLeague, LEAGUES } from "./leagues";
 import { normalizeTeamName, getTopTeamNames } from "./topTeams";
-import type { Game } from "./types";
+import type { Game, LeagueId, Probabilities } from "./types";
 
 const GAMMA_BASE = "https://gamma-api.polymarket.com";
 
@@ -643,6 +643,92 @@ export async function getUpcomingGames(): Promise<Game[]> {
     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
 
   return games;
+}
+
+// Premier League/La Liga/Serie A's real fixtures live under a series_id rather than any tag_slug
+// (see fetchLeaguesBySeries above) — resolving that id means re-running the /series discovery
+// sweep, which is too expensive to redo on every 5-second live-odds poll. Cached once per league
+// per warm instance instead: a partner league's series_id doesn't change mid-season, and the
+// first live-odds poll for ANY partner league populates every partner league's entry at once
+// (fetchAllSeries returns all of them), so this discovery cost is paid at most once, not per poll.
+const partnerSeriesIdCache = new Map<LeagueId, string>();
+
+async function resolvePartnerSeriesId(leagueId: LeagueId): Promise<string | null> {
+  const cached = partnerSeriesIdCache.get(leagueId);
+  if (cached) return cached;
+
+  const { series } = await fetchAllSeries();
+  for (const s of series) {
+    if (s.id === undefined) continue;
+    const text = `${s.title ?? ""} ${(s.slug ?? "").replace(/-/g, " ")}`;
+    const matched = matchLeague([text]);
+    if (matched && PARTNER_LEAGUE_IDS.has(matched.id)) {
+      partnerSeriesIdCache.set(matched.id, String(s.id));
+    }
+  }
+  return partnerSeriesIdCache.get(leagueId) ?? null;
+}
+
+// Test-only: clears the cached series ids so a selftest case doesn't see one resolved by an
+// earlier, unrelated case.
+export function __resetPartnerSeriesIdCacheForTests(): void {
+  partnerSeriesIdCache.clear();
+}
+
+// Refreshes odds for a known set of already-fetched games while they're live, without repeating
+// the full multi-strategy sweep getUpcomingGames does (many requests across every league and
+// several pages each — far too expensive to run every few seconds). This does one bounded,
+// single-page (page 0 only) fetch per distinct league among the requested games, using the exact
+// same tag-slug/series-id strategies and the same parseEvent() parsing the full sweep already
+// relies on — a live match will always be on the freshest page, so page 0 is enough. Requested
+// games not found in what comes back (a league with no live match right now, or between polls)
+// simply aren't included in the result rather than erroring.
+export async function fetchLiveOdds(
+  requests: { id: string; league: LeagueId }[]
+): Promise<Record<string, Probabilities>> {
+  const wantedIds = new Set(requests.map((r) => r.id));
+  const leagueIds = [...new Set(requests.map((r) => r.league))];
+
+  const perLeagueEvents = await Promise.all(
+    leagueIds.map(async (leagueId): Promise<RawEvent[]> => {
+      const league = LEAGUES.find((l) => l.id === leagueId);
+      if (!league) return [];
+
+      const collected: RawEvent[] = [];
+      const seen = new Set<string>();
+      const addAll = (batch: RawEvent[]) => {
+        for (const e of batch) {
+          if (e?.id && !seen.has(e.id)) {
+            seen.add(e.id);
+            collected.push(e);
+          }
+        }
+      };
+
+      if (PARTNER_LEAGUE_IDS.has(leagueId)) {
+        const seriesId = await resolvePartnerSeriesId(leagueId);
+        if (seriesId) {
+          const result = await fetchPaginated({ closed: "false", active: "true", series_id: seriesId }, 1);
+          addAll(result.events);
+        }
+      }
+
+      for (const slug of league.tagSlugs) {
+        const result = await fetchPaginated({ closed: "false", active: "true", tag_slug: slug }, 1);
+        addAll(result.events);
+      }
+
+      return collected;
+    })
+  );
+
+  const odds: Record<string, Probabilities> = {};
+  for (const event of perLeagueEvents.flat()) {
+    if (!wantedIds.has(event.id)) continue;
+    const game = parseEvent(event);
+    if (game) odds[game.id] = game.odds;
+  }
+  return odds;
 }
 
 const MATCH_LIKE_TITLE = /\bvs\.?\b|\bv\.?\b|@/i;

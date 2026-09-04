@@ -31,17 +31,42 @@ for how its AI analysis, filtering, and caching work.
 
 ### Live scores on the card
 
-A card's odds refresh only every 30 minutes (see [Filtering and refreshing](#filtering-and-refreshing))
-— fine for pre-match prices, but a "LIVE NOW" label with no score would go stale the moment the
-first goal went in. Once a match's kickoff is close enough to plausibly be underway, the page
-separately polls `/api/games/live-scores` every 40 seconds, which asks football-data.org (the same
-provider behind the AI's research digest) for each covered league's current matches in one request
-per league, filtered to just the live/paused/finished ones. The result replaces the guessed "LIVE
-NOW" badge with the real thing — "LIVE 2-1", "HT 1-0", "FT 3-1" — for any match football-data.org
-covers; everything else (an uncovered league, a match too far from kickoff to poll for, a request
-that fails) just keeps the plain kickoff-time label it always had. `MOCK_GAMES=1` skips this
-entirely, since mock fixtures carry real club names but synthetic kickoff times and would otherwise
-risk picking up an unrelated real match between two same-named clubs.
+A card's full odds refresh happens only every 30 minutes (see
+[Filtering and refreshing](#filtering-and-refreshing)) — fine for pre-match prices, but a "LIVE NOW"
+label with no score would go stale the moment the first goal went in. Once a match's kickoff is
+close enough to plausibly be underway, the page separately polls `/api/games/live-scores` every 40
+seconds, which asks football-data.org (the same provider behind the AI's research digest) for each
+covered league's current matches in one request per league, filtered to just the live/paused/finished
+ones. The result replaces the guessed "LIVE NOW" badge with the real thing — "LIVE 2-1", "HT 1-0",
+"FT 3-1" — for any match football-data.org covers; everything else (an uncovered league, a match too
+far from kickoff to poll for, a request that fails) just keeps the plain kickoff-time label it
+always had. `MOCK_GAMES=1` skips this entirely, since mock fixtures carry real club names but
+synthetic kickoff times and would otherwise risk picking up an unrelated real match between two
+same-named clubs.
+
+### Live odds once a match kicks off
+
+Odds move fast once a match is actually underway, and the 30-minute refresh alone would show a
+stale price for most of the game. Once a game's kickoff has passed and it isn't confirmed finished
+(using the live score above when available; otherwise a bounded few-hour fallback window), the page
+polls `/api/games/live-odds` every 5 seconds — a single bounded, page-0-only request per distinct
+league among the currently-live games, reusing the exact same tag-slug/series-id fetch strategies
+and event parser `getUpcomingGames` itself relies on, rather than the full multi-strategy sweep
+(too expensive to repeat every 5 seconds). A partner league's series id (Premier League, La Liga,
+Serie A) is resolved once and cached, not rediscovered on every poll. The result overrides the
+card's odds bars and its "Odds history" chart's live end-point for whatever it covers; a game not
+returned (its league not currently live, or between polls) just keeps showing its last known odds.
+
+### Stale analysis disappears at kickoff
+
+The "AI last said" panel a card shows (see below) reflects whatever the match looked like *before*
+kickoff — once the game actually starts, that read no longer accounts for the live score or a
+possibly different squad, so the card stops showing it rather than presenting a stale pre-match take
+as if it were still current. Re-running Analyze after kickoff produces a fresh read — one whose
+research digest already reflects the live match status and score (see
+[How the AI analysis works](#how-the-ai-analysis-works)) — which then shows normally on the card
+until the *next* time this match starts (i.e., never again, for a finished one-off fixture). Nothing
+is deleted from storage; the panel just isn't rendered once `game.startTime` has passed.
 
 ## Picks and Lab: one shared view across both
 
@@ -295,7 +320,9 @@ finishes — whether or not you ever tap **Save**. The card shows a one-line sum
 52% &middot; +4pp edge &middot; 2h ago") with a dropdown that expands into the full read: AI vs.
 market for every outcome, confidence, the verdict, and the multi-run agreement breakdown if it was
 researched more than once. Re-analyzing overwrites the cached entry; each cache is capped at the
-150 most recently analyzed matches/markets to keep it from growing unbounded.
+150 most recently analyzed matches/markets to keep it from growing unbounded. For Sports
+specifically, this summary stops showing on a card the moment that match's kickoff passes — see
+[Stale analysis disappears at kickoff](#stale-analysis-disappears-at-kickoff).
 
 ### Cost tracking
 
@@ -420,7 +447,8 @@ required to run AI analysis.
   - `lib/polymarket.ts` (Sports) fetches upcoming soccer events, matches them against a keyword
     list for the Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Primeira Liga, Eredivisie,
     Belgian Pro League, and the Champions League, and derives 1X2 probabilities from each match's
-    three moneyline sub-markets.
+    three moneyline sub-markets. The same module's `fetchLiveOdds` refreshes odds for currently-live
+    games every 5 seconds — see [Live odds once a match kicks off](#live-odds-once-a-match-kicks-off).
   - `lib/allMarkets.ts` (Discover) sweeps the highest-volume active events across every category,
     with no fixed category list — categories shown are derived from whatever tags Polymarket
     actually returns on the fetched markets.

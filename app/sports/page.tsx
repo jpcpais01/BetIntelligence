@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Game, LeagueId } from "@/lib/types";
+import type { Game, LeagueId, Probabilities } from "@/lib/types";
 import GameCard from "@/components/GameCard";
 import GameCardSkeleton from "@/components/GameCardSkeleton";
 import LeagueFilter from "@/components/LeagueFilter";
@@ -37,6 +37,34 @@ function isLiveCandidate(startTime: string): boolean {
   return t <= now + 15 * 60_000 && t >= now - 6 * 3_600_000;
 }
 
+// Odds move fast once a match is actually underway — this polls much more tightly than the
+// 30-minute full refresh, but only for games that have already kicked off (there's no "live"
+// odds to chase before then, the normal refresh cadence is plenty).
+const LIVE_ODDS_POLL_MS = 5_000;
+// Bounded fallback for a league live-scores doesn't cover: without a real status to say the match
+// has finished, this stops polling a few hours after kickoff rather than forever.
+const LIVE_ODDS_FALLBACK_WINDOW_MS = 3 * 3_600_000;
+
+// Games worth polling for live odds: kickoff has passed, and it isn't confirmed finished. A
+// covered league's real status (from liveScoreByGameId) settles that precisely; a league
+// live-scores doesn't cover falls back to a bounded "recently started" window instead of polling
+// forever with no way to know the match ended.
+function computeLiveOddsGameRefs(
+  games: Game[],
+  liveScoreByGameId: Record<string, LiveScoreEntry>
+): { id: string; league: LeagueId }[] {
+  const now = Date.now();
+  return games
+    .filter((g) => {
+      const kickoff = new Date(g.startTime).getTime();
+      if (!Number.isFinite(kickoff) || kickoff > now) return false;
+      const score = liveScoreByGameId[g.id];
+      if (score) return score.status !== "FINISHED";
+      return now - kickoff <= LIVE_ODDS_FALLBACK_WINDOW_MS;
+    })
+    .map((g) => ({ id: g.id, league: g.league }));
+}
+
 export default function Home() {
   const [games, setGames] = useState<Game[] | null>(null);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
@@ -51,6 +79,7 @@ export default function Home() {
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const [lastAnalysisMap, setLastAnalysisMap] = useState<Record<string, LastAnalysisEntry>>({});
   const [liveScores, setLiveScores] = useState<LiveScoreEntry[]>([]);
+  const [liveOdds, setLiveOdds] = useState<Record<string, Probabilities>>({});
 
   const MAX_BATCH = 10;
   const requestLogos = useRequestLogos();
@@ -139,6 +168,41 @@ export default function Home() {
     }
     return map;
   }, [games, liveScores]);
+
+  const liveOddsGameRefs = useMemo(
+    () => computeLiveOddsGameRefs(games ?? [], liveScoreByGameId),
+    [games, liveScoreByGameId]
+  );
+
+  useEffect(() => {
+    if (liveOddsGameRefs.length === 0) return;
+
+    let cancelled = false;
+    const refreshLiveOdds = async () => {
+      try {
+        const res = await fetch("/api/games/live-odds", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ games: liveOddsGameRefs }),
+          cache: "no-store",
+        });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (!cancelled && data.odds && typeof data.odds === "object") {
+          setLiveOdds((current) => ({ ...current, ...data.odds }));
+        }
+      } catch {
+        // Best-effort enrichment — cards just keep showing whatever odds they already had.
+      }
+    };
+
+    void refreshLiveOdds();
+    const id = setInterval(() => void refreshLiveOdds(), LIVE_ODDS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [liveOddsGameRefs]);
 
   // Every team currently listed gets its crest requested — not just a curated "top club" list —
   // so the whole league, not a handful of elite names, shows real logos.
@@ -326,6 +390,7 @@ export default function Home() {
                 onToggleSelect={toggleGameSelected}
                 lastAnalysis={lastAnalysisMap[game.id] ?? null}
                 liveScore={liveScoreByGameId[game.id] ?? null}
+                liveOdds={liveOdds[game.id] ?? null}
               />
             ))}
           </div>
