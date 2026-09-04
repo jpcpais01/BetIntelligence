@@ -7,6 +7,7 @@ import { loadMarketPicks } from "@/lib/marketPicks";
 import { loadSlip, saveSlip, legFromPick, legFromMarketPick, type SlipLeg, type Outcome } from "@/lib/betslip";
 import { loadPlacedBets, type PlacedBet } from "@/lib/placedBets";
 import { liveKey, fetchLivePrices, type LivePriceRequest } from "@/lib/livePrices";
+import { RISK_MODES, buildRiskSlip, type RiskMode } from "@/lib/riskModes";
 import SlipPickRow from "@/components/SlipPickRow";
 import MarketPickRow from "@/components/MarketPickRow";
 import PlacedBetCard from "@/components/PlacedBetCard";
@@ -33,6 +34,7 @@ export default function LabPage() {
   const [tab, setTab] = useState<Tab>("build");
   const [openPick, setOpenPick] = useState<AnyPick | null>(null);
   const [livePrices, setLivePrices] = useState<Record<string, number>>({});
+  const [riskError, setRiskError] = useState<string | null>(null);
   const requestLogos = useRequestLogos();
 
   useEffect(() => {
@@ -144,6 +146,21 @@ export default function LabPage() {
     saveSlip([]);
   };
 
+  // One-tap slip builder: replaces whatever's currently in the slip with an auto-picked set of
+  // football legs for the chosen risk level (lib/riskModes.ts). Football-only, since 1X2/1X/X2 are
+  // football concepts with no Discover-market equivalent.
+  const handleRiskMode = (mode: RiskMode) => {
+    const result = buildRiskSlip(sportsPicks ?? [], livePrices, mode);
+    if (!result) {
+      const label = RISK_MODES.find((m) => m.id === mode)?.label ?? mode;
+      setRiskError(`Not enough games for ${label} mode.`);
+      return;
+    }
+    setRiskError(null);
+    setLegs(result);
+    saveSlip(result);
+  };
+
   return (
     <div className="lab mx-auto max-w-md">
       {/* A fixed full-viewport layer, independent of this page's own content height or the
@@ -186,6 +203,15 @@ export default function LabPage() {
             </div>
           )}
         </div>
+
+        {tab === "build" && sportsPicks && sportsPicks.length > 0 && (
+          <div className="flex gap-1.5">
+            {RISK_MODES.map((mode) => (
+              <RiskButton key={mode.id} mode={mode} onClick={() => handleRiskMode(mode.id)} />
+            ))}
+          </div>
+        )}
+        {riskError && <p className="text-[11px]" style={{ color: "var(--lab-red)" }}>{riskError}</p>}
       </header>
 
       <div className={`px-4 pt-4 ${legs.length > 0 ? "pb-28" : "pb-4"}`}>
@@ -313,6 +339,31 @@ function FilterButton({ label, active, onClick }: { label: string; active: boole
       style={active ? { background: "rgba(var(--lab-gold-rgb), 0.16)", color: "var(--lab-gold)" } : { color: "var(--text-faint)" }}
     >
       {label}
+    </button>
+  );
+}
+
+// One dot color per risk step — cool/safe (green, cyan) through neutral (silver) to hot (red at
+// two intensities) — reusing the page's existing accent tokens rather than introducing new ones,
+// so the escalating risk reads at a glance without breaking the page's restrained palette.
+const RISK_DOT: Record<RiskMode, { color: string; opacity?: number }> = {
+  calm: { color: "var(--lab-green)" },
+  easy: { color: "var(--lab-cyan)" },
+  normal: { color: "var(--lab-gold)" },
+  risky: { color: "var(--lab-red)", opacity: 0.55 },
+  mega: { color: "var(--lab-red)" },
+};
+
+function RiskButton({ mode, onClick }: { mode: (typeof RISK_MODES)[number]; onClick: () => void }) {
+  const dot = RISK_DOT[mode.id];
+  return (
+    <button
+      onClick={onClick}
+      className="press flex flex-1 flex-col items-center gap-1 rounded-2xl py-2"
+      style={{ background: "var(--lab-surface-2)" }}
+    >
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: dot.color, opacity: dot.opacity ?? 1 }} />
+      <span className="text-[10px] font-medium text-text-dim">{mode.label}</span>
     </button>
   );
 }
