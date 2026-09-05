@@ -4,6 +4,7 @@ import {
   getLiveScores,
   __resetRateLimiterForTests,
   __resetLiveWindowCacheForTests,
+  __resetStandingsCacheForTests,
 } from "../lib/footballData";
 import type { LeagueId } from "../lib/types";
 
@@ -39,6 +40,15 @@ function match(opts: {
 
 // Dispatches by URL like the real football-data.org calls this module makes, recording every URL
 // requested so tests can assert on which competition/team was queried without exporting internals.
+interface StandingRow {
+  position: number;
+  team: TeamRef;
+  playedGames: number;
+  points: number;
+  goalsFor: number;
+  goalsAgainst: number;
+}
+
 function makeFootballDataFetch(opts: {
   rosterTeams: TeamRef[];
   home: TeamRef;
@@ -47,11 +57,15 @@ function makeFootballDataFetch(opts: {
   homeForm?: unknown[];
   awayForm?: unknown[];
   h2h?: unknown[];
+  standings?: StandingRow[];
   urls: string[];
 }) {
   return (async (url: unknown) => {
     const u = String(url);
     opts.urls.push(u);
+    // Standings is checked before the generic "/competitions/" branch below, since its own path
+    // (/competitions/{code}/standings) would otherwise match that branch's substring check too.
+    if (u.includes("/standings")) return ok({ standings: [{ type: "TOTAL", table: opts.standings ?? [] }] });
     if (u.includes("/competitions/")) return ok({ teams: opts.rosterTeams });
     if (u.includes("/head2head")) return ok({ matches: opts.h2h ?? [] });
     if (u.includes(`/teams/${opts.home.id}/matches`)) return ok({ matches: opts.homeForm ?? [] });
@@ -355,6 +369,77 @@ async function run() {
     }
     check("belgian-pro-league throws before any fetch", threw !== null && calls === 0, `threw=${threw?.message}, calls=${calls}`);
     check("the error explains it's a free-plan limitation", /free plan/i.test(threw?.message ?? ""), threw?.message);
+  }
+
+  // --- Standings + form combine into a per-team infogram: position/points/goals from the
+  // standings table, a compact form strip re-sorted oldest-first regardless of what order the
+  // form endpoint returned its matches in (capped at 5, though only 3 are given here). ---
+  {
+    __resetRateLimiterForTests();
+    __resetStandingsCacheForTests();
+    const home = { id: 50, name: "Napoli" };
+    const away = { id: 51, name: "Roma" };
+    globalThis.fetch = makeFootballDataFetch({
+      rosterTeams: [home, away],
+      home,
+      away,
+      fixtures: [match({ id: 60, date: "2026-02-01T20:00:00.000Z", home, away, status: "SCHEDULED", homeGoals: null, awayGoals: null })],
+      // Deliberately out of chronological order — formLetters must re-sort by date itself.
+      homeForm: [
+        match({ id: 201, date: "2026-01-17T20:00:00.000Z", home, away: { id: 60, name: "Genoa" }, status: "FINISHED", homeGoals: 3, awayGoals: 0 }),
+        match({ id: 202, date: "2026-01-03T20:00:00.000Z", home: { id: 62, name: "Torino" }, away: home, status: "FINISHED", homeGoals: 1, awayGoals: 0 }),
+        match({ id: 203, date: "2026-01-10T20:00:00.000Z", home: { id: 61, name: "Lazio" }, away: home, status: "FINISHED", homeGoals: 1, awayGoals: 1 }),
+      ],
+      awayForm: [],
+      standings: [
+        { position: 2, team: home, playedGames: 20, points: 44, goalsFor: 38, goalsAgainst: 15 },
+        { position: 7, team: away, playedGames: 20, points: 30, goalsFor: 25, goalsAgainst: 24 },
+      ],
+      urls: [],
+    });
+    const digest = await buildFootballDigest({ homeTeam: "Napoli", awayTeam: "Roma", league: "champions-league", startTime: "2026-02-01T20:00:00.000Z" });
+
+    check("home standing carries the right table facts", digest.homeStanding?.position === 2 && digest.homeStanding.points === 44, JSON.stringify(digest.homeStanding));
+    check("home standing's goals come from the table row", digest.homeStanding?.goalsFor === 38 && digest.homeStanding?.goalsAgainst === 15, JSON.stringify(digest.homeStanding));
+    check(
+      "home form is re-sorted oldest-first (L on 01-03, D on 01-10, W on 01-17), not the mock's own order",
+      JSON.stringify(digest.homeStanding?.form) === JSON.stringify(["L", "D", "W"]),
+      JSON.stringify(digest.homeStanding?.form)
+    );
+    check("away standing carries the right table facts", digest.awayStanding?.position === 7 && digest.awayStanding.points === 30, JSON.stringify(digest.awayStanding));
+    check("away form is an empty array, not a crash, when no finished matches exist", JSON.stringify(digest.awayStanding?.form) === "[]");
+    check("the text digest includes a League Standings section", digest.text.includes("League Standings"), digest.text);
+    check("the text digest names each team's position and points", /Napoli: #2, 44pts/.test(digest.text) && /Roma: #7, 30pts/.test(digest.text), digest.text);
+  }
+
+  // --- A standings fetch that fails entirely (network error, an uncovered response shape) never
+  // breaks the digest — it's an enrichment, same as injuries elsewhere in this app — and a team
+  // missing from a standings table it DID fetch resolves to null the same way, not a crash. ---
+  {
+    __resetRateLimiterForTests();
+    __resetStandingsCacheForTests();
+    // Reuses the Napoli/Roma identities the standings happy-path test above already cached the
+    // roster with (teamsCache is keyed only by competition code, and every other covered league
+    // is already claimed by an earlier case in this file) — a fresh, previously-unused team pair
+    // here would 404 against that stale cached roster and fail for an unrelated reason.
+    const home = { id: 50, name: "Napoli" };
+    const away = { id: 51, name: "Roma" };
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/standings")) throw new Error("simulated standings outage");
+      if (u.includes("/competitions/")) return ok({ teams: [home, away] });
+      if (u.includes("/head2head")) return ok({ matches: [] });
+      if (u.includes(`/teams/${home.id}/matches`) || u.includes(`/teams/${away.id}/matches`)) return ok({ matches: [] });
+      if (u.includes("/matches?")) {
+        return ok({ matches: [match({ id: 70, date: "2026-02-08T20:00:00.000Z", home, away, status: "SCHEDULED", homeGoals: null, awayGoals: null })] });
+      }
+      throw new Error(`Unhandled URL in standings-outage test: ${u}`);
+    }) as unknown as typeof fetch;
+
+    const digest = await buildFootballDigest({ homeTeam: "Napoli", awayTeam: "Roma", league: "champions-league", startTime: "2026-02-08T20:00:00.000Z" });
+    check("a standings outage never fails the whole digest", digest.text.includes("has not started yet"));
+    check("both standings resolve to null rather than a partial/guessed value", digest.homeStanding === null && digest.awayStanding === null);
+    check("the text digest says standings aren't available rather than omitting the section silently", digest.text.includes("not available"), digest.text);
   }
 
   // --- getLiveScores: one request per REQUESTED league (not every league this provider covers —

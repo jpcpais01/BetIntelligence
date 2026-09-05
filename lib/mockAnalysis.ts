@@ -1,15 +1,27 @@
-import type { ComparisonResult, IndependentPrediction, Probabilities } from "./types";
+import type { ComparisonResult, IndependentPrediction, InjuredPlayer, Probabilities, TeamStanding } from "./types";
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export interface MockFootballDigest {
+  text: string;
+  homeStanding: TeamStanding;
+  awayStanding: TeamStanding;
+  homeInjuries: InjuredPlayer[];
+  awayInjuries: InjuredPlayer[];
+}
+
 // Under MOCK_AI, the eventual prediction never actually reads this digest — but the client always
 // fetches one first (see app/api/analyze/football-digest and AnalysisSheet.tsx), so this exists to
-// keep that call working without a real FOOTBALL_DATA_API_KEY configured.
-export async function getMockFootballDigest(input: { homeTeam: string; awayTeam: string }): Promise<string> {
+// keep that call working without real FOOTBALL_DATA_API_KEY/BIG_BALLS_API_KEY configured. Mock
+// standings/injuries are non-empty on purpose (one side with a reported injury, the other with
+// none) so the infogram's "some players" and "none reported" rendering paths are both exercisable
+// in mock mode without hitting either real provider.
+export async function getMockFootballDigest(input: { homeTeam: string; awayTeam: string }): Promise<MockFootballDigest> {
   await delay(400);
-  return `Match Status:
+  return {
+    text: `Match Status:
 Match has not started yet — mock digest, no real football-data.org call was made.
 
 ${input.homeTeam} Form (last 5 completed matches):
@@ -19,7 +31,12 @@ ${input.awayTeam} Form (last 5 completed matches):
 - Mock data: connect a real FOOTBALL_DATA_API_KEY for live form.
 
 Head-to-Head History (last 5 meetings):
-- Mock data: connect a real FOOTBALL_DATA_API_KEY for live head-to-head history.`;
+- Mock data: connect a real FOOTBALL_DATA_API_KEY for live head-to-head history.`,
+    homeStanding: { position: 4, playedGames: 12, points: 24, goalsFor: 22, goalsAgainst: 14, form: ["W", "D", "W", "L", "W"] },
+    awayStanding: { position: 9, playedGames: 12, points: 17, goalsFor: 15, goalsAgainst: 18, form: ["L", "W", "D", "D", "L"] },
+    homeInjuries: [{ name: "Mock Player A", detail: "reported unavailable" }],
+    awayInjuries: [],
+  };
 }
 
 export async function getMockIndependentPrediction(input: {

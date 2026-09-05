@@ -1,4 +1,4 @@
-import type { LeagueId } from "./types";
+import type { InjuredPlayer, LeagueId } from "./types";
 import { teamNamesMatch } from "./teamNameMatching";
 
 // Player injury/availability data from Big Balls Sports Data (api.bigballsdata.com) — the one
@@ -249,6 +249,35 @@ export async function debugFetchLeagueInjuries(league: LeagueId): Promise<{
   ]);
 
   return { leagueKey, hasApiKey: true, injuries, teams, error: null };
+}
+
+// Structured per-team out-players list for the analysis UI's injuries infogram — a separate,
+// parallel path to buildInjuryDigest's text below rather than a refactor of it, so the
+// already-tested text output can't be disturbed by this. Both call the same cached fetchers
+// (fetchLeagueInjuries/fetchLeagueTeamNames), so this never costs a second real request — a
+// concurrent or immediately-following call for the same league just hits the cache. Returns null
+// when there's nothing usable to attribute per-team (uncovered league, no data at all, or
+// team-name resolution failing) — never a guess at which side an unattributed player belongs to.
+export async function fetchInjurySummary(input: {
+  homeTeam: string;
+  awayTeam: string;
+  league: LeagueId;
+}): Promise<{ home: InjuredPlayer[]; away: InjuredPlayer[] } | null> {
+  const leagueKey = BIG_BALLS_LEAGUE[input.league];
+  if (!leagueKey) return null;
+
+  const [injuries, teamNamesById] = await Promise.all([fetchLeagueInjuries(leagueKey), fetchLeagueTeamNames(leagueKey)]);
+  if (injuries.length === 0 || teamNamesById.size === 0) return null;
+
+  const forTeam = (teamName: string): InjuredPlayer[] =>
+    injuries
+      .filter((r) => {
+        const name = recordTeamName(r, teamNamesById);
+        return name !== null && teamNamesMatch(name, teamName);
+      })
+      .map((r) => ({ name: recordPlayerName(r), detail: recordDetail(r) }));
+
+  return { home: forTeam(input.homeTeam), away: forTeam(input.awayTeam) };
 }
 
 function formatTeamInjuries(teamName: string, records: BigBallsInjuryRecord[], teamNamesById: Map<string, string>): string {

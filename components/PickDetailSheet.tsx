@@ -3,6 +3,8 @@ import OutcomeBar from "./OutcomeBar";
 import ConfidenceBadge from "./ConfidenceBadge";
 import EdgeChip from "./EdgeChip";
 import TeamAssessmentSummary from "./TeamAssessmentSummary";
+import TeamStandingsSummary from "./TeamStandingsSummary";
+import TeamInjuriesSummary from "./TeamInjuriesSummary";
 import { CloseIcon, BrainIcon, ScaleIcon, TrendingUpIcon, GlobeIcon } from "./icons";
 import { formatKickoff, toPercent, formatCostUsd } from "@/lib/format";
 import { agreementLabel, agreementTone } from "@/lib/aggregate";
@@ -57,6 +59,20 @@ export default function PickDetailSheet({ pick, onClose }: { pick: SavedPick; on
             )}
 
             <ConfidenceBadge level={independent.confidence} />
+
+            <TeamStandingsSummary
+              homeTeam={pick.homeTeam}
+              awayTeam={pick.awayTeam}
+              homeStanding={pick.homeStanding}
+              awayStanding={pick.awayStanding}
+            />
+
+            <TeamInjuriesSummary
+              homeTeam={pick.homeTeam}
+              awayTeam={pick.awayTeam}
+              homeInjuries={pick.homeInjuries}
+              awayInjuries={pick.awayInjuries}
+            />
 
             <TeamAssessmentSummary homeTeam={pick.homeTeam} awayTeam={pick.awayTeam} independent={independent} />
 

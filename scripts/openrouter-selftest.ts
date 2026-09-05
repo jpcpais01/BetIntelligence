@@ -460,7 +460,7 @@ async function runFootballPipelineChecks(failures: string[]) {
           awayTeam: "AC Milan",
           leagueName: "Serie A",
           startTime: serieAKickoff,
-          digest,
+          digest: digest.text,
         })
       )
     );

@@ -1,7 +1,15 @@
-import type { ComparisonResult, Confidence, IndependentPrediction, LeagueId, Probabilities } from "./types";
+import type {
+  ComparisonResult,
+  Confidence,
+  IndependentPrediction,
+  InjuredPlayer,
+  LeagueId,
+  Probabilities,
+  TeamStanding,
+} from "./types";
 import { MODELS, DEFAULT_MODEL } from "./models";
 import { buildFootballDigest } from "./footballData";
-import { buildInjuryDigest } from "./bigBallsData";
+import { buildInjuryDigest, fetchInjurySummary } from "./bigBallsData";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -390,13 +398,21 @@ your decision.`;
 // let N parallel runs multiply real football-data.org calls by N under real concurrent load,
 // exhausting the free tier's 10-requests/minute budget almost immediately. Fetching once and
 // threading the result through is a guarantee by construction, not by cache.
+export interface FootballAnalysisDigest {
+  text: string;
+  homeStanding: TeamStanding | null;
+  awayStanding: TeamStanding | null;
+  homeInjuries: InjuredPlayer[] | null;
+  awayInjuries: InjuredPlayer[] | null;
+}
+
 export async function buildFootballAnalysisDigest(input: {
   homeTeam: string;
   awayTeam: string;
   league: LeagueId;
   startTime: string;
-}): Promise<string> {
-  const { text: matchDigest } = await buildFootballDigest({
+}): Promise<FootballAnalysisDigest> {
+  const { text: matchDigest, homeStanding, awayStanding } = await buildFootballDigest({
     homeTeam: input.homeTeam,
     awayTeam: input.awayTeam,
     league: input.league,
@@ -407,7 +423,23 @@ export async function buildFootballAnalysisDigest(input: {
     awayTeam: input.awayTeam,
     league: input.league,
   });
-  return `${matchDigest}\n\n${injuryDigest}`;
+  // Structured, alongside the text version above — both read the same cached fetchers, so this
+  // never costs a second real request to Big Balls Sports Data. An enrichment layer like injuries
+  // everywhere else in this app: a failure here just means the infogram doesn't show, never a
+  // failed analysis.
+  const injurySummary = await fetchInjurySummary({
+    homeTeam: input.homeTeam,
+    awayTeam: input.awayTeam,
+    league: input.league,
+  }).catch(() => null);
+
+  return {
+    text: `${matchDigest}\n\n${injuryDigest}`,
+    homeStanding,
+    awayStanding,
+    homeInjuries: injurySummary?.home ?? null,
+    awayInjuries: injurySummary?.away ?? null,
+  };
 }
 
 // The OpenRouter-only half — no football-data.org or Big Balls Data calls at all, so this is safe
@@ -486,7 +518,7 @@ export async function getIndependentPrediction(input: {
     awayTeam: input.awayTeam,
     leagueName: input.leagueName,
     startTime: input.startTime,
-    digest,
+    digest: digest.text,
     model: input.model,
   });
 }

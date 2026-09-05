@@ -26,7 +26,13 @@ export async function POST(request: Request) {
         ? await getMockFootballDigest({ homeTeam, awayTeam })
         : await buildFootballAnalysisDigest({ homeTeam, awayTeam, league, startTime });
 
-    return NextResponse.json({ digest });
+    return NextResponse.json({
+      digest: digest.text,
+      homeStanding: digest.homeStanding,
+      awayStanding: digest.awayStanding,
+      homeInjuries: digest.homeInjuries,
+      awayInjuries: digest.awayInjuries,
+    });
   } catch (err) {
     console.error("POST /api/analyze/football-digest failed", err);
     const message = err instanceof Error ? err.message : "Could not build the research digest.";

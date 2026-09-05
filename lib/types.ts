@@ -71,6 +71,28 @@ export interface IndependentPrediction {
   costUsd?: number;
 }
 
+// A team's current league-table facts, plus its last up-to-5 completed results as a compact
+// form strip (oldest first, ending with the most recent match). Purely factual data from
+// football-data.org's standings endpoint (position/points/goals) combined with its own recent
+// results (form) — not an AI opinion, unlike TeamAssessment above.
+export interface TeamStanding {
+  position: number;
+  playedGames: number;
+  points: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  form: ("W" | "D" | "L" | "?")[];
+}
+
+// One player currently reported unavailable for a team (Big Balls Sports Data). `detail` is
+// whatever reason/status the source actually gave, or "reported unavailable" when it only
+// flagged the player without saying why — see lib/bigBallsData.ts, which has never observed a
+// real reason/status field on this provider's response.
+export interface InjuredPlayer {
+  name: string;
+  detail: string;
+}
+
 export type ValueSide = "home" | "draw" | "away" | "none";
 
 export interface ComparisonResult {
@@ -112,6 +134,15 @@ export interface SavedPick {
   // field existed — those just can't be repriced, which lib/portfolioHistory.ts treats as "hold
   // at entry value" rather than guessing.
   tokenIds?: OutcomeTokenIds;
+  // League-table facts + recent form and currently-out players for each side, fetched alongside
+  // the research digest — undefined for a pick saved before this existed, null when it was
+  // fetched but genuinely unavailable (uncovered league, provider error, or — for injuries —
+  // team-name resolution failing). Batch analysis doesn't fetch these at all (undefined), same
+  // as it already omits `research` above.
+  homeStanding?: TeamStanding | null;
+  awayStanding?: TeamStanding | null;
+  homeInjuries?: InjuredPlayer[] | null;
+  awayInjuries?: InjuredPlayer[] | null;
 }
 
 // Generalized versions of the above for the Discover feed — any Polymarket market, not just

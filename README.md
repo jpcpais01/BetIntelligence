@@ -289,6 +289,27 @@ Tapping **AI Analyze** runs against [`deepseek/deepseek-v4-flash-0731`](https://
    compare its independent view against the market, explain any disagreement, and flag whether it thinks a specific outcome
    looks mispriced.
 
+Alongside the AI's own read, the same one-time digest fetch (`/api/analyze/football-digest`) also returns two small,
+factual infograms — real data, not an AI opinion, so they render even before the independent read finishes:
+
+- **League standing** (`components/TeamStandingsSummary.tsx`) — each team's current table position, points, games played,
+  goals for/against, and a compact 5-match form strip (oldest → most recent), from football-data.org's standings endpoint
+  combined with the same recent-results fetch the text digest already uses for form (`TeamStanding` in `lib/types.ts`,
+  built in `fetchFootballDigest`). An enrichment, not a core fact: a standings-endpoint failure or a team missing from the
+  table just means that side shows "not available" rather than failing the whole analysis.
+- **Injuries / out** (`components/TeamInjuriesSummary.tsx`) — each team's currently-unavailable players from Big Balls
+  Sports Data, with whatever reason the source actually gave (it mostly only flags a bare "unavailable" with no reason at
+  all, so the fallback says exactly that rather than implying more was checked — see `lib/bigBallsData.ts`). Built by
+  `fetchInjurySummary`, a structured counterpart to the text digest's own injuries section that reads the same cached
+  fetchers rather than costing a second real request. Renders nothing at all (not two empty "None reported" lists) when
+  the league isn't covered, there's no key, or team-name resolution fails — an empty state there would misleadingly imply
+  data was checked and found clean.
+
+Both are attached to a `SavedPick` (`homeStanding`/`awayStanding`/`homeInjuries`/`awayInjuries`) so a saved pick's
+read-only detail view (`PickDetailSheet.tsx`) shows the exact same infograms later, not just the live analysis sheet.
+Batch analysis doesn't fetch either (its condensed cards already omit the pros/cons/summary breakdown too), and a pick
+saved before this existed just doesn't have the fields at all — both components render nothing rather than guessing.
+
 **Discover markets** (`lib/openrouterMarkets.ts`) — any non-football question, where no equivalent structured API exists —
 keep the original three-step shape:
 

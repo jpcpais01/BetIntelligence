@@ -1,12 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Game, IndependentPrediction, ComparisonResult, SourceCitation } from "@/lib/types";
+import type {
+  Game,
+  IndependentPrediction,
+  ComparisonResult,
+  SourceCitation,
+  TeamStanding,
+  InjuredPlayer,
+} from "@/lib/types";
 import OutcomeBar from "./OutcomeBar";
 import ConfidenceBadge from "./ConfidenceBadge";
 import EdgeChip from "./EdgeChip";
 import ResearchOverlay from "./ResearchOverlay";
 import TeamAssessmentSummary from "./TeamAssessmentSummary";
+import TeamStandingsSummary from "./TeamStandingsSummary";
+import TeamInjuriesSummary from "./TeamInjuriesSummary";
 import {
   CloseIcon,
   BrainIcon,
@@ -77,6 +86,10 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
   const [elapsed, setElapsed] = useState(0);
   const [saved, setSaved] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
+  const [homeStanding, setHomeStanding] = useState<TeamStanding | null>(null);
+  const [awayStanding, setAwayStanding] = useState<TeamStanding | null>(null);
+  const [homeInjuries, setHomeInjuries] = useState<InjuredPlayer[] | null>(null);
+  const [awayInjuries, setAwayInjuries] = useState<InjuredPlayer[] | null>(null);
 
   // The planned run count is fixed for the lifetime of this sheet instance — chosen on the card
   // before Analyze was tapped, read once here rather than mid-flight.
@@ -104,7 +117,19 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
         // comment on buildFootballAnalysisDigest in lib/openrouter.ts). Fetching once here is a
         // guarantee by construction: N runs always cost exactly one digest fetch, never N.
         runsRef.current ??= (async () => {
-          const { digest } = await postJson<{ digest: string }>(
+          const {
+            digest,
+            homeStanding: fetchedHomeStanding,
+            awayStanding: fetchedAwayStanding,
+            homeInjuries: fetchedHomeInjuries,
+            awayInjuries: fetchedAwayInjuries,
+          } = await postJson<{
+            digest: string;
+            homeStanding: TeamStanding | null;
+            awayStanding: TeamStanding | null;
+            homeInjuries: InjuredPlayer[] | null;
+            awayInjuries: InjuredPlayer[] | null;
+          }>(
             "/api/analyze/football-digest",
             {
               homeTeam: game.homeTeam,
@@ -114,6 +139,10 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
             },
             "Could not build the research digest."
           );
+          setHomeStanding(fetchedHomeStanding);
+          setAwayStanding(fetchedAwayStanding);
+          setHomeInjuries(fetchedHomeInjuries);
+          setAwayInjuries(fetchedAwayInjuries);
 
           return Promise.all(
             Array.from({ length: plannedRuns }, () =>
@@ -212,6 +241,10 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
     setStepIdx(0);
     setCompletedRuns(0);
     setElapsed(0);
+    setHomeStanding(null);
+    setAwayStanding(null);
+    setHomeInjuries(null);
+    setAwayInjuries(null);
     setStage("predicting");
     setRetryKey((k) => k + 1);
   };
@@ -234,6 +267,10 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
       research: toFootballResearchSummary(runs),
       totalCostUsd: totalCost(independent.costUsd, comparison.costUsd),
       tokenIds: game.tokenIds,
+      homeStanding,
+      awayStanding,
+      homeInjuries,
+      awayInjuries,
     });
     setSaved(true);
   };
@@ -363,6 +400,20 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
               )}
 
               <ConfidenceBadge level={independent.confidence} />
+
+              <TeamStandingsSummary
+                homeTeam={game.homeTeam}
+                awayTeam={game.awayTeam}
+                homeStanding={homeStanding}
+                awayStanding={awayStanding}
+              />
+
+              <TeamInjuriesSummary
+                homeTeam={game.homeTeam}
+                awayTeam={game.awayTeam}
+                homeInjuries={homeInjuries}
+                awayInjuries={awayInjuries}
+              />
 
               <TeamAssessmentSummary homeTeam={game.homeTeam} awayTeam={game.awayTeam} independent={independent} />
 

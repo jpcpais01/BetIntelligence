@@ -1,4 +1,4 @@
-import { buildInjuryDigest, __resetInjuriesCacheForTests } from "../lib/bigBallsData";
+import { buildInjuryDigest, fetchInjurySummary, __resetInjuriesCacheForTests } from "../lib/bigBallsData";
 
 function ok(json: unknown) {
   return { ok: true, status: 200, json: async () => json, text: async () => "" };
@@ -230,6 +230,69 @@ async function run() {
     }
     check("a thrown fetch never propagates — buildInjuryDigest always resolves", !threw);
     check("a thrown fetch soft-fails to 'not available'", digest.includes("not available"), digest);
+  }
+
+  // --- fetchInjurySummary: the structured counterpart to buildInjuryDigest's text, used by the
+  // analysis UI's injuries infogram. Same underlying data, parallel path — never a second real
+  // request (both read the same cached fetchers). ---
+  {
+    __resetInjuriesCacheForTests();
+    process.env.BIG_BALLS_API_KEY = "test-key";
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/injuries")) {
+        return injuriesResponse([
+          injury({ id: "p1", name: "Bukayo Saka", teamId: "team_arsenal" }),
+          injury({ id: "p2", name: "Reece James", teamId: "team_chelsea", reason: "hamstring" }),
+        ]);
+      }
+      if (u.includes("/teams")) return teamsResponse([team("team_arsenal", "Arsenal"), team("team_chelsea", "Chelsea")]);
+      throw new Error(`Unhandled URL: ${u}`);
+    }) as unknown as typeof fetch;
+
+    const summary = await fetchInjurySummary({ homeTeam: "Arsenal", awayTeam: "Chelsea", league: "premier-league" });
+    check("returns a non-null summary when the league is covered and data resolves", summary !== null);
+    check("home team gets its own player, attributed correctly", summary?.home.length === 1 && summary.home[0].name === "Bukayo Saka", JSON.stringify(summary));
+    check("away team gets its own player with its real detail, not the bare fallback", summary?.away[0]?.detail === "hamstring", JSON.stringify(summary));
+    check("home player with no reason falls back to the honest bare flag", summary?.home[0]?.detail === "reported unavailable", JSON.stringify(summary));
+  }
+
+  // --- fetchInjurySummary returns null (not empty arrays) whenever the text digest would have
+  // said "not available" — an uncovered league, no data, or team-name resolution failing all mean
+  // there's nothing to attribute per-team, so the UI should hide the card entirely rather than
+  // show two empty "None reported" lists that would misleadingly imply data was checked. ---
+  {
+    __resetInjuriesCacheForTests();
+    process.env.BIG_BALLS_API_KEY = "test-key";
+    globalThis.fetch = (async () => {
+      throw new Error("should not be called for an unsupported league");
+    }) as unknown as typeof fetch;
+    const summary = await fetchInjurySummary({ homeTeam: "Ajax", awayTeam: "PSV", league: "eredivisie" });
+    check("an uncovered league returns null, not empty arrays", summary === null);
+  }
+  {
+    __resetInjuriesCacheForTests();
+    process.env.BIG_BALLS_API_KEY = "test-key";
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/injuries")) return injuriesResponse([]);
+      if (u.includes("/teams")) return teamsResponse([]);
+      throw new Error(`Unhandled URL: ${u}`);
+    }) as unknown as typeof fetch;
+    const summary = await fetchInjurySummary({ homeTeam: "Arsenal", awayTeam: "Chelsea", league: "premier-league" });
+    check("no injuries data at all returns null", summary === null);
+  }
+  {
+    __resetInjuriesCacheForTests();
+    process.env.BIG_BALLS_API_KEY = "test-key";
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/injuries")) return injuriesResponse([injury({ id: "p7", name: "Unmatched Player", teamId: "team_x" })]);
+      if (u.includes("/teams")) return teamsResponse([]);
+      throw new Error(`Unhandled URL: ${u}`);
+    }) as unknown as typeof fetch;
+    const summary = await fetchInjurySummary({ homeTeam: "Arsenal", awayTeam: "Chelsea", league: "premier-league" });
+    check("team-name resolution failing returns null rather than guessing a side", summary === null);
   }
 
   if (failures.length > 0) {

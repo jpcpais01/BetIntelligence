@@ -1,4 +1,4 @@
-import type { LeagueId } from "./types";
+import type { LeagueId, TeamStanding } from "./types";
 import { findBestNameMatch } from "./teamNameMatching";
 
 // Structured match data from football-data.org (api.football-data.org/v4) — replaces the old "AI
@@ -178,9 +178,12 @@ async function findFixture(code: string, homeId: number, awayId: number, kickoff
   );
 }
 
+type FormResult = "W" | "L" | "D" | "?";
+
 interface FormLine {
   date: string;
   summary: string;
+  result: FormResult;
 }
 
 async function fetchForm(teamId: number): Promise<FormLine[]> {
@@ -190,16 +193,29 @@ async function fetchForm(teamId: number): Promise<FormLine[]> {
     const own = isHome ? m.score.fullTime.home : m.score.fullTime.away;
     const opp = isHome ? m.score.fullTime.away : m.score.fullTime.home;
     const opponent = isHome ? m.awayTeam.name : m.homeTeam.name;
-    const result = own === null || opp === null ? "?" : own > opp ? "W" : own < opp ? "L" : "D";
-    return { date: m.utcDate.slice(0, 10), summary: `${result} ${own ?? "?"}-${opp ?? "?"} ${isHome ? "vs" : "at"} ${opponent}` };
+    const result: FormResult = own === null || opp === null ? "?" : own > opp ? "W" : own < opp ? "L" : "D";
+    return { date: m.utcDate.slice(0, 10), summary: `${result} ${own ?? "?"}-${opp ?? "?"} ${isHome ? "vs" : "at"} ${opponent}`, result };
   });
+}
+
+// The compact "form strip" for the standings infogram, derived from the same matches fetchForm
+// already fetched for the text digest rather than a second endpoint — sorted oldest-first (a copy;
+// the text digest above keeps whatever order the API itself returned, unchanged) so the strip
+// reads left-to-right ending with the most recent match, capped at 5 even if more came back.
+function formLetters(form: FormLine[]): FormResult[] {
+  return [...form].sort((a, b) => a.date.localeCompare(b.date)).map((f) => f.result).slice(-5);
 }
 
 interface Head2HeadResponse {
   matches: FootballDataMatch[];
 }
 
-async function fetchHeadToHead(fixtureId: number): Promise<FormLine[]> {
+interface H2HLine {
+  date: string;
+  summary: string;
+}
+
+async function fetchHeadToHead(fixtureId: number): Promise<H2HLine[]> {
   const response = await footballDataFetch<Head2HeadResponse>(`/matches/${fixtureId}/head2head?limit=5`);
   return response.matches
     .filter((m) => m.status === "FINISHED")
@@ -209,8 +225,57 @@ async function fetchHeadToHead(fixtureId: number): Promise<FormLine[]> {
     }));
 }
 
+interface FootballDataStandingRow {
+  position: number;
+  team: FootballDataTeam;
+  playedGames: number;
+  points: number;
+  goalsFor: number;
+  goalsAgainst: number;
+}
+
+interface FootballDataStandingsResponse {
+  standings: { type: string; table: FootballDataStandingRow[] }[];
+}
+
+// A competition's table barely moves within a day — cached far longer than a live score, short
+// enough that it's never more than a day stale for the standings infogram.
+const STANDINGS_CACHE_TTL_MS = 6 * 60 * 60_000;
+const standingsCache = new Map<string, { at: number; rows: FootballDataStandingRow[] }>();
+
+async function fetchCompetitionStandingsRows(code: string): Promise<FootballDataStandingRow[]> {
+  const cached = standingsCache.get(code);
+  if (cached && Date.now() - cached.at < STANDINGS_CACHE_TTL_MS) return cached.rows;
+
+  const response = await footballDataFetch<FootballDataStandingsResponse>(`/competitions/${code}/standings`);
+  const total = response.standings.find((s) => s.type === "TOTAL") ?? response.standings[0];
+  const rows = total?.table ?? [];
+  standingsCache.set(code, { at: Date.now(), rows });
+  return rows;
+}
+
+// Standings are an enrichment (like injuries), not a core fact the whole digest depends on — a
+// failed or unavailable fetch here just means the infogram doesn't show a table position, never a
+// failed analysis. Unlike everything else in fetchFootballDigest, this is allowed to swallow its
+// own error rather than let it propagate.
+async function fetchCompetitionStandingsRowsSafe(code: string): Promise<FootballDataStandingRow[]> {
+  try {
+    return await fetchCompetitionStandingsRows(code);
+  } catch {
+    return [];
+  }
+}
+
+// Test-only: clears the standings cache so selftest cases don't see stale rows from an earlier
+// case sharing the same competition code.
+export function __resetStandingsCacheForTests(): void {
+  standingsCache.clear();
+}
+
 export interface FootballDigest {
   text: string;
+  homeStanding: TeamStanding | null;
+  awayStanding: TeamStanding | null;
 }
 
 interface FootballDigestInput {
@@ -270,11 +335,27 @@ async function fetchFootballDigest(input: FootballDigestInput, cacheKey: string)
     throw new Error(`Could not find a fixture between ${input.homeTeam} and ${input.awayTeam} on football-data.org.`);
   }
 
-  const [homeForm, awayForm, h2h] = await Promise.all([
+  const [homeForm, awayForm, h2h, standingsRows] = await Promise.all([
     fetchForm(home.id),
     fetchForm(away.id),
     fetchHeadToHead(fixture.id),
+    fetchCompetitionStandingsRowsSafe(code),
   ]);
+
+  const toStanding = (teamId: number, form: FormLine[]): TeamStanding | null => {
+    const row = standingsRows.find((r) => r.team.id === teamId);
+    if (!row) return null;
+    return {
+      position: row.position,
+      playedGames: row.playedGames,
+      points: row.points,
+      goalsFor: row.goalsFor,
+      goalsAgainst: row.goalsAgainst,
+      form: formLetters(form),
+    };
+  };
+  const homeStanding = toStanding(home.id, homeForm);
+  const awayStanding = toStanding(away.id, awayForm);
 
   const notYetStarted = NOT_YET_STARTED.has(fixture.status);
   const statusLabel = STATUS_LABEL[fixture.status] ?? fixture.status;
@@ -283,8 +364,15 @@ async function fetchFootballDigest(input: FootballDigestInput, cacheKey: string)
     : `Match status: ${statusLabel} — current score ${input.homeTeam} ${fixture.score.fullTime.home ?? "?"}-` +
       `${fixture.score.fullTime.away ?? "?"} ${input.awayTeam}, kickoff was ${new Date(fixture.utcDate).toUTCString()}.`;
 
+  const standingsLine = (name: string, s: TeamStanding | null) =>
+    s ? `${name}: #${s.position}, ${s.points}pts, ${s.playedGames} played, ${s.goalsFor}-${s.goalsAgainst} goals` : `${name}: not available`;
+
   const text = `Match Status:
 ${statusLine}
+
+League Standings:
+${standingsLine(input.homeTeam, homeStanding)}
+${standingsLine(input.awayTeam, awayStanding)}
 
 ${input.homeTeam} Form (last 5 completed matches):
 ${homeForm.length > 0 ? homeForm.map((f) => `- ${f.date}: ${f.summary}`).join("\n") : "No recent completed fixtures found."}
@@ -295,7 +383,7 @@ ${awayForm.length > 0 ? awayForm.map((f) => `- ${f.date}: ${f.summary}`).join("\
 Head-to-Head History (last 5 meetings):
 ${h2h.length > 0 ? h2h.map((f) => `- ${f.date}: ${f.summary}`).join("\n") : "No previous meetings found."}`;
 
-  const digest: FootballDigest = { text };
+  const digest: FootballDigest = { text, homeStanding, awayStanding };
   digestCache.set(cacheKey, { at: Date.now(), digest });
   return digest;
 }
