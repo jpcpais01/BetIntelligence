@@ -121,36 +121,45 @@ async function run() {
     );
   }
 
-  // --- Status/clock mapping: every state this app actually branches on ---
+  // --- Status/clock mapping: every state this app actually branches on. getLiveScores only ever
+  // returns live-relevant matches (IN_PLAY, PAUSED, FINISHED) — a not-yet-started or postponed
+  // match is filtered out entirely, which is exactly what stops it from ever rendering as a
+  // spurious "LIVE 0-0" card, so those cases assert on an empty result rather than indexing [0]. ---
   {
     const caseFor = (event: ReturnType<typeof espnEvent>) => {
       globalThis.fetch = (async () => ok({ events: [event] })) as unknown as typeof fetch;
-      return getLiveScores(["premier-league"]).then((scores) => scores[0]);
+      return getLiveScores(["premier-league"]);
     };
 
-    check(
-      "a scheduled match (state pre) maps to SCHEDULED with no clock",
-      (await caseFor(espnEvent({ home: { displayName: "A" }, away: { displayName: "B" }, statusName: "STATUS_SCHEDULED", state: "pre" })))
-        .status === "SCHEDULED"
+    const scheduled = await caseFor(
+      espnEvent({ home: { displayName: "A" }, away: { displayName: "B" }, statusName: "STATUS_SCHEDULED", state: "pre" })
     );
-    const halftime = await caseFor(
+    check(
+      "a scheduled match (state pre) is filtered out, not shown as live",
+      scheduled.length === 0,
+      JSON.stringify(scheduled)
+    );
+
+    const halftimeScores = await caseFor(
       espnEvent({ home: { displayName: "A" }, away: { displayName: "B" }, statusName: "STATUS_HALFTIME", state: "in", homeScore: "1", awayScore: "0" })
     );
-    check("halftime maps to PAUSED", halftime.status === "PAUSED", halftime.status);
-    check("halftime's clock label reads HT", halftime.clockLabel === "HT", halftime.clockLabel);
+    const halftime = halftimeScores[0];
+    check("halftime maps to PAUSED", halftime?.status === "PAUSED", halftime?.status);
+    check("halftime's clock label reads HT", halftime?.clockLabel === "HT", halftime?.clockLabel);
 
     const postponed = await caseFor(
       espnEvent({ home: { displayName: "A" }, away: { displayName: "B" }, statusName: "STATUS_POSTPONED", state: "pre" })
     );
-    check("a postponed match maps to POSTPONED, not SCHEDULED", postponed.status === "POSTPONED", postponed.status);
+    check("a postponed match is filtered out, not shown as live", postponed.length === 0, JSON.stringify(postponed));
 
-    const noClockYet = await caseFor(
+    const noClockYetScores = await caseFor(
       espnEvent({ home: { displayName: "A" }, away: { displayName: "B" }, statusName: "STATUS_IN_PROGRESS", state: "in", homeScore: "0", awayScore: "0" })
     );
+    const noClockYet = noClockYetScores[0];
     check(
       "an in-play match with no displayClock reported has no clock label rather than a blank string",
-      noClockYet.clockLabel === undefined,
-      JSON.stringify(noClockYet.clockLabel)
+      noClockYet?.clockLabel === undefined,
+      JSON.stringify(noClockYet?.clockLabel)
     );
   }
 

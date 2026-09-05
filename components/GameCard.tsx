@@ -48,10 +48,14 @@ export default function GameCard({
   // kickoff-based label for leagues/matches this enrichment doesn't cover. The clock is what makes
   // this read as genuinely live rather than just eventually-correct: a bare "LIVE" label never told
   // you whether that meant kickoff just happened or the 90th minute.
+  // liveScore is already filtered to live-relevant statuses (getLiveScores excludes anything not
+  // yet kicked off or not resolved), but the check here still spells out exactly which statuses
+  // count as "live" rather than assuming "not FINISHED" — so a not-yet-started or postponed match
+  // can never render as "LIVE 0-0" even if that filtering upstream ever changed.
   const scoreLabel = liveScore
     ? `${liveScore.clockLabel ?? (liveScore.status === "FINISHED" ? "FT" : "LIVE")} ${liveScore.homeGoals ?? "-"}-${liveScore.awayGoals ?? "-"}`
     : null;
-  const isLive = liveScore ? liveScore.status !== "FINISHED" : heuristicLive;
+  const isLive = liveScore ? liveScore.status === "IN_PLAY" || liveScore.status === "PAUSED" : heuristicLive;
 
   return (
     <div

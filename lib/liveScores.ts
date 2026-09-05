@@ -151,6 +151,14 @@ async function fetchScoreboard(slug: string, datesParam: string): Promise<EspnEv
   return Array.isArray(data.events) ? data.events : [];
 }
 
+// getLiveScores only ever needs to answer "is this worth showing a score/clock badge for right
+// now" — a match that hasn't kicked off yet (or was postponed/suspended/cancelled) has neither, so
+// it's filtered out here rather than left for GameCard to guess about. Without this, ESPN's ±1 day
+// scoreboard window includes today's not-yet-started fixtures, and a card would show them as
+// "LIVE 0-0" (no clock, no real status check beyond "not FINISHED") instead of their normal
+// pre-match kickoff-time label.
+const LIVE_RELEVANT_STATUSES = new Set(["IN_PLAY", "PAUSED", "FINISHED"]);
+
 // Enriches the games list with a real live score and match clock. One request per requested
 // league — a ±1 day window is enough for "is this worth showing on screen right now", the same
 // intent getLiveScores has always had. A league whose fetch fails contributes nothing rather than
@@ -164,7 +172,9 @@ export async function getLiveScores(leagues: LeagueId[]): Promise<LiveScoreEntry
       if (!slug) return [];
       try {
         const events = await fetchScoreboard(slug, datesParam);
-        return events.map((e) => toLiveScoreEntry(league, e)).filter((e): e is LiveScoreEntry => e !== null);
+        return events
+          .map((e) => toLiveScoreEntry(league, e))
+          .filter((e): e is LiveScoreEntry => e !== null && LIVE_RELEVANT_STATUSES.has(e.status));
       } catch (err) {
         console.error(`getLiveScores(${league}) failed`, err);
         return [];

@@ -92,6 +92,12 @@ true here since the underlying problem was never about which provider:
   full name would mean those clubs silently get no live score *and*
   [never settle](#settling-football-bets-against-the-real-result), while every other club works
   fine — exactly what makes this kind of bug look intermittent rather than systematic.
+- **Only live-relevant matches ever come back.** `getLiveScores` only returns matches that are
+  actually `IN_PLAY`, `PAUSED`, or `FINISHED` — a fixture ESPN's ±1-day scoreboard window happens to
+  include but that hasn't kicked off yet (or was postponed/suspended/cancelled) is filtered out
+  before it ever reaches a card. Without that filter, a not-yet-started match would show up as
+  "LIVE 0-0" with no clock, since nothing downstream distinguishes "no data" from "genuinely
+  scoreless" — a real bug this app shipped with briefly.
 
 `MOCK_GAMES=1` skips this entirely, since mock fixtures carry real club names but synthetic kickoff
 times and would otherwise risk picking up an unrelated real match between two same-named clubs.
