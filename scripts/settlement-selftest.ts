@@ -1,7 +1,7 @@
 import { legResult, settleBet, computeLegResults, wonTeamName } from "../lib/settlement";
 import type { SlipLeg } from "../lib/betslip";
 import type { PlacedBet } from "../lib/placedBets";
-import type { LiveScoreEntry } from "../lib/footballData";
+import type { LiveScoreEntry } from "../lib/liveScores";
 
 const HOUR = 60 * 60 * 1000;
 

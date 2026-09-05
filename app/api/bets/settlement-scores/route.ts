@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getMatchResultsSince } from "@/lib/footballData";
+import { getMatchResultsSince } from "@/lib/liveScores";
 import { isLeagueId } from "@/lib/leagues";
 import type { LeagueId } from "@/lib/types";
 

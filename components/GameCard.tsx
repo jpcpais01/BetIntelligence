@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { Game, Probabilities } from "@/lib/types";
 import type { LastAnalysisEntry } from "@/lib/lastAnalysis";
-import type { LiveScoreEntry } from "@/lib/footballData";
+import type { LiveScoreEntry } from "@/lib/liveScores";
 import { formatCompactNumber, formatKickoff, formatRelativeTime, toPercent, toSignedPercent, formatCostUsd } from "@/lib/format";
 import { isTopGame } from "@/lib/topTeams";
 import { hasKickedOff } from "@/lib/matchClock";
@@ -43,11 +43,13 @@ export default function GameCard({
   const started = hasKickedOff(game.startTime);
   const effectiveOdds = liveOdds ?? game.odds;
 
-  // A real score from football-data.org (when available) replaces the plain "LIVE NOW" guess with
-  // the actual result — "LIVE 2-1", "HT 1-0", or "FT 3-1" — falling back to the existing
-  // kickoff-based label for leagues/matches this enrichment doesn't cover.
+  // A real score (when available) replaces the plain "LIVE NOW" guess with the actual result AND
+  // the actual match clock — "63' 2-1", "HT 1-0", "FT 3-1" — falling back to the existing
+  // kickoff-based label for leagues/matches this enrichment doesn't cover. The clock is what makes
+  // this read as genuinely live rather than just eventually-correct: a bare "LIVE" label never told
+  // you whether that meant kickoff just happened or the 90th minute.
   const scoreLabel = liveScore
-    ? `${liveScore.status === "FINISHED" ? "FT" : liveScore.status === "PAUSED" ? "HT" : "LIVE"} ${liveScore.homeGoals ?? "-"}-${liveScore.awayGoals ?? "-"}`
+    ? `${liveScore.clockLabel ?? (liveScore.status === "FINISHED" ? "FT" : "LIVE")} ${liveScore.homeGoals ?? "-"}-${liveScore.awayGoals ?? "-"}`
     : null;
   const isLive = liveScore ? liveScore.status !== "FINISHED" : heuristicLive;
 

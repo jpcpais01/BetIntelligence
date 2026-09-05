@@ -40,8 +40,8 @@ rather than sitting there for the rest of the day showing odds nobody can bet in
 
 "Over" is answered in exactly one place, `lib/matchClock.ts`, and everything else defers to it:
 
-- The real provider status wins when there is one — a match football-data.org reports as
-  `FINISHED` is over the moment it says so, however recently it kicked off.
+- The real provider status wins when there is one — a match reported as `FINISHED` is over the
+  moment it says so, however recently it kicked off.
 - The kickoff clock is the backstop everywhere else (`MATCH_OVER_AFTER_MS`, 3h — 90 minutes plus
   half time, stoppage and any realistic delay, rounded up). It covers leagues the provider doesn't,
   fixtures it didn't return, and the case where it simply stops updating: without it, an abandoned
@@ -49,84 +49,94 @@ rather than sitting there for the rest of the day showing odds nobody can bet in
 
 That single definition also decides when a saved pick is pruned (`pruneFinishedPicks`), how long
 `mergeGames` keeps carrying a game the upstream feed has dropped, and when live-score polling
-stops. It used to be four different hardcoded numbers — 3h in two places, 24h in two others — and
-the mismatch was the bug: score polling gave up at 6h while the card stayed on screen for 24h, so a
-finished match spent the rest of the day displaying its pre-match kickoff time and never a result.
-[Settlement](#settling-football-bets-against-the-real-result) doesn't consult this module at all —
-it settles from the real score directly, not from a clock-based guess about whether one exists yet.
+stops. [Settlement](#settling-football-bets-against-the-real-result) doesn't consult this module at
+all — it settles from the real score directly, not from a clock-based guess about whether one
+exists yet.
 
 Because kickoff and full time are moments that pass with no data arriving to announce them, the
 page keeps its own 30-second clock tick, so a match appears and disappears on time rather than
 whenever some unrelated fetch happens to land.
 
-### Live scores on the card
+### Live scores and match clock, from ESPN
 
-A card's full odds refresh happens only every 30 minutes (see
-[Filtering and refreshing](#filtering-and-refreshing)) — fine for pre-match prices, but a "LIVE NOW"
-label with no score would go stale the moment the first goal went in. From 15 minutes before
-kickoff until the match is over, the page polls `/api/games/live-scores` every 60 seconds, sending
-only the leagues that actually have a match in play right now — checking every covered league
-regardless of what's showing used to be most of the free tier's entire 10-requests/minute budget by
-itself, crowding out real analysis into 429s. The poll interval matches the server's own per-league
-cache TTL exactly, so each poll gets genuinely fresh data at a predictable cost of one request per
-live league per minute, leaving most of the budget for analysis.
+A card's general odds refresh is click-triggered, not automatic (see
+[Filtering and refreshing](#filtering-and-refreshing)) — fine for pre-match prices, but a live match
+needs its score and clock updating on its own, with nobody tapping anything. `lib/liveScores.ts`
+gets both from ESPN's public site API (`site.api.espn.com`) — no key, and no documented rate limit,
+unlike football-data.org (still used for the [AI digest](#how-the-ai-analysis-works)'s
+form/standings/head-to-head, a different feature with no ESPN equivalent). This used to run through
+football-data.org too, sharing its 10-requests/minute budget with AI analysis: a single match digest
+alone is 4-5 requests, so a batch analysis of several could be 30-50, and a live-score poll that
+queued behind that would sit past its own route's server timeout and get killed with nothing to
+show for it — indistinguishable, from the outside, from "live scores just don't work." Moving to a
+source with no shared budget removes the failure mode outright rather than papering over it.
 
-That budget is still shared with the AI analysis pipeline, though, and analysis can burn through
-most of it at once — a single match's digest alone is 4-5 requests, so a batch analysis of several
-matches can be 30-50. A live-score (or [settlement](#settling-football-bets-against-the-real-result))
-request that queued behind that, waiting for its own turn at the budget, would sit there past its
-own API route's server timeout and get killed with nothing to show for it — which looks exactly
-like "live scores just don't work," when the real cause was contention with an unrelated feature
-sharing the same budget. So this one call is **best-effort**: it claims a slot only if one is free
-right now, and if the budget is fully claimed it fails immediately rather than queuing — costing
-nothing, since the next poll tries again in 60 seconds regardless. Only requests a user is directly
-waiting on (an Analyze tap) keep the patient, queuing behavior, where a slower real answer beats a
-fast empty one. Every failure here — a busy budget, a missing API key, an actual network error — is
-also now logged server-side; before this it failed completely silently, which made "why don't live
-scores show up" impossible to actually diagnose from the outside.
-
-The result replaces the guessed "LIVE NOW" badge with the real thing — "LIVE 2-1", "HT 1-0",
-"FT 3-1" — and is what tells the page a match is finished so it can drop off the list. Two more
-details that were previously wrong here, and are worth knowing about:
+From 15 minutes before kickoff until the match is over, the page polls `/api/games/live-scores`
+every 20 seconds — comfortably inside "at least once a minute," and cheap to do since there's no
+budget to protect — sending only the leagues that actually have a match in play right now. The
+result replaces the guessed "LIVE NOW" badge with the real thing: the score **and** ESPN's own live
+match clock — "63′ 2-1", "HT 1-0", "FT 3-1" — which is what actually makes a card read as live
+rather than just eventually-correct; a bare "LIVE" label never said whether that meant kickoff had
+just happened or the 90th minute had. It's also what tells the page a match is finished so it can
+drop off the list. Two details worth knowing about, both from the football-data.org era and still
+true here since the underlying problem was never about which provider:
 
 - **Results are merged, never replaced.** Each poll only covers the leagues in play at that moment,
-  so overwriting the whole set wiped every result belonging to a league that had just stopped being
-  polled. That's what made a settled "FT 2-1" flip back to showing a kickoff time, and what let a
-  match already known to be finished reappear on the list.
-- **Clubs are matched on both of the provider's names.** football-data.org returns a full legal name
-  and a short one, and for a good few clubs only the short form is recognisable from Polymarket's
-  naming — nothing matches "Wolverhampton Wanderers FC" to "Wolves", "Tottenham Hotspur FC" to
-  "Spurs", or "FC Internazionale Milano" to "Inter Milan". Checking only the full name meant those
-  clubs silently had no live score *and* [never settled](#settling-football-bets-against-the-real-result),
-  while every other club worked fine — which is exactly what made it look intermittent.
+  so overwriting the whole set would wipe every result belonging to a league that had just stopped
+  being polled — a settled "FT 2-1" flipping back to a kickoff time, or a match already known
+  finished reappearing on the list.
+- **Clubs are matched on both of the provider's names.** ESPN (like football-data.org before it)
+  returns a full display name and a shorter one, and for a good few clubs only the short form is
+  recognisable from Polymarket's naming — nothing matches "Wolverhampton Wanderers" to "Wolves",
+  "Tottenham Hotspur" to "Spurs", or "FC Internazionale Milano" to "Inter Milan". Checking only the
+  full name would mean those clubs silently get no live score *and*
+  [never settle](#settling-football-bets-against-the-real-result), while every other club works
+  fine — exactly what makes this kind of bug look intermittent rather than systematic.
 
 `MOCK_GAMES=1` skips this entirely, since mock fixtures carry real club names but synthetic kickoff
 times and would otherwise risk picking up an unrelated real match between two same-named clubs.
 
-### Live odds once a match kicks off
+### Live odds every 10 seconds, isolated from the general refresh
 
-Odds move fast once a match is actually underway, and the 30-minute refresh alone would show a
-stale price for most of the game. For any game on the list that has kicked off — so never one
-that's already over — the page polls `/api/games/live-odds` every 5 seconds: a single bounded,
-page-0-only request per distinct league, reusing the exact same tag-slug/series-id fetch strategies
-and event parser `getUpcomingGames` itself relies on, rather than the full multi-strategy sweep
-(too expensive to repeat every 5 seconds). Polymarket has no comparable rate limit, which is why
-this can be so much tighter than the score poll above. A partner league's series id (Premier
-League, La Liga, Serie A) is resolved once and cached, not rediscovered on every poll. A game not
-returned (its league not currently live, or between polls) just keeps its last known odds.
+Odds move fast once a match is actually underway. For any game on the list that has kicked off — so
+never one that's already over — the page polls `/api/games/live-odds` every 10 seconds: a single
+bounded, page-0-only request per distinct league, reusing the exact same tag-slug/series-id fetch
+strategies and event parser `getUpcomingGames` itself relies on, rather than the full
+multi-strategy sweep (too expensive to repeat that often). Polymarket has no comparable rate limit
+to worry about here. A partner league's series id (Premier League, La Liga, Serie A) is resolved
+once and cached, not rediscovered on every poll. A game not returned (its league not currently live,
+or between polls) just keeps its last known odds.
 
-Both polls subscribe on a joined *string* key rather than a freshly-built array. That sounds like a
-detail, but depending on the array meant every incoming score rebuilt it, tore down both intervals
-and restarted them — so neither poll ever actually ran at its own stated cadence.
+**A live game's odds belong exclusively to this poll — a general refresh can never touch them.**
+`mergeGames` (`lib/gamesCache.ts`) takes the current set of live game ids and, for any of them,
+keeps the game's existing `odds` field instead of the general sweep's, no matter how that sweep was
+triggered (the initial load, returning to a stale tab, or tapping refresh). Everything else about
+the game — volume, liquidity, tokenIds — still updates normally; only the one field the fast poll
+already owns is protected. Without this, a general refresh landing moments after a live-odds poll
+would silently overwrite a current, correct price with an older snapshot from a completely
+different fetch strategy.
 
-### A recently-kicked-off game doesn't vanish from the list
+Both the score and odds polls subscribe on a joined *string* key rather than a freshly-built array.
+That sounds like a detail, but depending on the array meant every incoming score rebuilt it, tore
+down both intervals and restarted them — so neither poll ever actually ran at its own stated
+cadence.
 
-`getUpcomingGames` (`lib/polymarket.ts`) asks Polymarket for events with `closed:"false"`, and
-Polymarket flips that flag within hours of kickoff — well before the match itself is done. Left
-alone, that meant a full refresh (every 30 minutes, or on tab focus) would drop a game mid-match,
-the instant Polymarket stopped offering it. `mergeGames` (`lib/gamesCache.ts`) fixes this
-client-side rather than guessing at Polymarket's exact timing: each refresh merges the fresh fetch
-with whatever was already on screen, keeping a match that has kicked off but isn't over yet.
+### The general odds sweep is click-triggered, capped at 10-minute precision
+
+Polymarket's full event list (`getUpcomingGames`) isn't on an automatic timer at all — it fetches on
+the initial page load, when you tap the refresh button, and when you return to a tab that's been in
+the background — and every one of those is throttled to firing at most once every 10 minutes.
+Non-live odds simply don't move fast enough to need checking more often than that, and it keeps
+polling out of live games' way entirely (see above). Tapping refresh inside that 10-minute window
+is a quiet no-op rather than an error; the one exception is the **Try again** button shown on a
+failed fetch, which bypasses the floor so one network blip doesn't lock you out of retrying for the
+rest of the window.
+
+`getUpcomingGames` asks Polymarket for events with `closed:"false"`, and Polymarket flips that flag
+within hours of kickoff — well before the match itself is done. Left alone, that would drop a game
+mid-match the instant Polymarket stopped offering it. `mergeGames` fixes this client-side rather
+than guessing at Polymarket's exact timing: each sweep merges the fresh fetch with whatever was
+already on screen, keeping a match that has kicked off but isn't over yet.
 
 Two things are deliberately *not* preserved: a game that hasn't started and is simply missing from a
 fresh fetch (that's a real removal — delisted, filters changed), and one that's already over (the
@@ -304,12 +314,13 @@ placed bets with their own live P&L.
 A placed bet used to just sit as mark-to-market forever — the app had no way to know how a match
 actually finished, so even a bet on a match that ended days ago kept "repricing" instead of ever
 becoming a real win or loss. `lib/settlement.ts` fixes this for football legs, and does it from
-exactly one source of truth: **the real, final score of the match**, from football-data.org. There
-used to be a second path that read a bet's own match-price on Polymarket instead, on the theory
-that it would settle faster — it added a whole second way for a leg to resolve, with its own gate
-and its own edge cases, and was removed because relying on price movement to mean the same thing
-as a result is exactly the kind of "clever" that made settlement hard to reason about. The rule now
-is the plain one: **if the game is finished, settle the bet — or the part of it that's decided.**
+exactly one source of truth: **the real, final score of the match**, from ESPN
+(`lib/liveScores.ts`, [above](#live-scores-and-match-clock-from-espn)). There used to be a second
+path that read a bet's own match-price on Polymarket instead, on the theory that it would settle
+faster — it added a whole second way for a leg to resolve, with its own gate and its own edge
+cases, and was removed because relying on price movement to mean the same thing as a result is
+exactly the kind of "clever" that made settlement hard to reason about. The rule now is the plain
+one: **if the game is finished, settle the bet — or the part of it that's decided.**
 
 `resolvePendingSettlements` runs once when Home or Lab first loads, and then again every 60
 seconds for as long as the tab stays open — it used to run only on that first load, so a match
@@ -319,14 +330,12 @@ ref mirroring state rather than a direct effect dependency, for the same reason 
 live-score/live-odds polling does: depending on the bets array directly would tear the interval
 down and rebuild it every time a bet settled, so it would never actually run on schedule.
 
-Each check looks only at legs still genuinely open. `getMatchResultsSince` (`lib/footballData.ts`)
+Each check looks only at legs still genuinely open. `getMatchResultsSince` (`lib/liveScores.ts`)
 asks `/api/bets/settlement-scores` for the real final score of every match a still-pending leg
 belongs to, looking back as far as that league's oldest unsettled bet needs rather than just "right
-now" — matched against both of football-data.org's names for a club, full and short, since checking
-only the full name meant a bet on Wolves, Spurs, Man City or Inter never found its own match and
-stayed Pending forever, however long ago it finished, while bets on other clubs settled normally.
-This request is also best-effort: it skips rather than queues behind AI analysis work sharing the
-same football-data.org budget, and the next check (60 seconds later) tries again.
+now" — matched against both of ESPN's names for a club, full and short, since checking only the
+full name meant a bet on Wolves, Spurs, Man City or Inter never found its own match and stayed
+Pending forever, however long ago it finished, while bets on other clubs settled normally.
 
 **A leg's result is cached the moment it's known, and never asked about again.** Once
 `computeLegResults` has resolved a leg to Won or Lost, that's final — a finished match's score
@@ -639,9 +648,13 @@ OpenRouter's rate limits) and each result appears in the sheet as it finishes.
   essentially never change), so a club is only ever looked up once across the app's lifetime; any club
   with no crest, or whose image fails to load, falls back to its initials.
 - **Caching** — fetched markets are cached in `localStorage`, so reopening the app renders instantly
-  with no network request. They refresh automatically every 30 minutes, when you return to a tab
-  that's gone stale, and whenever you tap the refresh button in the header. If a refresh fails, the
-  last known odds stay on screen with a notice rather than being replaced by an error.
+  with no network request. There's no automatic timer: the general odds sweep runs on the initial
+  load, when you return to a tab that's gone stale, and whenever you tap the refresh button in the
+  header — throttled to at most once every 10 minutes either way (see
+  [The general odds sweep is click-triggered](#the-general-odds-sweep-is-click-triggered-capped-at-10-minute-precision)).
+  A currently-live game's own odds are never touched by this sweep at all — they're owned entirely
+  by its dedicated 10-second live-odds poll. If a refresh fails, the last known odds stay on screen
+  with a notice rather than being replaced by an error.
 
 ## Bottom navigation
 
@@ -704,7 +717,8 @@ required to run AI analysis.
     list for the Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Primeira Liga, Eredivisie,
     Belgian Pro League, and the Champions League, and derives 1X2 probabilities from each match's
     three moneyline sub-markets. The same module's `fetchLiveOdds` refreshes odds for currently-live
-    games every 5 seconds — see [Live odds once a match kicks off](#live-odds-once-a-match-kicks-off).
+    games every 10 seconds — see
+    [Live odds every 10 seconds](#live-odds-every-10-seconds-isolated-from-the-general-refresh).
   - `lib/allMarkets.ts` (Discover) sweeps the highest-volume active events across every category,
     with no fixed category list — categories shown are derived from whatever tags Polymarket
     actually returns on the fetched markets.
@@ -713,10 +727,14 @@ required to run AI analysis.
   any-market prompts (both share the same request/retry/JSON-parsing core in `lib/openrouter.ts`).
 - **Football match data**: [football-data.org](https://www.football-data.org/) (`api.football-data.org/v4`)
   — `lib/footballData.ts` fetches each team's recent form, head-to-head history, and the fixture's
-  own live status/score, and feeds that straight into the football research digest above. The same
-  provider also powers the games list's live-score badge (`getLiveScores`, one request per covered
-  league rather than per match) — see [Live scores on the card](#live-scores-on-the-card). No
-  fallback to web search on a miss.
+  pre-match status, and feeds that straight into the football research digest above. No fallback to
+  web search on a miss.
+- **Live scores and match clock, and bet settlement**: [ESPN's public site API](https://site.api.espn.com/)
+  (undocumented, no key) — `lib/liveScores.ts` powers the games list's live-score badge and clock
+  (`getLiveScores`, one request per league in play) and [bet settlement](#settling-football-bets-against-the-real-result)'s
+  real final score (`getMatchResultsSince`), both across all 9 covered leagues including Belgian Pro
+  League, which football-data.org's free tier never had a code for at all — see
+  [Live scores and match clock](#live-scores-and-match-clock-from-espn).
 - **Football injuries/availability**: [Big Balls Sports Data](https://bigballsdata.com/)
   (`api.bigballsdata.com/v1`) — `lib/bigBallsData.ts` fetches each covered league's current injury
   list plus a team-id-to-name lookup (a player record carries only an opaque team id, no name —

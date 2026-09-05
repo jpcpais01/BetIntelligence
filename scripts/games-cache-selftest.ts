@@ -31,8 +31,8 @@ const HOUR = 60 * 60 * 1000;
 
 function run() {
   const failures: string[] = [];
-  const check = (name: string, cond: boolean) => {
-    if (!cond) failures.push(name);
+  const check = (name: string, cond: boolean, detail?: string) => {
+    if (!cond) failures.push(detail ? `${name}: ${detail}` : name);
     console.log(`  ${cond ? "ok" : "FAIL"}  ${name}`);
   };
 
@@ -63,6 +63,47 @@ function run() {
   const freshOdds = fakeGame("g5", isoAgo(HOUR));
   const merged4 = mergeGames([staleOdds], [freshOdds]);
   check("fresh data replaces the previous copy of a game present in both", merged4.length === 1 && merged4[0].odds.home === 0.4);
+
+  // A live game's own odds are exempt from the fresh-wins rule: the dedicated live-odds poll owns
+  // that field once a match has kicked off, so a general sweep landing moments later must not
+  // overwrite it with a less current snapshot — the exact "manual refresh doesn't affect live
+  // games" requirement.
+  {
+    const stalePrevious = { ...fakeGame("g8", isoAgo(HOUR)), odds: { home: 0.7, draw: 0.2, away: 0.1 }, volume: 100 };
+    const freshSweep = { ...fakeGame("g8", isoAgo(HOUR)), odds: { home: 0.3, draw: 0.3, away: 0.4 }, volume: 250 };
+    const merged = mergeGames([stalePrevious], [freshSweep], new Set(["g8"]));
+    check(
+      "a live game's odds are kept from the previous copy, not overwritten by a general sweep",
+      merged.length === 1 && merged[0].odds.home === 0.7,
+      `${JSON.stringify(merged[0]?.odds)}`
+    );
+    check(
+      "everything else about a live game still updates from the fresh fetch",
+      merged[0].volume === freshSweep.volume,
+      String(merged[0]?.volume)
+    );
+  }
+  {
+    // The same game, NOT marked live this time — the ordinary fresh-wins rule applies as normal.
+    const stalePrevious = { ...fakeGame("g9", isoAgo(HOUR)), odds: { home: 0.7, draw: 0.2, away: 0.1 } };
+    const freshSweep = { ...fakeGame("g9", isoAgo(HOUR)), odds: { home: 0.3, draw: 0.3, away: 0.4 } };
+    const merged = mergeGames([stalePrevious], [freshSweep], new Set());
+    check(
+      "a game not marked live still takes its odds from the fresh fetch as usual",
+      merged[0].odds.home === 0.3,
+      String(merged[0]?.odds.home)
+    );
+  }
+  {
+    // A game marked live but with no previous copy at all (first time seen) — nothing to preserve,
+    // so it just takes the fresh snapshot, same as any other new game.
+    const freshOnly = fakeGame("g10", isoAgo(HOUR));
+    const merged = mergeGames([], [freshOnly], new Set(["g10"]));
+    check(
+      "a newly-seen live game with no prior copy just uses the fresh snapshot",
+      merged.length === 1 && merged[0].odds.home === 0.4
+    );
+  }
 
   // Result stays sorted by kickoff time even when survivors are appended after fresh games.
   const early = fakeGame("g6", isoAgo(2 * HOUR));

@@ -1,7 +1,7 @@
 import type { SlipLeg } from "./betslip";
 import type { PlacedBet } from "./placedBets";
 import { applySettlements, applyLegResults } from "./placedBets";
-import type { LiveScoreEntry } from "./footballData";
+import type { LiveScoreEntry } from "./liveScores";
 import type { LeagueId } from "./types";
 import { teamNamesMatch, anyTeamNameMatches } from "./teamNameMatching";
 import { leagueIdByName } from "./leagues";

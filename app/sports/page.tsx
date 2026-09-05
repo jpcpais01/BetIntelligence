@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Game, LeagueId, Probabilities } from "@/lib/types";
 import GameCard from "@/components/GameCard";
 import GameCardSkeleton from "@/components/GameCardSkeleton";
@@ -12,24 +12,20 @@ import { AlertIcon, RefreshIcon, SparkleIcon, ListCheckIcon, CloseIcon } from "@
 import { isTopGame } from "@/lib/topTeams";
 import { useRequestLogos } from "@/components/ClubLogosProvider";
 import { formatRelativeTime } from "@/lib/format";
-import { loadCachedGames, saveCachedGames, isStale, mergeGames, REFRESH_INTERVAL_MS } from "@/lib/gamesCache";
+import { loadCachedGames, saveCachedGames, isStale, mergeGames } from "@/lib/gamesCache";
 import { hasKickedOff, isLiveCandidate, isMatchOver } from "@/lib/matchClock";
 import { loadSelectedLeagues, saveSelectedLeagues } from "@/lib/leaguePrefs";
 import { loadLastAnalyses, type LastAnalysisEntry } from "@/lib/lastAnalysis";
-import type { LiveScoreEntry } from "@/lib/footballData";
+import type { LiveScoreEntry } from "@/lib/liveScores";
 import { anyTeamNameMatches } from "@/lib/teamNameMatching";
 
-// Live scores come from football-data.org's free tier, which allows 10 requests/minute across the
-// WHOLE app — AI analysis included. getLiveScores costs one request per league being polled, and
-// the server caches each league for exactly this long (lib/footballData.ts), so polling at the
-// same cadence means every poll gets fresh data at a predictable cost of one request per live
-// league per minute. That leaves most of the budget for analysis, which matters: the rate limiter
-// makes a call WAIT for a slot rather than fail, so an over-eager score poll doesn't error, it
-// just stalls whatever the user actually asked for.
-const LIVE_SCORE_POLL_MS = 60_000;
-// Odds move fast once a match is underway, and Polymarket has no comparable rate limit, so this
-// polls far more tightly than the 30-minute full refresh — but only for games actually in play.
-const LIVE_ODDS_POLL_MS = 5_000;
+// Live scores now come from ESPN's public site API (lib/liveScores.ts), with no comparable rate
+// limit to football-data.org's — so this polls tightly enough to feel genuinely live (comfortably
+// under the "at least once a minute" bar) rather than being paced to protect a shared budget.
+const LIVE_SCORE_POLL_MS = 20_000;
+// Odds move fast once a match is underway; Polymarket has no comparable rate limit either, but
+// there's no reason to poll faster than the market itself meaningfully updates.
+const LIVE_ODDS_POLL_MS = 10_000;
 // How often the page re-asks "where is each match up to now?". Kickoff and full time are moments
 // that pass on their own, with no data arriving to announce them, so the clock has to advance by
 // itself or a match would only appear/disappear when some unrelated fetch happened to land. This
@@ -59,12 +55,24 @@ export default function Home() {
   const MAX_BATCH = 10;
   const requestLogos = useRequestLogos();
 
+  // Read by `refresh` below instead of depending on the `fetchedAt`/`liveGames` state directly —
+  // `refresh` is a stable useCallback (empty deps), so it needs a ref to see the CURRENT value at
+  // call time rather than whatever was current when it was first created.
+  const fetchedAtRef = useRef<string | null>(null);
+  const liveGameIdsRef = useRef<Set<string>>(new Set());
+
   // Re-read whenever an analysis sheet closes — analyses are cached automatically as soon as
   // they finish (lib/lastAnalysis.ts), whether or not the user tapped Save, so this is how a
   // card picks up "what the AI last said" right after you close the sheet.
   const refreshLastAnalysis = useCallback(() => setLastAnalysisMap(loadLastAnalyses()), []);
 
-  const refresh = useCallback(async () => {
+  // The general odds sweep is click-triggered (plus the initial load, and returning to a
+  // long-stale tab), never an automatic timer — but throttled so it's never asked to repeat itself
+  // inside ODDS_REFRESH_MIN_INTERVAL_MS (10 minutes), on the theory that non-live odds simply don't
+  // move fast enough to need it. `force` skips the throttle for explicit error recovery ("Try
+  // again"), so one failed fetch doesn't lock the user out for the rest of that window.
+  const refresh = useCallback(async (opts?: { force?: boolean }) => {
+    if (!opts?.force && fetchedAtRef.current && !isStale(fetchedAtRef.current)) return;
     setIsRefreshing(true);
     try {
       const res = await fetch("/api/games", { cache: "no-store" });
@@ -72,10 +80,11 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error || "Could not load games.");
       const now = new Date().toISOString();
       setGames((current) => {
-        const merged = mergeGames(current ?? [], data.games);
+        const merged = mergeGames(current ?? [], data.games, liveGameIdsRef.current);
         saveCachedGames(merged, now);
         return merged;
       });
+      fetchedAtRef.current = now;
       setFetchedAt(now);
       setError(null);
     } catch (err) {
@@ -85,25 +94,21 @@ export default function Home() {
     }
   }, []);
 
-  // Show cached markets instantly on load, then revalidate in the background if they've aged out.
+  // Show cached markets instantly on load, then revalidate in the background — `refresh` itself
+  // decides whether that's actually necessary (nothing cached at all always fetches; a fresh cache
+  // just no-ops).
   useEffect(() => {
     const cached = loadCachedGames();
+    /* eslint-disable react-hooks/set-state-in-effect -- hydrating from localStorage, unavailable during SSR */
     if (cached) {
-      /* eslint-disable react-hooks/set-state-in-effect -- hydrating from localStorage, unavailable during SSR */
       setGames(cached.games);
       setFetchedAt(cached.fetchedAt);
+      fetchedAtRef.current = cached.fetchedAt;
     }
     setSelectedLeagues(loadSelectedLeagues());
     setLastAnalysisMap(loadLastAnalyses());
     /* eslint-enable react-hooks/set-state-in-effect */
-    if (!cached || isStale(cached.fetchedAt)) {
-      void refresh();
-    }
-  }, [refresh]);
-
-  useEffect(() => {
-    const id = setInterval(() => void refresh(), REFRESH_INTERVAL_MS);
-    return () => clearInterval(id);
+    void refresh();
   }, [refresh]);
 
   useEffect(() => {
@@ -207,6 +212,14 @@ export default function Home() {
       .join(",");
   }, [liveGames, now]);
 
+  // Mirrors exactly the same "kicked off, not over" set liveOddsKey encodes — read by `refresh`
+  // above via the ref so a general odds sweep never overwrites what the live-odds poll owns.
+  useEffect(() => {
+    liveGameIdsRef.current = liveOddsKey
+      ? new Set(liveOddsKey.split(",").map((entry) => entry.slice(0, entry.lastIndexOf(":"))))
+      : new Set();
+  }, [liveOddsKey]);
+
   useEffect(() => {
     if (!liveOddsKey) return;
     const gameRefs = liveOddsKey.split(",").map((entry) => {
@@ -248,14 +261,15 @@ export default function Home() {
     requestLogos(liveGames.flatMap((g) => [g.homeTeam, g.awayTeam]));
   }, [liveGames, requestLogos]);
 
-  // Coming back to a tab that's been sitting open shouldn't show half-hour-old odds.
+  // Coming back to a tab that's been sitting open shouldn't show odds well past the 10-minute
+  // precision floor — `refresh` itself decides whether that much time has actually passed.
   useEffect(() => {
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible" && isStale(fetchedAt)) void refresh();
+      if (document.visibilityState === "visible") void refresh();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, [fetchedAt, refresh]);
+  }, [refresh]);
 
   const toggleLeague = useCallback((id: LeagueId) => {
     setSelectedLeagues((current) => {
@@ -385,7 +399,7 @@ export default function Home() {
             <AlertIcon className="h-6 w-6 text-accent-3" />
             <p className="selectable text-[13px] text-text-dim">{error}</p>
             <button
-              onClick={() => void refresh()}
+              onClick={() => void refresh({ force: true })}
               className="press mt-1 rounded-full bg-accent/12 px-4 py-2 text-xs font-semibold text-accent ring-1 ring-inset ring-accent/25"
             >
               Try again
