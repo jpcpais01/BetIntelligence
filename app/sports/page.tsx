@@ -18,6 +18,7 @@ import { loadSelectedLeagues, saveSelectedLeagues } from "@/lib/leaguePrefs";
 import { loadLastAnalyses, type LastAnalysisEntry } from "@/lib/lastAnalysis";
 import type { LiveScoreEntry } from "@/lib/liveScores";
 import { anyTeamNameMatches } from "@/lib/teamNameMatching";
+import { liveKey, fetchLivePrices, type LivePriceRequest } from "@/lib/livePrices";
 
 // Live scores now come from ESPN's public site API (lib/liveScores.ts), with no comparable rate
 // limit to football-data.org's — so this polls tightly enough to feel genuinely live (comfortably
@@ -47,6 +48,12 @@ export default function Home() {
   const [lastAnalysisMap, setLastAnalysisMap] = useState<Record<string, LastAnalysisEntry>>({});
   // Every match result seen so far this session, merged and never dropped — see the poll below.
   const [scoresByMatch, setScoresByMatch] = useState<Record<string, LiveScoreEntry>>({});
+  // The market's actual current price, straight from CLOB's own 5-minute-fidelity 3-hour series
+  // (lib/livePrices.ts) — the exact same source and window the odds-history chart's own last
+  // plotted point comes from, so a card's bars can never disagree with its own chart underneath.
+  // `game.odds` (from Polymarket's Gamma events feed, refreshed at most every 10 minutes) is only
+  // ever the seed/fallback here, not the displayed number, for any game whose token has traded
+  // recently enough for CLOB to have an opinion.
   const [liveOdds, setLiveOdds] = useState<Record<string, Probabilities>>({});
   // Read in an effect and advanced on a timer, never called during render: Date.now() is impure,
   // so a memo that called it directly would silently disagree with itself between re-renders.
@@ -60,6 +67,11 @@ export default function Home() {
   // call time rather than whatever was current when it was first created.
   const fetchedAtRef = useRef<string | null>(null);
   const liveGameIdsRef = useRef<Set<string>>(new Set());
+  // Mirrors `games` for the 10-second live-price poll below, so that poll can look up each live
+  // game's tokenIds/fallback odds without depending on the `games` array itself — depending on it
+  // directly would tear down and restart the poll's interval on every incoming score or odds
+  // update, the same "never runs at its own cadence" bug this file has already hit twice before.
+  const gamesRef = useRef<Game[] | null>(null);
 
   // Re-read whenever an analysis sheet closes — analyses are cached automatically as soon as
   // they finish (lib/lastAnalysis.ts), whether or not the user tapped Save, so this is how a
@@ -110,6 +122,44 @@ export default function Home() {
     /* eslint-enable react-hooks/set-state-in-effect */
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    gamesRef.current = games;
+  }, [games]);
+
+  // Seeds/refreshes every listed game's odds bars from CLOB's real current price the moment the
+  // games list itself changes (initial load, a manual refresh, or a live game rejoining after
+  // being merged back in) — not on its own timer, since that's exactly the cadence the general
+  // sweep already respects (see ODDS_REFRESH_MIN_INTERVAL_MS). A game whose token hasn't traded
+  // recently enough for CLOB to have an opinion keeps showing its own `game.odds` unchanged
+  // (fetchLivePrices seeds that as the fallback for every request).
+  useEffect(() => {
+    if (!games || games.length === 0) return;
+    const requests: LivePriceRequest[] = [];
+    for (const g of games) {
+      requests.push({ key: liveKey(g.id, "home"), tokenId: g.tokenIds?.home, fallback: g.odds.home });
+      requests.push({ key: liveKey(g.id, "draw"), tokenId: g.tokenIds?.draw, fallback: g.odds.draw });
+      requests.push({ key: liveKey(g.id, "away"), tokenId: g.tokenIds?.away, fallback: g.odds.away });
+    }
+    let cancelled = false;
+    fetchLivePrices(requests).then((result) => {
+      if (cancelled) return;
+      setLiveOdds((current) => {
+        const next = { ...current };
+        for (const g of games) {
+          next[g.id] = {
+            home: result[liveKey(g.id, "home")],
+            draw: result[liveKey(g.id, "draw")],
+            away: result[liveKey(g.id, "away")],
+          };
+        }
+        return next;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [games]);
 
   useEffect(() => {
     /* eslint-disable-next-line react-hooks/set-state-in-effect -- the wall clock isn't available during SSR */
@@ -220,30 +270,42 @@ export default function Home() {
       : new Set();
   }, [liveOddsKey]);
 
+  // Re-reads CLOB's current price for whichever games are actually live, every LIVE_ODDS_POLL_MS —
+  // the same source as the one-shot effect above, just refreshed far more often for the games that
+  // are actually moving right now. Reads gamesRef rather than depending on `games` directly so this
+  // interval isn't torn down and restarted by every incoming score/price update — only a genuine
+  // change to WHICH games are live (liveOddsKey) does that.
   useEffect(() => {
     if (!liveOddsKey) return;
-    const gameRefs = liveOddsKey.split(",").map((entry) => {
-      const separator = entry.lastIndexOf(":");
-      return { id: entry.slice(0, separator), league: entry.slice(separator + 1) };
-    });
+    const ids = liveOddsKey.split(",").map((entry) => entry.slice(0, entry.lastIndexOf(":")));
 
     let cancelled = false;
     const refreshLiveOdds = async () => {
-      try {
-        const res = await fetch("/api/games/live-odds", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ games: gameRefs }),
-          cache: "no-store",
-        });
-        if (!res.ok || cancelled) return;
-        const data = await res.json();
-        if (!cancelled && data.odds && typeof data.odds === "object") {
-          setLiveOdds((current) => ({ ...current, ...data.odds }));
-        }
-      } catch {
-        // Best-effort enrichment — cards just keep showing whatever odds they already had.
+      const currentGames = gamesRef.current ?? [];
+      const requests: LivePriceRequest[] = [];
+      for (const id of ids) {
+        const g = currentGames.find((game) => game.id === id);
+        if (!g) continue;
+        requests.push({ key: liveKey(g.id, "home"), tokenId: g.tokenIds?.home, fallback: g.odds.home });
+        requests.push({ key: liveKey(g.id, "draw"), tokenId: g.tokenIds?.draw, fallback: g.odds.draw });
+        requests.push({ key: liveKey(g.id, "away"), tokenId: g.tokenIds?.away, fallback: g.odds.away });
       }
+      if (requests.length === 0) return;
+      const result = await fetchLivePrices(requests);
+      if (cancelled) return;
+      setLiveOdds((current) => {
+        const next = { ...current };
+        for (const id of ids) {
+          const g = currentGames.find((game) => game.id === id);
+          if (!g) continue;
+          next[id] = {
+            home: result[liveKey(g.id, "home")],
+            draw: result[liveKey(g.id, "draw")],
+            away: result[liveKey(g.id, "away")],
+          };
+        }
+        return next;
+      });
     };
 
     void refreshLiveOdds();

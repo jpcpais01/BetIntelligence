@@ -102,16 +102,23 @@ true here since the underlying problem was never about which provider:
 `MOCK_GAMES=1` skips this entirely, since mock fixtures carry real club names but synthetic kickoff
 times and would otherwise risk picking up an unrelated real match between two same-named clubs.
 
-### Live odds every 10 seconds, isolated from the general refresh
+### The displayed odds always match CLOB's real current price
 
-Odds move fast once a match is actually underway. For any game on the list that has kicked off — so
-never one that's already over — the page polls `/api/games/live-odds` every 10 seconds: a single
-bounded, page-0-only request per distinct league, reusing the exact same tag-slug/series-id fetch
-strategies and event parser `getUpcomingGames` itself relies on, rather than the full
-multi-strategy sweep (too expensive to repeat that often). Polymarket has no comparable rate limit
-to worry about here. A partner league's series id (Premier League, La Liga, Serie A) is resolved
-once and cached, not rediscovered on every poll. A game not returned (its league not currently live,
-or between polls) just keeps its last known odds.
+A card's home/draw/away percentages, and the odds-history panel's own chart underneath it, both come
+from CLOB (`clob.polymarket.com`) — the same source, at the same 5-minute-fidelity 3-hour window
+(`lib/livePrices.ts`, reused from the exact mechanism Lab and Home's portfolio already relied on).
+`game.odds` — Polymarket's Gamma events feed, refreshed at most every 10 minutes by the general
+sweep below — is only ever the seed and the fallback for a token CLOB has no recent trade for, never
+the number actually shown. Before this, the bars read `game.odds` directly (or, once a match kicked
+off, a similarly Gamma-sourced 10-second poll) — a different provider than the chart's own data, so
+the two could disagree even though they were describing "the same" market at "the same" moment.
+
+Every listed game's price is fetched from CLOB the moment the games list itself changes (initial
+load, a manual refresh, a live game rejoining after a merge) — not on its own timer, since that
+already matches the general sweep's own cadence. For any game that has actually kicked off, that
+same CLOB read repeats every 10 seconds, since odds move fast once a match is underway and Polymarket
+has no comparable rate limit to worry about there. A game not returned by CLOB (nothing traded
+recently enough) just keeps showing `game.odds` unchanged.
 
 **A live game's odds belong exclusively to this poll — a general refresh can never touch them.**
 `mergeGames` (`lib/gamesCache.ts`) takes the current set of live game ids and, for any of them,
@@ -722,12 +729,16 @@ required to run AI analysis.
   - `lib/polymarket.ts` (Sports) fetches upcoming soccer events, matches them against a keyword
     list for the Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Primeira Liga, Eredivisie,
     Belgian Pro League, and the Champions League, and derives 1X2 probabilities from each match's
-    three moneyline sub-markets. The same module's `fetchLiveOdds` refreshes odds for currently-live
-    games every 10 seconds — see
-    [Live odds every 10 seconds](#live-odds-every-10-seconds-isolated-from-the-general-refresh).
+    three moneyline sub-markets. This snapshot is only ever the seed/fallback for what's actually
+    displayed — see the CLOB bullet below and
+    [The displayed odds always match CLOB's real current price](#the-displayed-odds-always-match-clobs-real-current-price).
   - `lib/allMarkets.ts` (Discover) sweeps the highest-volume active events across every category,
     with no fixed category list — categories shown are derived from whatever tags Polymarket
     actually returns on the fetched markets.
+- **Current price and odds history**: Polymarket's own CLOB order-book API
+  (`clob.polymarket.com/prices-history`) — `lib/oddsHistoryServer.ts`/`lib/livePrices.ts`, proxied
+  through `/api/odds-history`. This is the actual number shown on a card's odds bars (see above)
+  and the source the odds-history chart draws its own line from, so the two can never disagree.
 - **Analysis**: [OpenRouter](https://openrouter.ai/) chat completions — `lib/openrouter.ts` for
   Sports' football-specific prompts, `lib/openrouterMarkets.ts` for Discover's generalized
   any-market prompts (both share the same request/retry/JSON-parsing core in `lib/openrouter.ts`).

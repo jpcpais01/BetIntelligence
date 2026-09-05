@@ -34,8 +34,11 @@ export default function GameCard({
   onToggleSelect?: (game: Game) => void;
   lastAnalysis?: LastAnalysisEntry | null;
   liveScore?: LiveScoreEntry | null;
-  // Polled every few seconds once this match has kicked off (see app/sports/page.tsx) — falls
-  // back to the plain snapshot from the last full games refresh for anything not yet live.
+  // The market's real current price, straight from CLOB (see app/sports/page.tsx) — the exact
+  // source and window the odds-history panel below draws its own chart from, so the two can never
+  // disagree. Refreshed for every listed game whenever the list itself changes, and every few
+  // seconds for whichever games have actually kicked off. Falls back to `game.odds` (the plain
+  // snapshot from the last general refresh) only for a token CLOB has no recent trade for.
   liveOdds?: Probabilities | null;
 }) {
   const { label: kickoffLabel, isLive: heuristicLive } = formatKickoff(game.startTime);
