@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchOddsHistory, type HistoryPoint, type HistorySeries } from "@/lib/oddsHistory";
 import { toPercent } from "@/lib/format";
+import { hasKickedOff } from "@/lib/matchClock";
 
 export interface HistoryOutcomeInput {
   label: string;
@@ -29,21 +30,31 @@ function niceTick(p: number): string {
 // resolution and 3H real five-minute resolution — each one strictly finer than the last, not the
 // same coarse 3-hour buckets zoomed in. `ms` here is the window this button actually promises;
 // CLOB has no exact "3h" interval, so that one over-fetches 6h and gets trimmed down to this.
-const WINDOWS = [
+const BASE_WINDOWS = [
   { id: "7d", label: "7D", ms: 7 * 24 * 60 * 60 * 1000 },
   { id: "1d", label: "1D", ms: 24 * 60 * 60 * 1000 },
   { id: "3h", label: "3H", ms: 3 * 60 * 60 * 1000 },
 ] as const;
-type WindowId = (typeof WINDOWS)[number]["id"];
+type WindowId = (typeof BASE_WINDOWS)[number]["id"] | "live";
+
+// A floor on the "live" window's own `ms`, so a match that's literally seconds into kickoff still
+// gets a nonzero (if practically empty) window rather than a degenerate zero-width one.
+const MIN_LIVE_WINDOW_MS = 60_000;
 
 export default function OddsHistoryChart({
   outcomes,
   surfaceColor = "var(--surface-2)",
+  kickoffTime,
 }: {
   outcomes: HistoryOutcomeInput[];
   // Matches whatever background this chart is dropped onto, so end-dot rings blend in rather
   // than showing a mismatched halo (Discover's dark-green theme vs. Sports' neutral one).
   surfaceColor?: string;
+  // This match's own kickoff time — when given and already in the past, a 4th "LIVE" window
+  // appears alongside 7D/1D/3H: 1-minute-fidelity data trimmed to exactly "since this match
+  // started" rather than a fixed span, so it stays meaningful whether the match is 5 minutes or
+  // 2 hours old. Omitted entirely for non-game markets (Discover), which have no kickoff at all.
+  kickoffTime?: string;
 }) {
   // Keyed by depKey+window together (not two separate "which outcomes" / "which window" pieces
   // of state) so a change to either invalidates cleanly with no race between an outcomes-changed
@@ -55,6 +66,26 @@ export default function OddsHistoryChart({
   const [hoverT, setHoverT] = useState<number | null>(null);
   const [windowId, setWindowId] = useState<WindowId>("7d");
   const svgRef = useRef<SVGSVGElement>(null);
+
+  // Date.now() can't be called directly during render (impure — see the `now` clock pattern in
+  // app/sports/page.tsx), so "how far into the match are we" lives in state instead, seeded null
+  // until the first effect tick (never during SSR) and refreshed every 30s while a live game's
+  // panel stays open — plenty for a window whose actual freshness mostly rides on `series`
+  // updating anyway (see the note on `windowed` below).
+  const [liveNowMs, setLiveNowMs] = useState<number | null>(null);
+  useEffect(() => {
+    if (!kickoffTime) return;
+    /* eslint-disable-next-line react-hooks/set-state-in-effect -- the wall clock isn't available during SSR */
+    setLiveNowMs(Date.now());
+    const id = setInterval(() => setLiveNowMs(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, [kickoffTime]);
+
+  const kickoffMs = kickoffTime ? new Date(kickoffTime).getTime() : NaN;
+  const live = Number.isFinite(kickoffMs) && liveNowMs !== null && hasKickedOff(kickoffTime, liveNowMs);
+  const WINDOWS = live
+    ? [...BASE_WINDOWS, { id: "live" as const, label: "LIVE", ms: Math.max((liveNowMs as number) - kickoffMs, MIN_LIVE_WINDOW_MS) }]
+    : BASE_WINDOWS;
 
   const depKey = outcomes.map((o) => `${o.label}:${o.tokenId ?? ""}:${o.current}`).join("|");
   const cacheKey = `${depKey}::${windowId}`;
@@ -99,6 +130,12 @@ export default function OddsHistoryChart({
     if (allTimes.length === 0) return series;
     const cutoff = Math.max(...allTimes) - windowMs;
     return series.map((s) => ({ ...s, points: s.points.filter((p) => new Date(p.t).getTime() >= cutoff) }));
+    // WINDOWS is deliberately excluded — its "live" entry's `ms` is a fresh Date.now() read every
+    // render, and depending on it would recompute this on every render for no reason. `series`
+    // itself already changes roughly as often as the live-odds poll ticks (each new `current` price
+    // reshapes depKey/cacheKey above), so the "live" trim stays close enough to real elapsed time
+    // without needing to chase every single render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [series, windowId]);
 
   const plottable = useMemo(() => (windowed ?? []).filter((s) => s.points.length >= 2), [windowed]);
@@ -149,7 +186,7 @@ export default function OddsHistoryChart({
         <p className="px-1 py-3 text-center text-[11px] text-text-faint">
           Not enough trading history yet at this window.
         </p>
-        <WindowSelector windowId={windowId} onSelect={setWindowId} />
+        <WindowSelector windowId={windowId} windows={WINDOWS} onSelect={setWindowId} />
       </div>
     );
   }
@@ -258,15 +295,23 @@ export default function OddsHistoryChart({
           ))}
         </div>
       )}
-      <WindowSelector windowId={windowId} onSelect={setWindowId} />
+      <WindowSelector windowId={windowId} windows={WINDOWS} onSelect={setWindowId} />
     </div>
   );
 }
 
-function WindowSelector({ windowId, onSelect }: { windowId: WindowId; onSelect: (id: WindowId) => void }) {
+function WindowSelector({
+  windowId,
+  windows,
+  onSelect,
+}: {
+  windowId: WindowId;
+  windows: readonly { id: WindowId; label: string; ms: number }[];
+  onSelect: (id: WindowId) => void;
+}) {
   return (
     <div className="mt-1 flex items-center justify-center gap-1">
-      {WINDOWS.map((w) => (
+      {windows.map((w) => (
         <button
           key={w.id}
           onClick={() => onSelect(w.id)}

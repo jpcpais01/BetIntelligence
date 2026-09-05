@@ -433,10 +433,10 @@ exact value of every line at that point in time. The dropdown only appears when 
 gave us a price-history token for at least one outcome — some thin or brand-new markets don't have
 one yet, and there's nothing to chart in that case.
 
-A row of three small **7D / 1D / 3H** buttons under the chart switches how much history is shown
-— and each one fetches its own CLOB interval/fidelity rather than just re-slicing the same 7-day
-series, so 3H is genuinely higher resolution than 1D, which is higher resolution than 7D, not the
-same coarse buckets zoomed in (`WINDOW_CONFIG` in `lib/oddsHistoryServer.ts`: `1w`/3-hour buckets,
+A row of small **7D / 1D / 3H** buttons under the chart switches how much history is shown — and
+each one fetches its own CLOB interval/fidelity rather than just re-slicing the same 7-day series,
+so 3H is genuinely higher resolution than 1D, which is higher resolution than 7D, not the same
+coarse buckets zoomed in (`WINDOW_CONFIG` in `lib/oddsHistoryServer.ts`: `1w`/3-hour buckets,
 `1d`/30-minute buckets, and `6h`/5-minute buckets trimmed down to the labeled 3h client-side, since
 CLOB has no exact "3h" interval of its own). Only the `1w` combination has actually been confirmed
 against the real API (from before these buttons existed); `1d` and `6h` are CLOB's documented
@@ -444,6 +444,16 @@ shorter intervals but haven't been confirmed the same way — if either turns ou
 just falls back to the same "not enough trading history" message a thin/brand-new market already
 gets, never a crash. Each window's data is fetched once per card and cached for the rest of that
 card's session, so switching between already-visited windows is instant.
+
+A football match that has actually kicked off gets a 4th button, **LIVE**: 1-minute-fidelity data
+(the same `6h` CLOB interval as 3H, over-fetched and trimmed the same way, just at its finest
+fidelity) trimmed to exactly *this match's own elapsed time since kickoff* rather than a fixed
+span — 12 minutes in, it's a 12-minute window; two hours in, a two-hour one. There's no server-side
+concept of "since kickoff" here at all: the request is identical in shape to 3H's, and the chart
+(`components/OddsHistoryChart.tsx`) does the actual trimming client-side using that specific game's
+own `startTime`, the same way it already trims 3H's over-fetched 6h down to 3 hours. The button
+disappears again for a market with no kickoff to speak of (Discover) or a match that hasn't started
+yet — `kickoffTime` is an optional prop precisely so those callers can omit it.
 
 This is backed by Polymarket's own CLOB order-book API
 (`clob.polymarket.com/prices-history`), proxied through `/api/odds-history`
@@ -489,7 +499,12 @@ Tapping **AI Analyze** runs against [`deepseek/deepseek-v4-flash-0731`](https://
    team's merged pros/cons alongside the summary for full context, not just the summary alone.
 3. **Market comparison** — the app reveals Polymarket's implied probabilities for the same match and asks the model to
    compare its independent view against the market, explain any disagreement, and flag whether it thinks a specific outcome
-   looks mispriced.
+   looks mispriced. "The market" here is whatever a card's odds bars are showing at the exact moment Analyze is tapped —
+   CLOB's real current price (see [The displayed odds always match CLOB's real current price](#the-displayed-odds-always-match-clobs-real-current-price)),
+   not the Gamma snapshot the game object was originally built from. `GameCard`'s Analyze button and the Sports page's
+   batch-analysis flow both carry that live price into the `Game` object handed to the analysis sheet, so a live match
+   whose odds have moved since kickoff gets compared against where the market actually is right now, not where it was
+   when the general sweep last ran.
 
 Alongside the AI's own read, the same one-time digest fetch (`/api/analyze/football-digest`) also returns two small,
 factual infograms — real data, not an AI opinion, so they render even before the independent read finishes:

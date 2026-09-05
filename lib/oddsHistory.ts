@@ -22,7 +22,7 @@ export interface HistoryOutcomeQuery {
 // and lib/oddsHistoryServer.ts's WINDOW_CONFIG; omitted, it's the original 7-day view.
 export async function fetchOddsHistory(
   outcomes: HistoryOutcomeQuery[],
-  window?: "7d" | "1d" | "3h"
+  window?: "7d" | "1d" | "3h" | "live"
 ): Promise<HistorySeries[]> {
   const params = new URLSearchParams();
   if (window) params.set("window", window);

@@ -13,16 +13,22 @@ const CLOB_BASE = "https://clob.polymarket.com";
 // if either turns out wrong, the existing "not enough trading history" fallback degrades to that
 // rather than crashing, since a bad interval value just yields an empty/error response same as a
 // thin market already does.
-export type HistoryWindow = "7d" | "1d" | "3h";
+//
+// `live` is the odd one out: it has no fixed span of its own (a match could be 2 minutes or 2
+// hours into play), so it reuses the exact same over-fetch-and-trim trick as `3h` — request CLOB's
+// 6h interval, just at its finest fidelity (1-minute buckets), and let the chart trim to "since
+// this match's own kickoff" client-side using that game's real start time, not a constant.
+export type HistoryWindow = "7d" | "1d" | "3h" | "live";
 
 const WINDOW_CONFIG: Record<HistoryWindow, { interval: string; fidelity: number }> = {
   "7d": { interval: "1w", fidelity: 180 },
   "1d": { interval: "1d", fidelity: 30 },
   "3h": { interval: "6h", fidelity: 5 },
+  live: { interval: "6h", fidelity: 1 },
 };
 
 export function isHistoryWindow(value: unknown): value is HistoryWindow {
-  return value === "7d" || value === "1d" || value === "3h";
+  return value === "7d" || value === "1d" || value === "3h" || value === "live";
 }
 
 interface ClobHistoryPoint {

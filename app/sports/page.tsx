@@ -372,10 +372,15 @@ export default function Home() {
 
   const startBatchAnalysis = useCallback(() => {
     if (selectedIds.size === 0) return;
-    setBatchGames(liveGames.filter((g) => selectedIds.has(g.id)));
+    // Same reason the single-card Analyze button carries effectiveOdds rather than game.odds — a
+    // batch analysis compares against "the market" too, and that has to mean CLOB's current price
+    // for each game, not whatever the last general Gamma sweep happened to snapshot.
+    setBatchGames(
+      liveGames.filter((g) => selectedIds.has(g.id)).map((g) => ({ ...g, odds: liveOdds[g.id] ?? g.odds }))
+    );
     setSelectMode(false);
     setSelectedIds(new Set());
-  }, [liveGames, selectedIds]);
+  }, [liveGames, selectedIds, liveOdds]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: liveGames.length };

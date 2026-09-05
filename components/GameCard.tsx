@@ -138,7 +138,12 @@ export default function GameCard({
           <div className="flex items-center gap-1.5">
             <ResearchRunsStepper />
             <button
-              onClick={() => onAnalyze(game)}
+              // Analysis compares the AI's independent read against "the market" using whatever
+              // odds this game carries at that moment — so it has to be effectiveOdds (CLOB's
+              // current price), the exact number already on screen, not game.odds's possibly
+              // stale Gamma snapshot. Otherwise a live match's odds could visibly show one price
+              // while the analysis a moment later compared against a different, older one.
+              onClick={() => onAnalyze({ ...game, odds: effectiveOdds })}
               className="press inline-flex items-center gap-1.5 rounded-full bg-accent/12 px-3.5 py-2 text-xs font-semibold text-accent ring-1 ring-inset ring-accent/25 hover:bg-accent/18"
             >
               <SparkleIcon className="h-3.5 w-3.5" />
@@ -152,7 +157,8 @@ export default function GameCard({
 }
 
 // A small collapsed-by-default dropdown showing how this match's 1X2 odds have moved over the
-// past week — only offered when Polymarket actually gave us a CLOB token id for at least one
+// past week (or, once kicked off, since kickoff at 1-minute precision — see OddsHistoryChart's
+// "LIVE" window) — only offered when Polymarket actually gave us a CLOB token id for at least one
 // side, since there's nothing to chart otherwise.
 function PriceHistoryPanel({ game, odds }: { game: Game; odds: Probabilities }) {
   const [expanded, setExpanded] = useState(false);
@@ -176,6 +182,7 @@ function PriceHistoryPanel({ game, odds }: { game: Game; odds: Probabilities }) 
         <div className="rise-in px-3 pb-3">
           <OddsHistoryChart
             surfaceColor="var(--surface-2)"
+            kickoffTime={game.startTime}
             outcomes={[
               { label: firstWord(game.homeTeam), tokenId: tokenIds.home, current: odds.home, color: "var(--home)" },
               { label: "Draw", tokenId: tokenIds.draw, current: odds.draw, color: "var(--draw)" },

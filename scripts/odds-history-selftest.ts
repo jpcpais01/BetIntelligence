@@ -101,6 +101,7 @@ async function run() {
     await fetchOutcomeHistory("token-1", fetchImpl, "7d");
     await fetchOutcomeHistory("token-1", fetchImpl, "1d");
     await fetchOutcomeHistory("token-1", fetchImpl, "3h");
+    await fetchOutcomeHistory("token-1", fetchImpl, "live");
 
     check("omitting the window defaults to the original 7d request (backward compatible)", urls[0] === urls[1], urls[0]);
     check("7d asks for a 1-week interval", urls[0].includes("interval=1w") && urls[0].includes("fidelity=180"), urls[0]);
@@ -110,12 +111,18 @@ async function run() {
       urls[3].includes("interval=6h") && urls[3].includes("fidelity=5"),
       urls[3]
     );
+    check(
+      "live reuses 3h's own 6h interval (no exact CLOB match for it either) but at 1-minute fidelity — the finest of all four, since the chart trims it down to this specific match's own elapsed time, not a fixed span",
+      urls[4].includes("interval=6h") && urls[4].includes("fidelity=1"),
+      urls[4]
+    );
   }
 
   // isHistoryWindow: the route's own validation for a client-supplied window param — an unknown
   // value must never reach WINDOW_CONFIG (which would throw on a missing key), it should just
   // fall back to the default the way an omitted param already does.
   check("a known window id is recognized", isHistoryWindow("1d") === true);
+  check("the live window id is recognized too", isHistoryWindow("live") === true);
   check("an unknown string is rejected", isHistoryWindow("1y") === false);
   check("a non-string value is rejected", isHistoryWindow(null) === false);
 
@@ -148,8 +155,14 @@ async function run() {
     const spacing7d = bucketSpacingMs(generateMockHistory("Arsenal", 0.62, now, "7d"));
     const spacing1d = bucketSpacingMs(generateMockHistory("Arsenal", 0.62, now, "1d"));
     const spacing3h = bucketSpacingMs(generateMockHistory("Arsenal", 0.62, now, "3h"));
+    const spacingLive = bucketSpacingMs(generateMockHistory("Arsenal", 0.62, now, "live"));
     check("1d mock data is finer resolution than 7d", spacing1d < spacing7d, `${spacing1d} vs ${spacing7d}`);
     check("3h mock data is finer resolution than 1d", spacing3h < spacing1d, `${spacing3h} vs ${spacing1d}`);
+    check(
+      "live mock data is finer resolution still (1-minute fidelity, the finest of the four)",
+      spacingLive < spacing3h,
+      `${spacingLive} vs ${spacing3h}`
+    );
   }
 
   if (failures.length > 0) {

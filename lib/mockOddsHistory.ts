@@ -4,15 +4,21 @@ import type { HistoryWindow } from "./oddsHistoryServer";
 // Mirrors the real per-window resolution (lib/oddsHistoryServer.ts's WINDOW_CONFIG) so mock mode
 // demonstrates the same "3h is finer than 1d is finer than 7d" behavior without hitting CLOB —
 // point count is just window span / bucket size, same relationship the real fidelity param has.
+// `live` has no real fixed span (see lib/oddsHistoryServer.ts) — the chart always trims it down to
+// this specific game's own elapsed-since-kickoff time client-side, so the mock only needs to
+// fabricate a span at least as long as any live match could plausibly still be underway, same as
+// `3h`'s own mock span already covers.
 const WINDOW_SPAN_MS: Record<HistoryWindow, number> = {
   "7d": 7 * 24 * 60 * 60 * 1000,
   "1d": 24 * 60 * 60 * 1000,
   "3h": 3 * 60 * 60 * 1000,
+  live: 3 * 60 * 60 * 1000,
 };
 const WINDOW_POINT_COUNT: Record<HistoryWindow, number> = {
   "7d": 40,
   "1d": 48,
   "3h": 36,
+  live: 180,
 };
 
 // Deterministic PRNG (mulberry32) seeded from the outcome's own label, so the same outcome
