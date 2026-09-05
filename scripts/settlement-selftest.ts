@@ -1,4 +1,4 @@
-import { legResult, legResultFromMarket, settleBet, marketOutcomeKey } from "../lib/settlement";
+import { legResult, legResultFromMarket, settleBet, marketOutcomeKey, computeLegResults, wonTeamName } from "../lib/settlement";
 import type { SlipLeg } from "../lib/betslip";
 import type { PlacedBet } from "../lib/placedBets";
 import type { LiveScoreEntry } from "../lib/footballData";
@@ -227,6 +227,39 @@ function run() {
     };
     check("the same backfill correctly settles LOST too, not just WON", settleBet(bet, homeWinScore)?.status === "lost");
   }
+
+  // --- computeLegResults: per-leg results independent of whether the whole bet settles — a
+  // 3-leg parlay where one match already lost still shows its OTHER legs' own individual state,
+  // not just the parlay-level "Lost" collapse. ---
+  {
+    const parlay = fakeBet(
+      [
+        sportsLeg({ pickId: "p1", outcomeLabel: "Arsenal" }), // wins
+        sportsLeg({ pickId: "p2", outcomeLabel: "Liverpool", homeTeam: "Liverpool", awayTeam: "Everton" }), // loses
+        sportsLeg({ pickId: "p3", outcomeLabel: "Real Madrid", homeTeam: "Real Madrid", awayTeam: "Barcelona" }), // not started
+      ],
+      0.15
+    );
+    const scores = [
+      homeWinScore[0],
+      score({ homeTeam: "Liverpool", awayTeam: "Everton", homeGoals: 1, awayGoals: 2 }),
+    ];
+    const results = computeLegResults(parlay, scores);
+    check(
+      "each leg reports its own individual result, not the parlay's collapsed outcome",
+      JSON.stringify(results) === JSON.stringify(["won", "lost", "pending"]),
+      JSON.stringify(results)
+    );
+  }
+
+  // --- wonTeamName: which real club a single-leg win was actually "on", for the win-celebration
+  // flourish — 1X/X2 collapse to the one side they lock in, a market leg or a draw have no club. ---
+  check("a home-team bet resolves to the home team itself", wonTeamName(sportsLeg({ outcomeLabel: "Arsenal" })) === "Arsenal");
+  check("an away-team bet resolves to the away team itself", wonTeamName(sportsLeg({ outcomeLabel: "Chelsea" })) === "Chelsea");
+  check("a 1X bet resolves to the home team (its draw half has no club)", wonTeamName(sportsLeg({ outcomeLabel: "1X" })) === "Arsenal");
+  check("an X2 bet resolves to the away team", wonTeamName(sportsLeg({ outcomeLabel: "X2" })) === "Chelsea");
+  check("a draw bet has no club to celebrate", wonTeamName(sportsLeg({ outcomeLabel: "Draw" })) === null);
+  check("a market (Discover) leg has no club either", wonTeamName(marketLeg()) === null);
 
   // --- settleBet: parlay-level rules ---
   const singleWon = fakeBet([sportsLeg({ outcomeLabel: "Arsenal" })], 0.5);

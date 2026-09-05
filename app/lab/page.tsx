@@ -7,6 +7,7 @@ import { loadMarketPicks } from "@/lib/marketPicks";
 import { loadSlip, saveSlip, legFromPick, legFromMarketPick, type SlipLeg, type Outcome } from "@/lib/betslip";
 import { loadPlacedBets, removePlacedBet, type PlacedBet } from "@/lib/placedBets";
 import { resolvePendingSettlements } from "@/lib/settlement";
+import { buildCelebration, type Celebration } from "@/lib/celebration";
 import { liveKey, fetchLivePrices, type LivePriceRequest } from "@/lib/livePrices";
 import { RISK_MODES, buildRiskSlip, type RiskMode } from "@/lib/riskModes";
 import SlipPickRow from "@/components/SlipPickRow";
@@ -15,6 +16,7 @@ import PlacedBetCard from "@/components/PlacedBetCard";
 import BetSlipBar from "@/components/BetSlipBar";
 import PickDetailSheet from "@/components/PickDetailSheet";
 import MarketPickDetailSheet from "@/components/MarketPickDetailSheet";
+import WinCelebration from "@/components/WinCelebration";
 import { useRequestLogos } from "@/components/ClubLogosProvider";
 import { SearchIcon, TicketIcon, CoinsIcon } from "@/components/icons";
 
@@ -36,6 +38,7 @@ export default function LabPage() {
   const [openPick, setOpenPick] = useState<AnyPick | null>(null);
   const [livePrices, setLivePrices] = useState<Record<string, number>>({});
   const [riskError, setRiskError] = useState<string | null>(null);
+  const [celebration, setCelebration] = useState<Celebration | null>(null);
   const requestLogos = useRequestLogos();
 
   useEffect(() => {
@@ -56,8 +59,14 @@ export default function LabPage() {
     /* eslint-enable react-hooks/set-state-in-effect */
 
     let cancelled = false;
-    resolvePendingSettlements(loadedBets).then((settled) => {
-      if (!cancelled) setPlacedBets(settled);
+    resolvePendingSettlements(loadedBets).then(({ bets: settled, newlyWon }) => {
+      if (cancelled) return;
+      setPlacedBets(settled);
+      if (newlyWon.length > 0) {
+        buildCelebration(newlyWon).then((c) => {
+          if (!cancelled && c) setCelebration(c);
+        });
+      }
     });
     return () => {
       cancelled = true;
@@ -326,6 +335,14 @@ export default function LabPage() {
       )}
       {openPick?.kind === "market" && (
         <MarketPickDetailSheet pick={openPick.pick} onClose={() => setOpenPick(null)} />
+      )}
+      {celebration && (
+        <WinCelebration
+          teamName={celebration.teamName}
+          emojis={celebration.emojis}
+          colors={celebration.colors}
+          onClose={() => setCelebration(null)}
+        />
       )}
     </div>
   );

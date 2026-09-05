@@ -20,7 +20,7 @@ export default function PlacedBetCard({
   livePrices: Record<string, number>;
   onRemove: (id: string) => void;
 }) {
-  const { legs, settlement } = bet;
+  const { legs, settlement, legResults } = bet;
   const liveLegs = legs.map((leg) => ({
     ...leg,
     marketProb: livePrices[liveKey(leg.pickId, leg.outcomeLabel)] ?? leg.marketProb,
@@ -49,17 +49,24 @@ export default function PlacedBetCard({
       </div>
 
       <div className="space-y-1.5 px-4">
-        {legs.map((leg, i) => (
-          <div key={leg.pickId} className="flex items-center justify-between gap-2 text-[11px]">
-            <span className="min-w-0 truncate text-text-dim">
-              <span className="font-semibold text-text">{leg.outcomeLabel}</span> &middot; {leg.title}
-            </span>
-            <span className="shrink-0 tabular-nums text-text-faint">
-              {toDecimalOdds(liveLegs[i].marketProb)}x{" "}
-              <span className="text-[10px]">({toPercent(liveLegs[i].marketProb)})</span>
-            </span>
-          </div>
-        ))}
+        {legs.map((leg, i) => {
+          const legResult = legResults?.[i];
+          const legColor = legResult === "won" ? "var(--lab-green)" : legResult === "lost" ? "var(--lab-red)" : undefined;
+          return (
+            <div key={leg.pickId} className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="min-w-0 truncate text-text-dim">
+                <span className="font-semibold" style={{ color: legColor ?? "var(--text)" }}>
+                  {leg.outcomeLabel}
+                </span>{" "}
+                &middot; {leg.title}
+              </span>
+              <span className="shrink-0 tabular-nums text-text-faint">
+                {toDecimalOdds(liveLegs[i].marketProb)}x{" "}
+                <span className="text-[10px]">({toPercent(liveLegs[i].marketProb)})</span>
+              </span>
+            </div>
+          );
+        })}
       </div>
 
       <div className="mx-4 my-3 border-t border-dashed" style={{ borderColor: "var(--lab-border)" }} />

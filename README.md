@@ -272,6 +272,35 @@ shows exactly what the mark-to-market path looked like at the time. `PortfolioBe
 `PlacedBetCard` show a **Won**/**Lost** badge in place of the live odds/edge readout once a bet
 resolves either way.
 
+### A parlay's individual legs settle independently, too
+
+The rules above decide the bet AS A WHOLE, but a 3-leg parlay where only one match has finished
+doesn't have to wait for the other two before showing what's already known. `computeLegResults`
+(`lib/settlement.ts`) runs the exact same per-leg logic and is persisted separately
+(`PlacedBet.legResults`, alongside but independent of `settlement`) on every check, even for a bet
+that doesn't fully resolve this round — so `PlacedBetCard` colors each leg's own outcome label
+green or red the moment ITS match concludes, regardless of what the other legs (or the bet's own
+overall badge) are still waiting on. A parlay that ends up **Lost** because one leg busted still
+shows its other, individually-winning legs in green — the per-leg color and the bet-level badge
+are reporting two different, both-true things, not disagreeing.
+
+### A quick, silly reward for winning
+
+Whenever a **single-leg** bet (not a parlay — there's no one club to celebrate for those) settles
+**Won**, `lib/celebration.ts` fires a one-time congratulations overlay. It's kept completely
+separate from the app's real analysis pipeline — no user-selected model, no betting context at
+all — down to a single lightweight OpenRouter call to Gemini (`lib/clubVibe.ts`) asking for exactly
+5 emojis and 2 hex colors that match the winning club's vibe (a plain double-chance win collapses
+to the one real side it locks in: 1X → the home club, X2 → the away club; a bare draw win has no
+club at all, so it's skipped). `WinCelebration.tsx` renders those two colors and five emojis as a
+full-screen falling-emoji animation over a panel styled to match the Lab bet slip's own violet
+"modern sportsbook" look (the same `--slip-*` tokens `BetSlipBar.tsx` uses, re-established via a
+wrapping `.lab` class so they resolve correctly even when triggered from Home, which isn't normally
+inside that scope). Fires at most once per bet — `resolvePendingSettlements` only ever reports a
+bet in its `newlyWon` list the one time it transitions from unsettled to Won, never again on a
+later reload — and a failed/empty vibe fetch just means no celebration shows, never an error over
+what should be a purely happy moment.
+
 ## Odds history
 
 Every card — a Discover market or a Sports match — has a collapsed **Odds history** dropdown that

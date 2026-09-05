@@ -1,6 +1,6 @@
 import type { SlipLeg } from "./betslip";
 import type { PlacedBet } from "./placedBets";
-import { applySettlements } from "./placedBets";
+import { applySettlements, applyLegResults } from "./placedBets";
 import type { LiveScoreEntry } from "./footballData";
 import type { LeagueId } from "./types";
 import { teamNamesMatch } from "./teamNameMatching";
@@ -147,6 +147,17 @@ export interface BetOutcome {
   payout: number;
 }
 
+// Per-leg results — independent of whether the WHOLE bet has settled, and exported so the "My
+// Bets" list can color an individual leg green/red the moment ITS OWN match resolves, well before
+// (or even instead of, if the bet ends up Lost) the parlay as a whole ever does.
+export function computeLegResults(
+  bet: PlacedBet,
+  scores: LiveScoreEntry[],
+  marketPrices: Record<string, number> = {}
+): LegResult[] {
+  return backfilledLegs(bet).map((leg) => combinedLegResult(leg, scores, marketPrices));
+}
+
 // A parlay settles LOST the moment any leg is confirmed lost, regardless of the others — no need
 // to wait on a still-open leg once the bet can no longer possibly win. It only settles WON once
 // EVERY leg is confirmed won; a bet with any market leg can never reach that (no resolution source
@@ -156,13 +167,26 @@ export function settleBet(
   scores: LiveScoreEntry[],
   marketPrices: Record<string, number> = {}
 ): BetOutcome | null {
-  const results = backfilledLegs(bet).map((leg) => combinedLegResult(leg, scores, marketPrices));
+  const results = computeLegResults(bet, scores, marketPrices);
   if (results.some((r) => r === "lost")) return { status: "lost", payout: 0 };
   if (results.length > 0 && results.every((r) => r === "won")) {
     const payout = bet.combined.marketProb > 0 ? bet.stake / bet.combined.marketProb : bet.stake;
     return { status: "won", payout };
   }
   return null;
+}
+
+// For the win-celebration flourish (app/page.tsx, app/lab/page.tsx): which real club a single-leg
+// win was actually "on", collapsing a double-chance combo down to the one side it locks in — 1X
+// can only ever mean the home team's celebration (its draw half has no club of its own to
+// celebrate), X2 the away team's. A draw win has no club at all, so this returns null and the
+// caller simply skips the celebration rather than fabricating one for a side that doesn't exist.
+export function wonTeamName(leg: SlipLeg): string | null {
+  if (leg.kind !== "sports") return null;
+  if (leg.outcomeLabel === "1X") return leg.homeTeam ?? null;
+  if (leg.outcomeLabel === "X2") return leg.awayTeam ?? null;
+  if (leg.outcomeLabel === "Draw") return null;
+  return leg.outcomeLabel;
 }
 
 function settlementRefs(bets: PlacedBet[]): { league: LeagueId; earliestKickoff: string }[] {
@@ -220,27 +244,49 @@ async function fetchScores(refs: { league: LeagueId; earliestKickoff: string }[]
   }
 }
 
+export interface SettlementRun {
+  bets: PlacedBet[];
+  // Bets that transitioned from unsettled to Won in THIS call specifically — never a bet that was
+  // already Won on a previous check, so a caller can use this to fire a one-time "you just won"
+  // flourish without re-triggering it on every later page load.
+  newlyWon: PlacedBet[];
+}
+
 // Settles whatever it can — the market's own post-match read first, football-data.org's confirmed
 // score as the fallback — persists it, and returns bets with settlement filled in. Best-effort
 // throughout: a failed fetch on either side just leaves those bets exactly as they were (still
 // open), same as any other best-effort enrichment in this app — never invents an outcome from
-// missing data.
-export async function resolvePendingSettlements(bets: PlacedBet[]): Promise<PlacedBet[]> {
+// missing data. Also persists per-leg results (computeLegResults) for every still-open bet, even
+// ones that don't fully settle this round, so the UI can show an individual leg's own outcome
+// ahead of (or instead of, if the parlay ends up Lost) the bet as a whole ever settling.
+export async function resolvePendingSettlements(bets: PlacedBet[]): Promise<SettlementRun> {
   const refs = settlementRefs(bets);
   const priceRequests = marketPriceRequests(bets);
-  if (refs.length === 0 && priceRequests.length === 0) return bets;
+  if (refs.length === 0 && priceRequests.length === 0) return { bets, newlyWon: [] };
 
   const [scores, marketPrices] = await Promise.all([
     fetchScores(refs),
     priceRequests.length > 0 ? fetchLivePrices(priceRequests) : Promise.resolve({}),
   ]);
 
-  const updates: Record<string, BetOutcome> = {};
+  const settlementUpdates: Record<string, BetOutcome> = {};
+  const legResultUpdates: Record<string, LegResult[]> = {};
   for (const bet of bets) {
     if (bet.settlement) continue;
-    const outcome = settleBet(bet, scores, marketPrices);
-    if (outcome) updates[bet.id] = outcome;
+    const results = computeLegResults(bet, scores, marketPrices);
+    legResultUpdates[bet.id] = results;
+    if (results.some((r) => r === "lost")) {
+      settlementUpdates[bet.id] = { status: "lost", payout: 0 };
+    } else if (results.length > 0 && results.every((r) => r === "won")) {
+      const payout = bet.combined.marketProb > 0 ? bet.stake / bet.combined.marketProb : bet.stake;
+      settlementUpdates[bet.id] = { status: "won", payout };
+    }
   }
-  if (Object.keys(updates).length === 0) return bets;
-  return applySettlements(updates);
+
+  let updated = bets;
+  if (Object.keys(legResultUpdates).length > 0) updated = applyLegResults(legResultUpdates);
+  if (Object.keys(settlementUpdates).length > 0) updated = applySettlements(settlementUpdates);
+
+  const newlyWon = updated.filter((b) => settlementUpdates[b.id]?.status === "won");
+  return { bets: updated, newlyWon };
 }

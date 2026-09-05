@@ -27,6 +27,11 @@ export interface PlacedBet {
   // DEFAULT_STAKE (lib/portfolio.ts) rather than crash or show "€undefined".
   stake: number;
   settlement?: BetSettlement;
+  // Per-leg outcome (parallel to `legs`), independent of whether the WHOLE bet has settled — a
+  // 3-leg parlay where one match finished can show that single leg green/red while the others
+  // are still "pending", well before (or even instead of, if the bet ends up Lost) the bet as a
+  // whole ever settles. Recomputed on every unsettled check; frozen once `settlement` is set.
+  legResults?: ("won" | "lost" | "pending")[];
 }
 
 export function loadPlacedBets(): PlacedBet[] {
@@ -81,6 +86,24 @@ export function applySettlements(updates: Record<string, { status: "won" | "lost
     if (!update) return bet;
     changed = true;
     return { ...bet, settlement: { ...update, settledAt: new Date().toISOString() } };
+  });
+  if (changed) persist(next);
+  return next;
+}
+
+// Merges freshly-computed per-leg results into storage — unlike settlement above, this can be
+// (and is meant to be) overwritten on every check up until the bet itself settles, since a leg
+// resolving doesn't necessarily mean the whole bet has yet. Frozen the same way once
+// bet.settlement is set: nothing recomputes a leg's display after the bet's fate is sealed.
+export function applyLegResults(updates: Record<string, ("won" | "lost" | "pending")[]>): PlacedBet[] {
+  const bets = loadPlacedBets();
+  let changed = false;
+  const next = bets.map((bet) => {
+    if (bet.settlement) return bet;
+    const results = updates[bet.id];
+    if (!results) return bet;
+    changed = true;
+    return { ...bet, legResults: results };
   });
   if (changed) persist(next);
   return next;

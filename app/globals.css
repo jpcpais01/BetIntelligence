@@ -420,6 +420,30 @@ body {
   animation-fill-mode: forwards;
 }
 
+/* WinCelebration's full-screen emoji rain — the same fall-and-fade idea as lab-confetti-fall
+   above, scaled up to the whole viewport height with a per-piece horizontal drift (--celebrate-drift)
+   instead of a fixed 160px drop, since this runs for seconds across the entire screen rather than
+   a quick burst inside one small popup. */
+@keyframes celebrate-emoji-fall {
+  0% {
+    transform: translate(0, -10vh) rotate(0deg);
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--celebrate-drift, 0px), 110vh) rotate(340deg);
+    opacity: 0.2;
+  }
+}
+.celebrate-emoji-fall {
+  animation-name: celebrate-emoji-fall;
+  animation-timing-function: ease-in;
+  animation-fill-mode: forwards;
+  will-change: transform, opacity;
+}
+
 /* A slow, dim diagonal sheen that continuously drifts across the bet slip's own surface (both
    the collapsed pill and the expanded sheet) — an ambient sense of motion behind the numbers,
    never bright enough to compete with them. */

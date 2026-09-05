@@ -4,12 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import { loadDeposits, addFunds, totalDeposited, STARTING_BALANCE, type Deposit } from "@/lib/portfolio";
 import { loadPlacedBets, type PlacedBet } from "@/lib/placedBets";
 import { resolvePendingSettlements } from "@/lib/settlement";
+import { buildCelebration, type Celebration } from "@/lib/celebration";
 import { fetchPriceSeries, liveKey, type LivePriceRequest } from "@/lib/livePrices";
 import { buildPortfolioSeries } from "@/lib/portfolioHistory";
 import type { HistoryPoint } from "@/lib/oddsHistory";
 import { formatEur, toSignedReturnPercent } from "@/lib/format";
 import PortfolioChart from "@/components/PortfolioChart";
 import PortfolioBetRow from "@/components/PortfolioBetRow";
+import WinCelebration from "@/components/WinCelebration";
 import { PlusIcon, CloseIcon, CoinsIcon } from "@/components/icons";
 
 const QUICK_ADD_AMOUNTS = [50, 100, 250, 500];
@@ -24,6 +26,7 @@ export default function HomePage() {
   // Date.now() is impure, and reading it during render is what the lint rule (and re-render
   // determinism generally) objects to.
   const [now, setNow] = useState<number | null>(null);
+  const [celebration, setCelebration] = useState<Celebration | null>(null);
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect -- hydrating from localStorage, unavailable during SSR */
@@ -34,8 +37,14 @@ export default function HomePage() {
     /* eslint-enable react-hooks/set-state-in-effect */
 
     let cancelled = false;
-    resolvePendingSettlements(loaded).then((settled) => {
-      if (!cancelled) setBets(settled);
+    resolvePendingSettlements(loaded).then(({ bets: settled, newlyWon }) => {
+      if (cancelled) return;
+      setBets(settled);
+      if (newlyWon.length > 0) {
+        buildCelebration(newlyWon).then((c) => {
+          if (!cancelled && c) setCelebration(c);
+        });
+      }
     });
     return () => {
       cancelled = true;
@@ -150,6 +159,14 @@ export default function HomePage() {
       </div>
 
       {showAddFunds && <AddFundsModal onClose={() => setShowAddFunds(false)} onConfirm={handleAddFunds} />}
+      {celebration && (
+        <WinCelebration
+          teamName={celebration.teamName}
+          emojis={celebration.emojis}
+          colors={celebration.colors}
+          onClose={() => setCelebration(null)}
+        />
+      )}
     </div>
   );
 }
