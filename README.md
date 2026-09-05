@@ -99,6 +99,17 @@ Every analysis you save, whether it came from Discover or Sports, shows up toget
   saved picks, football and Discover markets alike, then lets you place it as a paper bet — see
   below for how it looks and works.
 
+A saved football pick is pruned automatically once its match has finished — there's nothing left
+to bet on, so keeping the analysis around is just clutter, unlike a placed bet (which stays as a
+permanent record even after settling). `pruneFinishedPicks` (`lib/picks.ts`) is called in place of
+a plain load by both Picks and Lab, so a stale entry is actually removed from storage (not just
+hidden) the moment either page next opens. Whether a match has finished is a plain kickoff-time
+heuristic (3+ hours past kickoff, comfortably longer than any real match takes) rather than a real
+status check — unlike settlement, getting this wrong costs nothing worse than a free re-analysis,
+so it isn't worth an extra network round-trip on every page load for the rare edge case (a
+postponed match) it could get wrong. Discover picks aren't pruned this way — a market has no
+equivalent "kickoff has definitely passed" moment.
+
 ### Lab: a sportsbook-style slip
 
 Lab is deliberately styled unlike the rest of the app — a very dark, restrained "private members'

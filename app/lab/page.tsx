@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { SavedPick, SavedMarketPick } from "@/lib/types";
-import { loadPicks } from "@/lib/picks";
+import { pruneFinishedPicks } from "@/lib/picks";
 import { loadMarketPicks } from "@/lib/marketPicks";
 import { loadSlip, saveSlip, legFromPick, legFromMarketPick, type SlipLeg, type Outcome } from "@/lib/betslip";
 import { loadPlacedBets, removePlacedBet, type PlacedBet } from "@/lib/placedBets";
@@ -41,7 +41,7 @@ export default function LabPage() {
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect -- hydrating from localStorage, unavailable during SSR */
     const loadedBets = loadPlacedBets();
-    setSportsPicks(loadPicks());
+    setSportsPicks(pruneFinishedPicks());
     setMarketPicks(loadMarketPicks());
     setLegs(loadSlip());
     setPlacedBets(loadedBets);

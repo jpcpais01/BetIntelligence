@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "selftest": "tsx scripts/parser-selftest.ts && tsx scripts/live-odds-selftest.ts && tsx scripts/team-name-matching-selftest.ts && tsx scripts/football-data-selftest.ts && tsx scripts/big-balls-data-selftest.ts && tsx scripts/openrouter-selftest.ts && tsx scripts/openrouter-markets-selftest.ts && tsx scripts/aggregate-selftest.ts && tsx scripts/last-analysis-selftest.ts && tsx scripts/format-selftest.ts && tsx scripts/betslip-selftest.ts && tsx scripts/risk-modes-selftest.ts && tsx scripts/odds-history-selftest.ts && tsx scripts/lucky-money-selftest.ts && tsx scripts/placed-bets-selftest.ts && tsx scripts/portfolio-selftest.ts && tsx scripts/portfolio-history-selftest.ts && tsx scripts/games-cache-selftest.ts && tsx scripts/settlement-selftest.ts",
+    "selftest": "tsx scripts/parser-selftest.ts && tsx scripts/live-odds-selftest.ts && tsx scripts/team-name-matching-selftest.ts && tsx scripts/football-data-selftest.ts && tsx scripts/big-balls-data-selftest.ts && tsx scripts/openrouter-selftest.ts && tsx scripts/openrouter-markets-selftest.ts && tsx scripts/aggregate-selftest.ts && tsx scripts/last-analysis-selftest.ts && tsx scripts/format-selftest.ts && tsx scripts/betslip-selftest.ts && tsx scripts/risk-modes-selftest.ts && tsx scripts/odds-history-selftest.ts && tsx scripts/lucky-money-selftest.ts && tsx scripts/placed-bets-selftest.ts && tsx scripts/portfolio-selftest.ts && tsx scripts/portfolio-history-selftest.ts && tsx scripts/games-cache-selftest.ts && tsx scripts/settlement-selftest.ts && tsx scripts/picks-selftest.ts",
     "icons": "tsx scripts/generate-icons.ts"
   },
   "dependencies": {

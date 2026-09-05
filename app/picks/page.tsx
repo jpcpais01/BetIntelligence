@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { SavedPick, SavedMarketPick } from "@/lib/types";
-import { loadPicks, removePick } from "@/lib/picks";
+import { pruneFinishedPicks, removePick } from "@/lib/picks";
 import { loadMarketPicks, removeMarketPick } from "@/lib/marketPicks";
 import PickCard from "@/components/PickCard";
 import SavedMarketPickCard from "@/components/SavedMarketPickCard";
@@ -26,7 +26,7 @@ export default function PicksPage() {
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect -- localStorage is unavailable during SSR/hydration */
-    setSportsPicks(loadPicks());
+    setSportsPicks(pruneFinishedPicks());
     setMarketPicks(loadMarketPicks());
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
