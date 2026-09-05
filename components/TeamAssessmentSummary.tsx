@@ -25,8 +25,12 @@ export default function TeamAssessmentSummary({
   );
 }
 
-function TeamAssessmentCard({ teamName, assessment }: { teamName: string; assessment: TeamAssessment }) {
-  if (assessment.pros.length === 0 && assessment.cons.length === 0) return null;
+function TeamAssessmentCard({ teamName, assessment }: { teamName: string; assessment: TeamAssessment | undefined }) {
+  // A pick saved before this shape existed won't have this field at all — the type says it's
+  // required, but that's only a compile-time guarantee, not a runtime one for data already
+  // sitting in a browser's localStorage. Rendering nothing for those matches the same "just
+  // don't show it" fallback already used for an empty pros/cons pair below.
+  if (!assessment || (assessment.pros.length === 0 && assessment.cons.length === 0)) return null;
 
   return (
     <div className="rounded-2xl border border-border-soft bg-surface p-4">
