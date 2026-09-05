@@ -4,9 +4,43 @@ import { applySettlements } from "./placedBets";
 import type { LiveScoreEntry } from "./footballData";
 import type { LeagueId } from "./types";
 import { teamNamesMatch } from "./teamNameMatching";
+import { leagueIdByName } from "./leagues";
 import { fetchLivePrices, type LivePriceRequest } from "./livePrices";
 
 export type LegResult = "won" | "lost" | "pending";
+
+// A leg placed before it started carrying its own league/homeTeam/awayTeam/startTime would
+// otherwise never be checked at all: settlementRefs and marketPriceRequests below both silently
+// skip anything missing these, so a genuinely finished match's bet just sat as "Pending" forever
+// with no way to ever notice it — that's the exact bug this fixes. Every leg has always carried
+// `title` ("Home v Away", set once at leg-creation and never since changed) and `meta`
+// ("🏴 League Name"), and every bet has always carried `placedAt` — recovered from those instead
+// of needing the user to somehow fix data already sitting in their own browser storage.
+function backfillLeg(leg: SlipLeg, placedAt: string): SlipLeg {
+  if (leg.kind !== "sports") return leg;
+  let { league, homeTeam, awayTeam, startTime } = leg;
+  if ((!homeTeam || !awayTeam) && leg.title.includes(" v ")) {
+    const [h, a] = leg.title.split(" v ");
+    homeTeam = homeTeam ?? h?.trim();
+    awayTeam = awayTeam ?? a?.trim();
+  }
+  if (!league) {
+    // meta is "<flag emoji> <league name>" — strip the leading flag (never itself whitespace,
+    // however many codepoints it's made of) and the space after it to recover the plain league
+    // name leagueIdByName expects.
+    league = leagueIdByName(leg.meta.replace(/^\S+\s*/u, "").trim());
+  }
+  // A bet is never placed after its own match kicked off (Lab hides a started game from the
+  // build list), so placedAt is always a safe — if conservative — stand-in lower bound: it can
+  // only widen how far back a lookup searches, never miss the real kickoff by searching too
+  // narrow a window.
+  startTime = startTime ?? placedAt;
+  return { ...leg, league, homeTeam, awayTeam, startTime };
+}
+
+function backfilledLegs(bet: PlacedBet): SlipLeg[] {
+  return bet.legs.map((leg) => backfillLeg(leg, bet.placedAt));
+}
 
 // --- Market-based settlement (primary) --------------------------------------------------------
 //
@@ -122,7 +156,7 @@ export function settleBet(
   scores: LiveScoreEntry[],
   marketPrices: Record<string, number> = {}
 ): BetOutcome | null {
-  const results = bet.legs.map((leg) => combinedLegResult(leg, scores, marketPrices));
+  const results = backfilledLegs(bet).map((leg) => combinedLegResult(leg, scores, marketPrices));
   if (results.some((r) => r === "lost")) return { status: "lost", payout: 0 };
   if (results.length > 0 && results.every((r) => r === "won")) {
     const payout = bet.combined.marketProb > 0 ? bet.stake / bet.combined.marketProb : bet.stake;
@@ -135,7 +169,7 @@ function settlementRefs(bets: PlacedBet[]): { league: LeagueId; earliestKickoff:
   const earliestByLeague = new Map<LeagueId, string>();
   for (const bet of bets) {
     if (bet.settlement) continue;
-    for (const leg of bet.legs) {
+    for (const leg of backfilledLegs(bet)) {
       if (leg.kind !== "sports" || !leg.league || !leg.startTime) continue;
       const current = earliestByLeague.get(leg.league);
       if (!current || new Date(leg.startTime).getTime() < new Date(current).getTime()) {
@@ -155,7 +189,7 @@ function marketPriceRequests(bets: PlacedBet[]): LivePriceRequest[] {
   const requests: LivePriceRequest[] = [];
   for (const bet of bets) {
     if (bet.settlement) continue;
-    for (const leg of bet.legs) {
+    for (const leg of backfilledLegs(bet)) {
       if (leg.kind !== "sports" || !leg.tokenIds || !pastMarketGate(leg.startTime)) continue;
       for (const side of SIDES) {
         const key = marketOutcomeKey(leg.pickId, side);

@@ -180,6 +180,54 @@ function run() {
     );
   }
 
+  // --- settleBet: a leg placed before it carried league/homeTeam/awayTeam/startTime/tokenIds at
+  // all (the exact reported bug: a bet placed days ago, its match long finished, stuck on
+  // "Pending" forever) still settles — recovered from title ("Home v Away"), meta
+  // ("🏴 League Name"), and the bet's own placedAt, none of which have ever been optional. ---
+  {
+    const ancientLeg: SlipLeg = {
+      pickId: "p9",
+      kind: "sports",
+      title: "Arsenal v Chelsea",
+      meta: "🏴 Premier League",
+      outcomeLabel: "Arsenal",
+      marketProb: 0.5,
+      aiProb: 0.55,
+      // No league, homeTeam, awayTeam, startTime, or tokenIds — exactly what a leg saved before
+      // any of this existed looks like.
+    };
+    const bet: PlacedBet = {
+      id: "bet-ancient",
+      placedAt: isoAgo(2 * 24 * HOUR),
+      legs: [ancientLeg],
+      combined: { marketProb: 0.5, aiProb: 0.55, edge: 0.05 },
+      stake: 100,
+    };
+    const outcome = settleBet(bet, homeWinScore);
+    check("a leg with none of the settlement-only fields still settles via the real score", outcome?.status === "won");
+    check("its payout is still computed correctly", outcome?.payout === 200);
+  }
+  {
+    // Same shape, but the actual result means it lost — still resolves, not just "won by default".
+    const ancientLosingLeg: SlipLeg = {
+      pickId: "p10",
+      kind: "sports",
+      title: "Arsenal v Chelsea",
+      meta: "🏴 Premier League",
+      outcomeLabel: "Chelsea",
+      marketProb: 0.3,
+      aiProb: 0.35,
+    };
+    const bet: PlacedBet = {
+      id: "bet-ancient-lost",
+      placedAt: isoAgo(2 * 24 * HOUR),
+      legs: [ancientLosingLeg],
+      combined: { marketProb: 0.3, aiProb: 0.35, edge: 0.05 },
+      stake: 100,
+    };
+    check("the same backfill correctly settles LOST too, not just WON", settleBet(bet, homeWinScore)?.status === "lost");
+  }
+
   // --- settleBet: parlay-level rules ---
   const singleWon = fakeBet([sportsLeg({ outcomeLabel: "Arsenal" })], 0.5);
   const wonOutcome = settleBet(singleWon, homeWinScore);

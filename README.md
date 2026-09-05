@@ -247,6 +247,17 @@ in order every time Home or Lab loads and calls `resolvePendingSettlements`:
 Whichever source resolves a leg first wins; if neither can, it stays open rather than guessing.
 Both compose into the same parlay-level rules:
 
+Both paths need a leg's league/homeTeam/awayTeam (and, for the market path, all three outcome
+tokens) to even attempt a lookup — fields added to `SlipLeg` after this app had already been in
+real use for a while. Without a backfill, a bet placed before that would carry none of them and
+`settlementRefs`/`marketPriceRequests` would silently skip it forever: not "can't settle it yet",
+but never even trying — the actual bug behind "the game finished a day ago and it's still Pending".
+`backfillLeg` (`lib/settlement.ts`) recovers what it can from fields that have *never* been
+optional — `title` ("Home v Away") and `meta` ("🏴 League Name") for the team names and league,
+`placedAt` as a safe (if conservative) stand-in kickoff lower bound — so every bet ever placed gets
+the same chance to settle as one placed today, with no need to touch data already sitting in a
+user's own browser storage.
+
 - A parlay settles **Lost** the instant *any* leg is confirmed lost, whatever the others are doing.
 - It only settles **Won** once *every* leg is confirmed won, at `stake / combined market
   probability` (the same decimal-odds math shown everywhere else).
