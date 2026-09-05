@@ -474,7 +474,12 @@ required to run AI analysis.
   section to the digest above. Covers Premier League, La Liga, Bundesliga, Serie A, Ligue 1, and
   the Champions League; an uncovered league, an unset `BIG_BALLS_API_KEY`, or a failed request all
   render as an honest "not available" line rather than failing the analysis — this source is an
-  enrichment layer, not a required one.
+  enrichment layer, not a required one. Its exact response shape was never verified with a live
+  call (its domain is blocked by this project's dev sandbox network policy the same way
+  football-data.org's docs were), so every failure mode is logged via `console.error` instead of
+  swallowed silently, and `/api/debug/injuries?league=<id>` (not linked from the UI) returns the
+  raw response for a league directly — useful if injuries look wrong or missing once deployed and
+  the actual cause needs diagnosing rather than guessing at again.
 
 ## Project structure
 

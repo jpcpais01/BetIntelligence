@@ -86,19 +86,34 @@ async function fetchLeagueInjuries(leagueKey: string): Promise<BigBallsInjuryRec
   if (cached && Date.now() - cached.at < INJURIES_CACHE_TTL_MS) return cached.injuries;
 
   const apiKey = process.env.BIG_BALLS_API_KEY;
-  if (!apiKey) return [];
+  if (!apiKey) {
+    console.error("Big Balls Sports Data: BIG_BALLS_API_KEY is not configured, skipping injuries.");
+    return [];
+  }
 
+  const url = `${BIG_BALLS_BASE}/injuries?sport=soccer&league=${leagueKey}`;
   try {
-    const res = await fetch(`${BIG_BALLS_BASE}/injuries?sport=soccer&league=${leagueKey}`, {
+    const res = await fetch(url, {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      // Logged (not thrown) because this source is soft-fail-only by design — but silent
+      // failures are exactly why a real shape/auth mismatch went undiagnosed before this. See
+      // /api/debug/injuries for a way to inspect this directly instead of guessing from logs.
+      console.error(`Big Balls Sports Data request failed (${res.status} ${url}): ${body.slice(0, 300)}`);
+      return [];
+    }
     const json = (await res.json()) as BigBallsInjuriesResponse;
     const injuries = extractInjuries(json);
+    if (injuries.length === 0) {
+      console.error(`Big Balls Sports Data returned no usable injuries array for ${url}. Raw response: ${JSON.stringify(json).slice(0, 500)}`);
+    }
     injuriesCache.set(leagueKey, { at: Date.now(), injuries });
     return injuries;
-  } catch {
+  } catch (err) {
+    console.error(`Big Balls Sports Data request threw (${url}): ${err instanceof Error ? err.message : String(err)}`);
     return [];
   }
 }
@@ -107,6 +122,48 @@ async function fetchLeagueInjuries(leagueKey: string): Promise<BigBallsInjuryRec
 // earlier case sharing the same league key.
 export function __resetInjuriesCacheForTests(): void {
   injuriesCache.clear();
+}
+
+// Not used by buildInjuryDigest — exists purely for /api/debug/injuries, since this provider's
+// exact response shape was never verified with a live call (its domain is blocked from this
+// project's dev sandbox network policy). Returns the RAW response untouched by any of the parsing
+// assumptions above, so a real shape/auth mismatch can be seen directly instead of guessed at again.
+export async function debugFetchLeagueInjuries(league: LeagueId): Promise<{
+  leagueKey: string | null;
+  url: string | null;
+  hasApiKey: boolean;
+  status: number | null;
+  ok: boolean | null;
+  body: unknown;
+  error: string | null;
+}> {
+  const leagueKey = BIG_BALLS_LEAGUE[league] ?? null;
+  const apiKey = process.env.BIG_BALLS_API_KEY;
+
+  if (!leagueKey) {
+    return { leagueKey: null, url: null, hasApiKey: !!apiKey, status: null, ok: null, body: null, error: "This league isn't covered by Big Balls Sports Data." };
+  }
+  if (!apiKey) {
+    return { leagueKey, url: null, hasApiKey: false, status: null, ok: null, body: null, error: "BIG_BALLS_API_KEY is not configured." };
+  }
+
+  const url = `${BIG_BALLS_BASE}/injuries?sport=soccer&league=${leagueKey}`;
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    const text = await res.text();
+    let body: unknown = text;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      // Not JSON — keep the raw text so it's still visible rather than swallowed.
+    }
+    return { leagueKey, url, hasApiKey: true, status: res.status, ok: res.ok, body, error: null };
+  } catch (err) {
+    return { leagueKey, url, hasApiKey: true, status: null, ok: null, body: null, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 function formatTeamInjuries(teamName: string, records: BigBallsInjuryRecord[]): string {
