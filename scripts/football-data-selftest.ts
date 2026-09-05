@@ -515,6 +515,36 @@ async function run() {
     );
   }
 
+  // --- getLiveScores never queues behind a busy rate-limit budget — it's a background poll that
+  // asks again in 60s regardless, so a full budget just means skip this round, not wait it out.
+  // This is what stops live scores from hanging behind (or being killed by a server timeout
+  // because of) a batch analysis eating the whole 10-req/minute budget at once. ---
+  {
+    __resetRateLimiterForTests();
+    __resetLiveWindowCacheForTests();
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return ok({ matches: [] });
+    }) as unknown as typeof fetch;
+
+    // Fill the budget with 10 real requests (clearing the cache each time so every one of them
+    // genuinely claims a slot rather than being served from cache).
+    for (let i = 0; i < 10; i++) {
+      __resetLiveWindowCacheForTests();
+      await getLiveScores(["la-liga"]);
+    }
+    __resetLiveWindowCacheForTests();
+    calls = 0;
+
+    const start = Date.now();
+    const scores = await getLiveScores(["premier-league"]);
+    const elapsedMs = Date.now() - start;
+    check("a fully-claimed budget returns quickly rather than waiting out the window", elapsedMs < 2000, `${elapsedMs}ms`);
+    check("no request was actually sent when the budget had no room", calls === 0, `${calls}`);
+    check("the skipped round still resolves to an empty (not thrown) result", Array.isArray(scores) && scores.length === 0);
+  }
+
   // --- An empty leagues list makes no requests at all — no games on screen plausibly live means
   // nothing worth checking, not "check everything just in case" ---
   {

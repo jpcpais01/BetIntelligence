@@ -68,13 +68,25 @@ only the leagues that actually have a match in play right now — checking every
 regardless of what's showing used to be most of the free tier's entire 10-requests/minute budget by
 itself, crowding out real analysis into 429s. The poll interval matches the server's own per-league
 cache TTL exactly, so each poll gets genuinely fresh data at a predictable cost of one request per
-live league per minute, leaving most of the budget for analysis. That matters because the rate
-limiter makes an over-budget call *wait* rather than fail: scores polled too eagerly wouldn't error,
-they'd stall whatever the user actually asked for.
+live league per minute, leaving most of the budget for analysis.
+
+That budget is still shared with the AI analysis pipeline, though, and analysis can burn through
+most of it at once — a single match's digest alone is 4-5 requests, so a batch analysis of several
+matches can be 30-50. A live-score (or [settlement](#settling-football-bets-against-the-real-result))
+request that queued behind that, waiting for its own turn at the budget, would sit there past its
+own API route's server timeout and get killed with nothing to show for it — which looks exactly
+like "live scores just don't work," when the real cause was contention with an unrelated feature
+sharing the same budget. So this one call is **best-effort**: it claims a slot only if one is free
+right now, and if the budget is fully claimed it fails immediately rather than queuing — costing
+nothing, since the next poll tries again in 60 seconds regardless. Only requests a user is directly
+waiting on (an Analyze tap) keep the patient, queuing behavior, where a slower real answer beats a
+fast empty one. Every failure here — a busy budget, a missing API key, an actual network error — is
+also now logged server-side; before this it failed completely silently, which made "why don't live
+scores show up" impossible to actually diagnose from the outside.
 
 The result replaces the guessed "LIVE NOW" badge with the real thing — "LIVE 2-1", "HT 1-0",
-"FT 3-1" — and is what tells the page a match is finished so it can drop off the list. Two details
-that were previously wrong here, and are worth knowing about:
+"FT 3-1" — and is what tells the page a match is finished so it can drop off the list. Two more
+details that were previously wrong here, and are worth knowing about:
 
 - **Results are merged, never replaced.** Each poll only covers the leagues in play at that moment,
   so overwriting the whole set wiped every result belonging to a league that had just stopped being
@@ -292,7 +304,17 @@ placed bets with their own live P&L.
 A placed bet used to just sit as mark-to-market forever — the app had no way to know how a match
 actually finished, so even a bet on a match that ended days ago kept "repricing" instead of ever
 becoming a real win or loss. `lib/settlement.ts` fixes this for football legs, trying two sources
-in order every time Home or Lab loads and calls `resolvePendingSettlements`:
+in order.
+
+`resolvePendingSettlements` runs once when Home or Lab first loads, and then again every 60
+seconds for as long as the tab stays open — it used to run only on that first load, so a match
+finishing while the page sat open in the background left its bet stuck showing "Pending" until the
+next full reload. The recurring check reads whatever bets exist *at the moment it fires*, via a
+ref mirroring state rather than a direct effect dependency, for the same reason the Sports page's
+live-score/live-odds polling does: depending on the bets array directly would tear the interval
+down and rebuild it every time a bet settled, so it would never actually run on schedule.
+
+The two sources, in order:
 
 1. **The market's own post-match read (primary, fast).** Once the match is over — the app's one
    shared definition of that, [above](#a-matchs-lifecycle-upcoming-live-gone) — a leg is settled by
@@ -316,7 +338,9 @@ in order every time Home or Lab loads and calls `resolvePendingSettlements`:
    just "right now". This path matches clubs on both of the provider's names, full and short, for
    the same reason [live scores do](#live-scores-on-the-card): checking only the full name meant a
    bet on Wolves, Spurs, Man City or Inter never found its own match and stayed Pending forever,
-   however long ago it finished, while bets on other clubs settled normally.
+   however long ago it finished, while bets on other clubs settled normally. It's also best-effort
+   in the same way and for the same reason — it skips rather than queues behind analysis work, and
+   the next settlement check (every 60 seconds; see above) tries again.
 
 Whichever source resolves a leg first wins; if neither can, it stays open rather than guessing.
 Both compose into the same parlay-level rules:

@@ -78,7 +78,24 @@ const RATE_LIMIT_MAX_REQUESTS = 10;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const requestTimestamps: number[] = [];
 
-async function waitForRateLimitSlot(): Promise<void> {
+// A background poll (live scores, bet settlement) asks again on its own every 60 seconds
+// regardless — skipping one round costs nothing. Blocking it in the queue behind, say, a batch
+// analysis of 10 matches (up to ~50 requests, several minutes to drain on this budget) does cost
+// something: the poll's own API route has a server timeout, and a request that sits waiting past
+// it gets killed with nothing to show for it — which looks exactly like "live scores just don't
+// work," when the real cause was contention with an unrelated feature sharing the same budget.
+// `bestEffort` claims a slot only if one is free RIGHT NOW; otherwise it fails immediately rather
+// than queuing, so the poll always returns quickly and simply tries again next time around. A
+// one-shot user action (analysis) keeps the patient, queuing behavior — the user is directly
+// waiting on that result, so a slower real answer beats a fast empty one.
+class RateLimitBusyError extends Error {
+  constructor() {
+    super("football-data.org's request budget is fully claimed by other in-flight work right now.");
+    this.name = "RateLimitBusyError";
+  }
+}
+
+async function claimRateLimitSlot(bestEffort: boolean): Promise<void> {
   for (;;) {
     const now = Date.now();
     while (requestTimestamps.length > 0 && now - requestTimestamps[0] >= RATE_LIMIT_WINDOW_MS) {
@@ -88,6 +105,7 @@ async function waitForRateLimitSlot(): Promise<void> {
       requestTimestamps.push(now);
       return;
     }
+    if (bestEffort) throw new RateLimitBusyError();
     // Nothing awaits between the length check above and this wait, so two concurrent callers
     // can't both slip through the same slot — the next iteration re-checks after sleeping.
     const waitMs = RATE_LIMIT_WINDOW_MS - (now - requestTimestamps[0]) + 100;
@@ -112,14 +130,14 @@ export function parseRetryAfterSeconds(body: string): number {
   return Math.min(Math.max(seconds, 1), 65);
 }
 
-async function footballDataFetch<T>(path: string): Promise<T> {
+async function footballDataFetch<T>(path: string, bestEffort = false): Promise<T> {
   const apiKey = process.env.FOOTBALL_DATA_API_KEY;
   if (!apiKey) {
     throw new Error("FOOTBALL_DATA_API_KEY is not configured. Add it to your environment to enable football analysis.");
   }
 
   const attempt = async (): Promise<Response> => {
-    await waitForRateLimitSlot();
+    await claimRateLimitSlot(bestEffort);
     return fetch(`${FOOTBALL_DATA_URL}${path}`, {
       headers: { "X-Auth-Token": apiKey },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -130,11 +148,17 @@ async function footballDataFetch<T>(path: string): Promise<T> {
   try {
     res = await attempt();
     if (res.status === 429) {
+      // A real 429 despite our own self-throttling (another instance's requests, or the budget
+      // genuinely exhausted) — bestEffort doesn't wait out the provider's own suggested delay
+      // either, for the same reason it doesn't queue: the next scheduled poll is a better use of
+      // that wait than holding this request open.
+      if (bestEffort) throw new RateLimitBusyError();
       const body = await res.text().catch(() => "");
       await new Promise((resolve) => setTimeout(resolve, parseRetryAfterSeconds(body) * 1000));
       res = await attempt();
     }
   } catch (err) {
+    if (err instanceof RateLimitBusyError) throw err;
     throw new Error(`Could not reach football-data.org: ${err instanceof Error ? err.message : String(err)}`);
   }
 
@@ -413,10 +437,10 @@ const LIVE_RELEVANT_STATUSES = new Set(["LIVE", "IN_PLAY", "PAUSED", "FINISHED"]
 //
 // This is deliberately the same interval the client polls at (app/sports/page.tsx's
 // LIVE_SCORE_POLL_MS): matching them means each poll gets genuinely fresh data at a predictable
-// cost of one request per live league per minute, which is the point — the free tier allows 10
-// requests/minute across the whole app, and the rate limiter above makes an over-budget call WAIT
-// rather than fail, so scores polled too eagerly would stall the AI analysis a user actually
-// asked for. A longer TTL wouldn't save requests here, it would just serve staler scores.
+// cost of one request per live league per minute — the free tier allows 10 requests/minute across
+// the whole app, and this request is bestEffort (see claimRateLimitSlot above), so it never queues
+// behind analysis work; it just skips a round and the next poll, 60s later, tries again. A longer
+// TTL wouldn't save requests here, it would just serve staler scores.
 const LIVE_WINDOW_CACHE_TTL_MS = 60_000;
 const liveWindowCache = new Map<string, { at: number; matches: FootballDataMatch[] }>();
 
@@ -424,19 +448,25 @@ function dateOnly(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
+// bestEffort: true for both this module's callers (live scores, bet settlement) — both are
+// background polls that ask again on their own, so failing fast and trying next time beats
+// queuing behind whatever else is using the shared budget. Never true for anything a user is
+// directly waiting on (the digest/analysis fetches elsewhere in this file don't pass it).
 async function fetchLeagueMatchesInRange(
   code: string,
   from: string,
   to: string,
   cache: Map<string, { at: number; matches: FootballDataMatch[] }>,
-  ttlMs: number
+  ttlMs: number,
+  bestEffort: boolean
 ): Promise<FootballDataMatch[]> {
   const cacheKey = `${code}:${from}:${to}`;
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.at < ttlMs) return cached.matches;
 
   const response = await footballDataFetch<{ matches: FootballDataMatch[] }>(
-    `/matches?competitions=${code}&dateFrom=${from}&dateTo=${to}`
+    `/matches?competitions=${code}&dateFrom=${from}&dateTo=${to}`,
+    bestEffort
   );
   cache.set(cacheKey, { at: Date.now(), matches: response.matches });
   return response.matches;
@@ -449,7 +479,8 @@ async function fetchLeagueLiveWindow(code: string): Promise<FootballDataMatch[]>
     dateOnly(now - 86_400_000),
     dateOnly(now + 86_400_000),
     liveWindowCache,
-    LIVE_WINDOW_CACHE_TTL_MS
+    LIVE_WINDOW_CACHE_TTL_MS,
+    true
   );
 }
 
@@ -489,7 +520,14 @@ export async function getLiveScores(leagues: LeagueId[]): Promise<LiveScoreEntry
       if (!code) return [] as LiveScoreEntry[];
       try {
         return toLiveScoreEntries(league, await fetchLeagueLiveWindow(code));
-      } catch {
+      } catch (err) {
+        // This used to fail completely silently — not even a server log — which made "live scores
+        // just don't show up" impossible to actually diagnose. A RateLimitBusyError here just means
+        // this round was skipped and the next poll will try again; anything else (a bad/missing API
+        // key, a real network failure) is worth knowing about.
+        if (!(err instanceof RateLimitBusyError)) {
+          console.error(`getLiveScores(${league}) failed`, err);
+        }
         return [];
       }
     })
@@ -525,9 +563,14 @@ export async function getMatchResultsSince(
       const from = dateOnly(now - lookbackMs);
       const to = dateOnly(now);
       try {
-        const matches = await fetchLeagueMatchesInRange(code, from, to, matchResultsCache, MATCH_RESULTS_CACHE_TTL_MS);
+        const matches = await fetchLeagueMatchesInRange(code, from, to, matchResultsCache, MATCH_RESULTS_CACHE_TTL_MS, true);
         return toLiveScoreEntries(league, matches);
-      } catch {
+      } catch (err) {
+        // Same reasoning as getLiveScores above: a bet that looks stuck "Pending" forever was
+        // previously impossible to root-cause because nothing was ever logged when this failed.
+        if (!(err instanceof RateLimitBusyError)) {
+          console.error(`getMatchResultsSince(${league}) failed`, err);
+        }
         return [];
       }
     })

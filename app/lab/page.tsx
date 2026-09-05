@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SavedPick } from "@/lib/types";
 import { pruneFinishedPicks } from "@/lib/picks";
 import { hasKickedOff } from "@/lib/matchClock";
@@ -20,6 +20,11 @@ import { SearchIcon, TicketIcon, CoinsIcon } from "@/components/icons";
 
 type Tab = "build" | "bets";
 
+// Bets used to only ever get checked once, right when this page happened to mount — a match that
+// finished while the tab sat open just stayed "Pending" until the next full reload. Rechecking on
+// an interval means a bet settles on its own, the same way the Sports page's live scores do.
+const SETTLEMENT_CHECK_INTERVAL_MS = 60_000;
+
 // Discover (and its saved market picks) is deactivated for now — Build is football-only, with no
 // All/Football filter since there's nothing else to filter between. Market picks already saved
 // from before stay in storage untouched (lib/marketPicks.ts), just not read or shown here.
@@ -34,6 +39,32 @@ export default function LabPage() {
   const [riskError, setRiskError] = useState<string | null>(null);
   const [celebration, setCelebration] = useState<Celebration | null>(null);
   const requestLogos = useRequestLogos();
+
+  // Mirrors `placedBets` so the recurring settlement check can always read the latest value
+  // without depending on it directly — a direct dependency would tear down and restart the
+  // interval every time a bet settles or is placed/removed, so it would never actually run every
+  // SETTLEMENT_CHECK_INTERVAL_MS as intended (the same bug this session already fixed for the
+  // Sports page's live-score/odds polling).
+  const placedBetsRef = useRef<PlacedBet[] | null>(null);
+  useEffect(() => {
+    placedBetsRef.current = placedBets;
+  }, [placedBets]);
+
+  const mountedRef = useRef(true);
+  useEffect(() => () => {
+    mountedRef.current = false;
+  }, []);
+
+  const checkSettlements = useCallback(async (bets: PlacedBet[] | null) => {
+    if (!bets || bets.length === 0) return;
+    const { bets: settled, newlyWon } = await resolvePendingSettlements(bets);
+    if (!mountedRef.current) return;
+    setPlacedBets(settled);
+    if (newlyWon.length > 0) {
+      const c = await buildCelebration(newlyWon);
+      if (mountedRef.current && c) setCelebration(c);
+    }
+  }, []);
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect -- hydrating from localStorage, unavailable during SSR */
@@ -50,21 +81,15 @@ export default function LabPage() {
     setLegs(buildableLegs);
     setPlacedBets(loadedBets);
     /* eslint-enable react-hooks/set-state-in-effect */
+    void checkSettlements(loadedBets);
+  }, [checkSettlements]);
 
-    let cancelled = false;
-    resolvePendingSettlements(loadedBets).then(({ bets: settled, newlyWon }) => {
-      if (cancelled) return;
-      setPlacedBets(settled);
-      if (newlyWon.length > 0) {
-        buildCelebration(newlyWon).then((c) => {
-          if (!cancelled && c) setCelebration(c);
-        });
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // The recurring check reads bets via the ref (mirrored above), never as a direct effect
+  // dependency — ticks on its own schedule regardless of how often `placedBets` itself changes.
+  useEffect(() => {
+    const id = setInterval(() => void checkSettlements(placedBetsRef.current), SETTLEMENT_CHECK_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [checkSettlements]);
 
   useEffect(() => {
     if (!sportsPicks || sportsPicks.length === 0) return;
