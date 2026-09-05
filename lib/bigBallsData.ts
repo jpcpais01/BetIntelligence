@@ -9,12 +9,19 @@ import { teamNamesMatch } from "./teamNameMatching";
 // request that errors here just means the digest says injury data isn't available for this match —
 // it never fails the analysis that already worked fine without this source.
 //
-// This provider's own domain is blocked by this project's dev sandbox network policy the same way
-// football-data.org's docs were, so its exact response shape was pieced together from published
-// documentation excerpts rather than a live test call. If the injuries section ever looks wrong
-// once deployed (empty when it shouldn't be, wrong team, etc.), the actual response body from a
-// real call is what would pin down any field-name mismatch — same as how football-data.org's own
-// integration was refined from real production errors earlier.
+// This provider's own domain is blocked by this project's dev sandbox network policy, so its exact
+// response shape was first guessed from documentation excerpts, then corrected against a real
+// response fetched through /api/debug/injuries once deployed. Confirmed real shape for
+// GET /v1/injuries?sport=soccer&league=<key>:
+//   { data: { injuries: { value: [{ id, full_name, display_name, current_team_id }], source,
+//     via, confidence, fetchedAt, ttlSeconds } }, meta: {...}, error: null }
+// Two things the original guess got wrong: the array sits one level deeper than expected, at
+// data.injuries.value rather than data.injuries directly (silently discarded by the Array.isArray
+// guard, not crashed — but discarded all the same); and each record carries no team NAME at all,
+// only an opaque current_team_id, so a separate teams lookup is needed to resolve that to
+// something matchable against Polymarket's own team names. There's also no reason/status/expected-
+// return field on a record — this endpoint appears to be a bare "unavailable" flag, not a detailed
+// injury report.
 const BIG_BALLS_BASE = "https://api.bigballsdata.com/v1";
 const REQUEST_TIMEOUT_MS = 15_000;
 
@@ -31,11 +38,26 @@ const BIG_BALLS_LEAGUE: Partial<Record<LeagueId, string>> = {
   "champions-league": "ucl",
 };
 
+// This API wraps array payloads in a { value: [...], source, via, confidence, fetchedAt,
+// ttlSeconds } envelope (confirmed on /injuries) — unwrapped defensively here since a plain array
+// is also accepted, in case a different endpoint or a future API version doesn't wrap it.
+function unwrapValueArray<T>(field: unknown): T[] {
+  if (Array.isArray(field)) return field as T[];
+  if (field && typeof field === "object" && Array.isArray((field as { value?: unknown }).value)) {
+    return (field as { value: T[] }).value;
+  }
+  return [];
+}
+
 interface BigBallsInjuryRecord {
+  id?: string;
+  full_name?: string;
+  display_name?: string;
+  current_team_id?: string;
+  // Alternate/legacy field names kept as a fallback in case a different league or a future API
+  // version reports a richer shape than the bare id/name/team-id one actually observed.
   player?: { id?: string | number; name?: string };
   team?: { id?: string | number; name?: string };
-  // Alternate field names the real API might use instead of a nested `team` object — read
-  // defensively since the exact schema wasn't directly verifiable (see module comment above).
   teamName?: string;
   club?: string;
   reason?: string;
@@ -45,33 +67,87 @@ interface BigBallsInjuryRecord {
 }
 
 interface BigBallsInjuriesResponse {
-  data?: { injuries?: BigBallsInjuryRecord[] };
-  injuries?: BigBallsInjuryRecord[];
+  data?: { injuries?: unknown };
+  injuries?: unknown;
+  error?: unknown;
 }
 
-// `as BigBallsInjuriesResponse` on the parsed JSON only tells TypeScript what shape to expect —
-// it doesn't check anything at runtime. If the real API's shape differs from what was guessed
-// (this provider's exact schema was never verified with a live call, see the module comment
-// above), `injuries` could come back as something other than an array; Array.isArray here is
-// what actually stops that from becoming a hard crash a few lines later at `.filter(...)`.
 function extractInjuries(response: BigBallsInjuriesResponse): BigBallsInjuryRecord[] {
-  const injuries = response.data?.injuries ?? response.injuries;
-  return Array.isArray(injuries) ? injuries : [];
-}
-
-function recordTeamName(record: BigBallsInjuryRecord): string | null {
-  return record.team?.name ?? record.teamName ?? record.club ?? null;
+  return unwrapValueArray<BigBallsInjuryRecord>(response.data?.injuries ?? response.injuries);
 }
 
 function recordPlayerName(record: BigBallsInjuryRecord): string {
-  return record.player?.name ?? "Unknown player";
+  return record.player?.name ?? record.display_name ?? record.full_name ?? "Unknown player";
 }
 
+// No reason/status/expected-return field has actually been observed on a record — this endpoint
+// looks like a bare "currently unavailable" flag rather than a detailed injury report, so the
+// honest fallback says exactly that instead of implying a status was checked and found empty.
 function recordDetail(record: BigBallsInjuryRecord): string {
   const reason = record.reason ?? record.status;
   const expected = record.expectedReturn ?? record.expected_return;
   const parts = [reason, expected ? `expected back ${expected}` : null].filter(Boolean);
-  return parts.length > 0 ? parts.join(", ") : "status unspecified";
+  return parts.length > 0 ? parts.join(", ") : "reported unavailable";
+}
+
+interface BigBallsTeamRecord {
+  id?: string;
+  name?: string;
+  full_name?: string;
+  display_name?: string;
+}
+
+interface BigBallsTeamsResponse {
+  data?: { teams?: unknown };
+  teams?: unknown;
+}
+
+// Team rosters/ids essentially never change mid-season — cached far longer than the injuries list
+// itself, which needs to stay fresher.
+const TEAMS_CACHE_TTL_MS = 60 * 60_000;
+const teamsCache = new Map<string, { at: number; namesById: Map<string, string> }>();
+
+async function fetchLeagueTeamNames(leagueKey: string): Promise<Map<string, string>> {
+  const cached = teamsCache.get(leagueKey);
+  if (cached && Date.now() - cached.at < TEAMS_CACHE_TTL_MS) return cached.namesById;
+
+  const apiKey = process.env.BIG_BALLS_API_KEY;
+  if (!apiKey) return new Map();
+
+  const url = `${BIG_BALLS_BASE}/teams?sport=soccer&league=${leagueKey}`;
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error(`Big Balls Sports Data teams request failed (${res.status} ${url}): ${body.slice(0, 300)}`);
+      return new Map();
+    }
+    const json = (await res.json()) as BigBallsTeamsResponse;
+    const records = unwrapValueArray<BigBallsTeamRecord>(json.data?.teams ?? json.teams);
+    const namesById = new Map<string, string>();
+    for (const t of records) {
+      const name = t.name ?? t.full_name ?? t.display_name;
+      if (t.id && name) namesById.set(t.id, name);
+    }
+    if (namesById.size === 0) {
+      console.error(`Big Balls Sports Data returned no usable teams for ${url}. Raw response: ${JSON.stringify(json).slice(0, 500)}`);
+    }
+    teamsCache.set(leagueKey, { at: Date.now(), namesById });
+    return namesById;
+  } catch (err) {
+    console.error(`Big Balls Sports Data teams request threw (${url}): ${err instanceof Error ? err.message : String(err)}`);
+    return new Map();
+  }
+}
+
+function recordTeamName(record: BigBallsInjuryRecord, teamNamesById: Map<string, string>): string | null {
+  const direct = record.team?.name ?? record.teamName ?? record.club;
+  if (direct) return direct;
+  if (record.current_team_id) return teamNamesById.get(record.current_team_id) ?? null;
+  return null;
 }
 
 // A whole league's injury list barely changes minute to minute, and the free tier's budget here
@@ -118,57 +194,66 @@ async function fetchLeagueInjuries(leagueKey: string): Promise<BigBallsInjuryRec
   }
 }
 
-// Test-only: clears the module-level cache so selftest cases don't see stale injuries from an
+// Test-only: clears the module-level caches so selftest cases don't see stale data from an
 // earlier case sharing the same league key.
 export function __resetInjuriesCacheForTests(): void {
   injuriesCache.clear();
+  teamsCache.clear();
 }
 
 // Not used by buildInjuryDigest — exists purely for /api/debug/injuries, since this provider's
-// exact response shape was never verified with a live call (its domain is blocked from this
-// project's dev sandbox network policy). Returns the RAW response untouched by any of the parsing
-// assumptions above, so a real shape/auth mismatch can be seen directly instead of guessed at again.
+// exact response shape wasn't fully verifiable ahead of time (its domain is blocked from this
+// project's dev sandbox network policy). Returns the RAW responses for both the injuries and
+// teams endpoints, untouched by any of the parsing assumptions above, so a real shape or auth
+// mismatch can be seen directly instead of guessed at again.
 export async function debugFetchLeagueInjuries(league: LeagueId): Promise<{
   leagueKey: string | null;
-  url: string | null;
   hasApiKey: boolean;
-  status: number | null;
-  ok: boolean | null;
-  body: unknown;
+  injuries: { url: string; status: number | null; ok: boolean | null; body: unknown; error: string | null } | null;
+  teams: { url: string; status: number | null; ok: boolean | null; body: unknown; error: string | null } | null;
   error: string | null;
 }> {
   const leagueKey = BIG_BALLS_LEAGUE[league] ?? null;
   const apiKey = process.env.BIG_BALLS_API_KEY;
 
   if (!leagueKey) {
-    return { leagueKey: null, url: null, hasApiKey: !!apiKey, status: null, ok: null, body: null, error: "This league isn't covered by Big Balls Sports Data." };
+    return { leagueKey: null, hasApiKey: !!apiKey, injuries: null, teams: null, error: "This league isn't covered by Big Balls Sports Data." };
   }
   if (!apiKey) {
-    return { leagueKey, url: null, hasApiKey: false, status: null, ok: null, body: null, error: "BIG_BALLS_API_KEY is not configured." };
+    return { leagueKey, hasApiKey: false, injuries: null, teams: null, error: "BIG_BALLS_API_KEY is not configured." };
   }
 
-  const url = `${BIG_BALLS_BASE}/injuries?sport=soccer&league=${leagueKey}`;
-  try {
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    const text = await res.text();
-    let body: unknown = text;
+  const rawFetch = async (path: string) => {
+    const url = `${BIG_BALLS_BASE}${path}`;
     try {
-      body = JSON.parse(text);
-    } catch {
-      // Not JSON — keep the raw text so it's still visible rather than swallowed.
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      const text = await res.text();
+      let body: unknown = text;
+      try {
+        body = JSON.parse(text);
+      } catch {
+        // Not JSON — keep the raw text so it's still visible rather than swallowed.
+      }
+      return { url, status: res.status, ok: res.ok, body, error: null };
+    } catch (err) {
+      return { url, status: null, ok: null, body: null, error: err instanceof Error ? err.message : String(err) };
     }
-    return { leagueKey, url, hasApiKey: true, status: res.status, ok: res.ok, body, error: null };
-  } catch (err) {
-    return { leagueKey, url, hasApiKey: true, status: null, ok: null, body: null, error: err instanceof Error ? err.message : String(err) };
-  }
+  };
+
+  const [injuries, teams] = await Promise.all([
+    rawFetch(`/injuries?sport=soccer&league=${leagueKey}`),
+    rawFetch(`/teams?sport=soccer&league=${leagueKey}`),
+  ]);
+
+  return { leagueKey, hasApiKey: true, injuries, teams, error: null };
 }
 
-function formatTeamInjuries(teamName: string, records: BigBallsInjuryRecord[]): string {
+function formatTeamInjuries(teamName: string, records: BigBallsInjuryRecord[], teamNamesById: Map<string, string>): string {
   const relevant = records.filter((r) => {
-    const name = recordTeamName(r);
+    const name = recordTeamName(r, teamNamesById);
     return name !== null && teamNamesMatch(name, teamName);
   });
   if (relevant.length === 0) return "No reported injuries.";
@@ -188,15 +273,25 @@ export async function buildInjuryDigest(input: {
     return `Injuries / Availability:\nInjury data not available for this league.`;
   }
 
-  const injuries = await fetchLeagueInjuries(leagueKey);
+  const [injuries, teamNamesById] = await Promise.all([fetchLeagueInjuries(leagueKey), fetchLeagueTeamNames(leagueKey)]);
   if (injuries.length === 0) {
     return `Injuries / Availability:\nInjury data not available for this match.`;
   }
 
+  // Team-name resolution failing (an empty map) is distinct from there being no injuries at all —
+  // rather than silently showing "no reported injuries" for both teams (which would be actively
+  // misleading if players ARE listed but just couldn't be attributed), surface the full unmatched
+  // list so the digest still carries real information while that gets diagnosed.
+  if (teamNamesById.size === 0) {
+    const names = injuries.map((r) => recordPlayerName(r)).filter((n) => n !== "Unknown player");
+    return `Injuries / Availability:
+Could not map players to specific teams for this league (team-name lookup returned nothing) — full list of players currently reported unavailable league-wide: ${names.length > 0 ? names.join(", ") : "none"}.`;
+  }
+
   return `Injuries / Availability:
 ${input.homeTeam}:
-${formatTeamInjuries(input.homeTeam, injuries)}
+${formatTeamInjuries(input.homeTeam, injuries, teamNamesById)}
 
 ${input.awayTeam}:
-${formatTeamInjuries(input.awayTeam, injuries)}`;
+${formatTeamInjuries(input.awayTeam, injuries, teamNamesById)}`;
 }

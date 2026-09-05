@@ -4,13 +4,30 @@ function ok(json: unknown) {
   return { ok: true, status: 200, json: async () => json, text: async () => "" };
 }
 
-function injury(opts: { player: string; team: string; reason?: string; expectedReturn?: string }) {
+// Real confirmed shape (via /api/debug/injuries against the live API): a bare "currently
+// unavailable" flag with no team name, no reason, and no expected-return date — just an id, a
+// display name, and an opaque team id. Team names have to be resolved separately via /teams.
+function injury(opts: { id: string; name: string; teamId: string; reason?: string; expectedReturn?: string }) {
   return {
-    player: { name: opts.player },
-    team: { name: opts.team },
+    id: opts.id,
+    full_name: opts.name,
+    display_name: opts.name,
+    current_team_id: opts.teamId,
     reason: opts.reason,
     expectedReturn: opts.expectedReturn,
   };
+}
+
+function team(id: string, name: string) {
+  return { id, name };
+}
+
+function injuriesResponse(records: unknown[]) {
+  return ok({ data: { injuries: { value: records, source: "aggregator-paid", via: "cache" } } });
+}
+
+function teamsResponse(records: unknown[]) {
+  return ok({ data: { teams: { value: records } } });
 }
 
 async function run() {
@@ -48,40 +65,53 @@ async function run() {
     check("unsupported league -> digest says injury data isn't available", digest.includes("not available"), digest);
   }
 
-  // --- A covered league, successful response with injuries for both teams ---
+  // --- A covered league, successful response: injuries keyed by opaque team id, resolved to real
+  // team names via a separate /teams lookup ---
   {
     __resetInjuriesCacheForTests();
     process.env.BIG_BALLS_API_KEY = "test-key";
-    let requestedUrl = "";
+    const urls: string[] = [];
     globalThis.fetch = (async (url: unknown) => {
-      requestedUrl = String(url);
-      return ok({
-        data: {
-          injuries: [
-            injury({ player: "Bukayo Saka", team: "Arsenal", reason: "hamstring", expectedReturn: "2026-10-01" }),
-            injury({ player: "Reece James", team: "Chelsea", reason: "knee" }),
-          ],
-        },
-      });
+      const u = String(url);
+      urls.push(u);
+      if (u.includes("/injuries")) {
+        return injuriesResponse([
+          injury({ id: "p1", name: "Bukayo Saka", teamId: "team_arsenal" }),
+          injury({ id: "p2", name: "Reece James", teamId: "team_chelsea" }),
+        ]);
+      }
+      if (u.includes("/teams")) {
+        return teamsResponse([team("team_arsenal", "Arsenal"), team("team_chelsea", "Chelsea")]);
+      }
+      throw new Error(`Unhandled URL: ${u}`);
     }) as unknown as typeof fetch;
 
     const digest = await buildInjuryDigest({ homeTeam: "Arsenal", awayTeam: "Chelsea", league: "premier-league" });
-    check("requests the epl league key for premier-league", requestedUrl.includes("league=epl"), requestedUrl);
-    check("home team's injured player appears", digest.includes("Bukayo Saka"), digest);
-    check("home team's reason and expected return appear", digest.includes("hamstring") && digest.includes("2026-10-01"), digest);
-    check("away team's injured player appears", digest.includes("Reece James"), digest);
-    check("away team's reason appears", digest.includes("knee"), digest);
+    check("requests the epl league key on the injuries endpoint", urls.some((u) => u.includes("/injuries") && u.includes("league=epl")), urls.join(" | "));
+    check("requests the epl league key on the teams endpoint", urls.some((u) => u.includes("/teams") && u.includes("league=epl")), urls.join(" | "));
+    check("home team's injured player appears, resolved via team id", digest.includes("Bukayo Saka"), digest);
+    check("away team's injured player appears, resolved via team id", digest.includes("Reece James"), digest);
+    check("a record with no reason/status shows an honest bare flag", digest.includes("reported unavailable"), digest);
   }
 
-  // --- A covered league, a team with no reported injuries gets an honest per-team line ---
+  // --- A record that DOES carry reason/expected-return (a richer shape, if some league ever
+  // returns one) still surfaces that detail rather than the bare fallback ---
   {
     __resetInjuriesCacheForTests();
     process.env.BIG_BALLS_API_KEY = "test-key";
-    globalThis.fetch = (async () =>
-      ok({ data: { injuries: [injury({ player: "Erling Haaland", team: "Manchester City", reason: "ankle" })] } })) as unknown as typeof fetch;
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/injuries")) {
+        return injuriesResponse([
+          injury({ id: "p3", name: "Erling Haaland", teamId: "team_city", reason: "ankle", expectedReturn: "2026-10-01" }),
+        ]);
+      }
+      if (u.includes("/teams")) return teamsResponse([team("team_city", "Manchester City"), team("team_everton", "Everton")]);
+      throw new Error(`Unhandled URL: ${u}`);
+    }) as unknown as typeof fetch;
 
     const digest = await buildInjuryDigest({ homeTeam: "Manchester City", awayTeam: "Everton", league: "premier-league" });
-    check("the team with an injury shows it", digest.includes("Erling Haaland"), digest);
+    check("a record with a reason and expected return shows both", digest.includes("ankle") && digest.includes("2026-10-01"), digest);
     check("the team with no injuries gets an honest 'no reported injuries' line", digest.includes("No reported injuries."), digest);
   }
 
@@ -89,8 +119,12 @@ async function run() {
   {
     __resetInjuriesCacheForTests();
     process.env.BIG_BALLS_API_KEY = "test-key";
-    globalThis.fetch = (async () =>
-      ok({ data: { injuries: [injury({ player: "Karim Adeyemi", team: "Borussia Dortmund", reason: "muscle" })] } })) as unknown as typeof fetch;
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/injuries")) return injuriesResponse([injury({ id: "p4", name: "Karim Adeyemi", teamId: "team_bvb" })]);
+      if (u.includes("/teams")) return teamsResponse([team("team_bayern", "Bayern Munich"), team("team_bvb", "Borussia Dortmund")]);
+      throw new Error(`Unhandled URL: ${u}`);
+    }) as unknown as typeof fetch;
 
     const digest = await buildInjuryDigest({
       homeTeam: "Bayern Munich",
@@ -98,7 +132,7 @@ async function run() {
       league: "bundesliga",
     });
     check(
-      "a full legal name ('BV Borussia 09 Dortmund') still matches the injury record's team name",
+      "a full legal name ('BV Borussia 09 Dortmund') still matches the resolved team name",
       digest.includes("Karim Adeyemi"),
       digest
     );
@@ -108,23 +142,48 @@ async function run() {
   {
     __resetInjuriesCacheForTests();
     process.env.BIG_BALLS_API_KEY = "test-key";
-    let requestedUrl = "";
+    const urls: string[] = [];
     globalThis.fetch = (async (url: unknown) => {
-      requestedUrl = String(url);
-      return ok({ data: { injuries: [] } });
+      const u = String(url);
+      urls.push(u);
+      if (u.includes("/injuries")) return injuriesResponse([]);
+      if (u.includes("/teams")) return teamsResponse([]);
+      throw new Error(`Unhandled URL: ${u}`);
     }) as unknown as typeof fetch;
     await buildInjuryDigest({ homeTeam: "Real Madrid", awayTeam: "Manchester City", league: "champions-league" });
-    check("requests the ucl league key for champions-league", requestedUrl.includes("league=ucl"), requestedUrl);
+    check("requests the ucl league key for champions-league", urls.some((u) => u.includes("league=ucl")), urls.join(" | "));
   }
 
-  // --- A real production bug: the actual API's shape turned out not to match what was guessed
-  // (this provider's schema was never verified with a live call), so `injuries` came back as
-  // something other than an array. That must soft-fail to "not available" like everything else
-  // here, not crash the whole analysis with "X.filter is not a function". ---
+  // --- Team-name resolution failing (an empty /teams response) is distinct from no injuries at
+  // all — the digest should still surface the unmatched players league-wide rather than silently
+  // claiming "no reported injuries" for both teams. ---
   {
     __resetInjuriesCacheForTests();
     process.env.BIG_BALLS_API_KEY = "test-key";
-    globalThis.fetch = (async () => ok({ data: { injuries: { unexpected: "shape" } } })) as unknown as typeof fetch;
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/injuries")) return injuriesResponse([injury({ id: "p5", name: "Some Player", teamId: "team_x" })]);
+      if (u.includes("/teams")) return teamsResponse([]);
+      throw new Error(`Unhandled URL: ${u}`);
+    }) as unknown as typeof fetch;
+
+    const digest = await buildInjuryDigest({ homeTeam: "Arsenal", awayTeam: "Chelsea", league: "premier-league" });
+    check("team resolution failing still surfaces the player name league-wide", digest.includes("Some Player"), digest);
+    check("team resolution failing is flagged explicitly, not silently 'no reported injuries'", digest.includes("Could not map players to specific teams"), digest);
+  }
+
+  // --- The real production bug this was built from: the injuries array sits one level deeper
+  // than first guessed (data.injuries.value, not data.injuries) — a bare object at data.injuries
+  // must never crash, and an unwrapped array is still accepted defensively too. ---
+  {
+    __resetInjuriesCacheForTests();
+    process.env.BIG_BALLS_API_KEY = "test-key";
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/injuries")) return ok({ data: { injuries: { unexpected: "shape" } } });
+      if (u.includes("/teams")) return teamsResponse([]);
+      throw new Error(`Unhandled URL: ${u}`);
+    }) as unknown as typeof fetch;
     let threw = false;
     let digest = "";
     try {
@@ -132,8 +191,20 @@ async function run() {
     } catch {
       threw = true;
     }
-    check("an unexpected (non-array) injuries shape never throws", !threw);
+    check("an unexpected (non-array, non-{value}) injuries shape never throws", !threw);
     check("an unexpected shape soft-fails to 'not available'", digest.includes("not available"), digest);
+  }
+  {
+    __resetInjuriesCacheForTests();
+    process.env.BIG_BALLS_API_KEY = "test-key";
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/injuries")) return ok({ data: { injuries: [injury({ id: "p6", name: "Plain Array Player", teamId: "team_x" })] } });
+      if (u.includes("/teams")) return teamsResponse([team("team_x", "Arsenal")]);
+      throw new Error(`Unhandled URL: ${u}`);
+    }) as unknown as typeof fetch;
+    const digest = await buildInjuryDigest({ homeTeam: "Arsenal", awayTeam: "Chelsea", league: "premier-league" });
+    check("a plain (unwrapped) array is also accepted defensively", digest.includes("Plain Array Player"), digest);
   }
 
   // --- A non-ok response or thrown fetch both soft-fail rather than throwing ---

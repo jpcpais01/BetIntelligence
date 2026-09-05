@@ -470,16 +470,19 @@ required to run AI analysis.
   fallback to web search on a miss.
 - **Football injuries/availability**: [Big Balls Sports Data](https://bigballsdata.com/)
   (`api.bigballsdata.com/v1`) — `lib/bigBallsData.ts` fetches each covered league's current injury
-  list and filters it down to the two teams in the match, appending an "Injuries / Availability"
-  section to the digest above. Covers Premier League, La Liga, Bundesliga, Serie A, Ligue 1, and
-  the Champions League; an uncovered league, an unset `BIG_BALLS_API_KEY`, or a failed request all
-  render as an honest "not available" line rather than failing the analysis — this source is an
-  enrichment layer, not a required one. Its exact response shape was never verified with a live
-  call (its domain is blocked by this project's dev sandbox network policy the same way
-  football-data.org's docs were), so every failure mode is logged via `console.error` instead of
-  swallowed silently, and `/api/debug/injuries?league=<id>` (not linked from the UI) returns the
-  raw response for a league directly — useful if injuries look wrong or missing once deployed and
-  the actual cause needs diagnosing rather than guessing at again.
+  list plus a team-id-to-name lookup (a player record carries only an opaque team id, no name —
+  confirmed against a real response via `/api/debug/injuries`, not guessed), resolves the two
+  teams in the match, and appends an "Injuries / Availability" section to the digest above. Covers
+  Premier League, La Liga, Bundesliga, Serie A, Ligue 1, and the Champions League; an uncovered
+  league, an unset `BIG_BALLS_API_KEY`, or a failed request all render as an honest "not available"
+  line rather than failing the analysis — this source is an enrichment layer, not a required one.
+  If the team-name lookup itself fails, the digest still surfaces the full unmatched player list
+  league-wide rather than silently claiming neither team has any reported injuries. Every failure
+  mode is logged via `console.error`, and `/api/debug/injuries?league=<id>` (not linked from the
+  UI) returns the raw responses for both endpoints directly — useful if this ever looks wrong again
+  once deployed, since this provider's exact contract can't be tested live from this project's dev
+  environment (its domain is blocked by that sandbox's network policy the same way
+  football-data.org's docs were).
 
 ## Project structure
 

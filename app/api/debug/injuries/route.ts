@@ -5,10 +5,10 @@ import { isLeagueId } from "@/lib/leagues";
 export const maxDuration = 30;
 
 // Not linked from the UI. Hit this directly (e.g. /api/debug/injuries?league=premier-league) to
-// see the RAW response Big Balls Sports Data actually returns for a league — this provider's exact
-// response shape was never verified with a live call from the dev environment (its domain is
-// blocked by that sandbox's network policy), so this is how a real shape or auth mismatch gets
-// diagnosed instead of guessed at again.
+// see the RAW responses Big Balls Sports Data actually returns for a league's injuries AND its
+// team-name lookup — this provider's exact response shape wasn't fully verifiable ahead of time
+// (its domain is blocked by this project's dev sandbox network policy), so this is how a real
+// shape or auth mismatch gets diagnosed instead of guessed at again.
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const league = searchParams.get("league");
