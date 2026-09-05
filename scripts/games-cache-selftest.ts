@@ -1,4 +1,4 @@
-import { mergeGames, GAME_VISIBLE_GRACE_MS } from "../lib/gamesCache";
+import { mergeGames, isLiveCandidate, GAME_VISIBLE_GRACE_MS } from "../lib/gamesCache";
 import type { Game } from "../lib/types";
 
 function fakeGame(id: string, startTime: string): Game {
@@ -72,6 +72,22 @@ function run() {
   check(
     "merged result stays sorted by startTime",
     merged5.map((g) => g.id).join(",") === "g6,g7"
+  );
+
+  // isLiveCandidate MUST stay aligned with GAME_VISIBLE_GRACE_MS — the exact bug this guards
+  // against: a shorter live-score polling window than the game stays visible for meant a finished
+  // match could sit on screen for hours with no result ever shown, because its league had already
+  // dropped off the candidate list well before the card itself stopped being displayed.
+  check("a game kicking off in 10 minutes is a live candidate", isLiveCandidate(isoFromNow(10 * 60_000)));
+  check("a game kicking off in 20 minutes is not yet a live candidate", !isLiveCandidate(isoFromNow(20 * 60_000)));
+  check("a game that started 5 hours ago is still a live candidate", isLiveCandidate(isoAgo(5 * HOUR)));
+  check(
+    "a game right at the edge of the visibility grace window is still a live candidate",
+    isLiveCandidate(isoAgo(GAME_VISIBLE_GRACE_MS - HOUR))
+  );
+  check(
+    "a game past the visibility grace window is no longer a live candidate",
+    !isLiveCandidate(isoAgo(GAME_VISIBLE_GRACE_MS + HOUR))
   );
 
   if (failures.length > 0) {

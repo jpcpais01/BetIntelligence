@@ -17,6 +17,7 @@ import {
   saveCachedGames,
   isStale,
   mergeGames,
+  isLiveCandidate,
   REFRESH_INTERVAL_MS,
 } from "@/lib/gamesCache";
 import { loadSelectedLeagues, saveSelectedLeagues } from "@/lib/leaguePrefs";
@@ -27,17 +28,6 @@ import { teamNamesMatch } from "@/lib/teamNameMatching";
 // Polling cadence for live scores — much faster than the 30-minute odds refresh, since a score is
 // only useful if it's actually current.
 const LIVE_SCORE_POLL_MS = 40_000;
-// A game is worth polling for once its kickoff is close enough that it could plausibly be live —
-// from 15 minutes before kickoff (so a match going live mid-session gets picked up promptly,
-// without waiting on a manual refresh) through 6 hours after (long enough to keep showing a
-// finished match's final score for a while).
-function isLiveCandidate(startTime: string): boolean {
-  const t = new Date(startTime).getTime();
-  if (!Number.isFinite(t)) return false;
-  const now = Date.now();
-  return t <= now + 15 * 60_000 && t >= now - 6 * 3_600_000;
-}
-
 // Odds move fast once a match is actually underway — this polls much more tightly than the
 // 30-minute full refresh, but only for games that have already kicked off (there's no "live"
 // odds to chase before then, the normal refresh cadence is plenty).

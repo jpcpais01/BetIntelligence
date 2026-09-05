@@ -36,8 +36,14 @@ A card's full odds refresh happens only every 30 minutes (see
 label with no score would go stale the moment the first goal went in. Once a match's kickoff is
 close enough to plausibly be underway, the page separately polls `/api/games/live-scores` every 40
 seconds, sending along only the leagues that actually have a plausibly-live game on screen right
-now. `getLiveScores` asks football-data.org (the same provider behind the AI's research digest) for
-just those leagues' current matches, one request each, filtered to just the live/paused/finished
+now — `isLiveCandidate` (`lib/gamesCache.ts`), from 15 minutes before kickoff through however long
+[the game stays visible at all](#a-recently-kicked-off-game-doesnt-vanish-from-the-list)
+(`GAME_VISIBLE_GRACE_MS`, 24h). Those two share one constant deliberately: an earlier, shorter
+polling window (6h) than the visibility grace (24h) meant a match's league quietly stopped being
+polled hours before its card actually disappeared, so a game that had genuinely finished could sit
+on screen the rest of that window still showing its stale pre-match kickoff label, never the real
+result. `getLiveScores` asks football-data.org (the same provider behind the AI's research digest)
+for just those leagues' current matches, one request each, filtered to just the live/paused/finished
 ones — checking every covered league regardless of what's showing used to be most of the free
 tier's entire 10-requests/minute budget by itself, crowding out real analysis requests into 429s.
 The result replaces the guessed "LIVE NOW" badge with the real thing — "LIVE 2-1", "HT 1-0",

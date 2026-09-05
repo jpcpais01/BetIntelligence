@@ -68,3 +68,18 @@ export function isStale(fetchedAt: string | null): boolean {
   if (!Number.isFinite(t)) return true;
   return Date.now() - t >= REFRESH_INTERVAL_MS;
 }
+
+// A game is worth polling live scores for once its kickoff is close enough that it could
+// plausibly be live — from 15 minutes before kickoff (so a match going live mid-session gets
+// picked up promptly, without waiting on a manual refresh) through however long mergeGames above
+// still keeps a kicked-off game on screen at all (GAME_VISIBLE_GRACE_MS). Defined here, sharing
+// that same constant, rather than as a second copy in app/sports/page.tsx with its own hardcoded
+// window — the two drifting apart is exactly what let a finished match sit on screen for hours
+// with no result ever shown: its league dropped off the live-score candidate list well before the
+// card itself stopped being displayed, so nothing ever polled for its final score again.
+export function isLiveCandidate(startTime: string): boolean {
+  const t = new Date(startTime).getTime();
+  if (!Number.isFinite(t)) return false;
+  const now = Date.now();
+  return t <= now + 15 * 60_000 && t >= now - GAME_VISIBLE_GRACE_MS;
+}
