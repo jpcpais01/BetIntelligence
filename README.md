@@ -675,6 +675,26 @@ OpenRouter's rate limits) and each result appears in the sheet as it finishes.
   (`lib/clubLogos.ts`, `/api/logos`). Resolved names are cached in `localStorage` indefinitely (crests
   essentially never change), so a club is only ever looked up once across the app's lifetime; any club
   with no crest, or whose image fails to load, falls back to its initials.
+  - A search can legitimately return several candidates (a same-named club in another country, a
+    reserve side, an unrelated team in a different sport) — the wrong crest used to show up simply
+    because whichever one came back first got used. Every candidate is now verified against the
+    query name (`strTeam` and TheSportsDB's own `strAlternate` field, checked the same tiered way
+    every other provider's name is matched — `lib/teamNameMatching.ts`); an unverifiable single
+    result is rejected (falls back to initials) rather than risk showing someone else's badge.
+  - A name that resolves nothing on the first try is retried with a de-accented form, then a
+    hyphens-as-spaces form, then — for this app's ~40 curated top clubs (`lib/topTeams.ts`) — every
+    other spelling that club is already known by (e.g. "PSG" for Paris Saint-Germain, whose actual
+    TheSportsDB page is titled "Paris SG" — a name that shares no word with "Paris Saint-Germain" at
+    all, which is why the plain literal lookup found nothing). A curated alias is trusted outright
+    on a single confident result rather than re-verified against a name it was never going to
+    resemble; a generic accent/hyphen variant still goes through the same verification as the
+    original query.
+  - TheSportsDB's own documentation and forum reports describe the shared public demo key this app
+    uses by default (the `123` in `SPORTS_DB_BASE`) as restricted for `searchteams.php` — unreliable
+    or limited for most queries. Set `SPORTS_DB_API_KEY` to a free personal key (registration, no
+    payment, no code change needed beyond the env var) if crests are still wrong or missing for a
+    lot of clubs after the fixes above; this sandbox couldn't confirm the restriction directly since
+    `thesportsdb.com` isn't reachable from it, so this is a recommendation, not a verified fix.
 - **Caching** — fetched markets are cached in `localStorage`, so reopening the app renders instantly
   with no network request. There's no automatic timer: the general odds sweep runs on the initial
   load, when you return to a tab that's gone stale, and whenever you tap the refresh button in the
@@ -729,6 +749,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | `OPENROUTER_API_KEY` | Yes (for real analysis) | API key from [openrouter.ai/keys](https://openrouter.ai/keys). |
 | `FOOTBALL_DATA_API_KEY` | Yes (for football analysis) | Free key from [football-data.org](https://www.football-data.org/client/register). Powers football's core research step (form, head-to-head, fixture status/score); Discover markets don't use it. |
 | `BIG_BALLS_API_KEY` | No | Free key from [bigballsdata.com](https://bigballsdata.com/). Adds the injuries/availability section to football's research step. Left unset, that section just says injury data isn't available. |
+| `SPORTS_DB_API_KEY` | No | Free personal key from [TheSportsDB](https://www.thesportsdb.com/) (registration, no payment). Left unset, club-crest lookups use TheSportsDB's shared public demo key, which their own docs/forum describe as restricted for `searchteams.php` — see [Club crests](#filtering-and-refreshing). |
 | `NEXT_PUBLIC_APP_URL` | No | Sent to OpenRouter as the app's referer/title for their dashboards. |
 | `MOCK_GAMES` | No | Set to `1` to serve built-in sample matches instead of calling Polymarket. Useful for local UI work without network access. |
 | `MOCK_MARKETS` | No | Set to `1` to serve built-in sample Discover markets instead of calling Polymarket. |

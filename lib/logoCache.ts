@@ -1,6 +1,8 @@
-// v2: stores every name we've ever resolved (found or not), not just a fixed curated list,
-// since logos are now fetched for whatever teams actually show up across games/picks/slip.
-const STORAGE_KEY = "betintelligence.logos.v2";
+// v3: the underlying lookup (lib/clubLogos.ts) got real name-verified matching plus alias/accent
+// retry queries, both of which resolve some clubs (and correct some wrong crests) that the old
+// logic couldn't — bumping the key means every already-"attempted" name gets a fresh try under
+// the new logic instead of staying stuck on a stored miss (or a stored WRONG crest) forever.
+const STORAGE_KEY = "betintelligence.logos.v3";
 
 interface CachedLogos {
   logos: Record<string, string>;

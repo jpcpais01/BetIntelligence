@@ -132,3 +132,24 @@ export function isTopGame(game: { league: LeagueId; homeTeam: string; awayTeam: 
 export function getTopTeamNames(league: LeagueId): string[] {
   return TOP_TEAMS[league]?.map((t) => t.canonical) ?? [];
 }
+
+// A reverse index over every curated alias, league-agnostic (a club name is unique enough across
+// this ~40-club list that no league scoping is needed) — built once at module load, not per call.
+const ALIASES_BY_NORMALIZED_ALIAS = new Map<string, string[]>();
+for (const teams of Object.values(TOP_TEAMS)) {
+  for (const t of teams) {
+    for (const alias of t.aliases) {
+      const key = normalizeTeamName(alias);
+      if (key) ALIASES_BY_NORMALIZED_ALIAS.set(key, t.aliases);
+    }
+  }
+}
+
+// Every other name this app already knows a curated club by, e.g. "Paris Saint-Germain" ->
+// ["Paris Saint-Germain", "Paris Saint Germain", "PSG"] — used by the club-logo lookup
+// (lib/clubLogos.ts) as retry queries when Polymarket's own display name doesn't resolve a
+// crest on its own. A club outside this curated list returns an empty list, same as any other
+// club that isn't in TOP_TEAMS.
+export function getKnownAliases(teamName: string): string[] {
+  return ALIASES_BY_NORMALIZED_ALIAS.get(normalizeTeamName(teamName)) ?? [];
+}
