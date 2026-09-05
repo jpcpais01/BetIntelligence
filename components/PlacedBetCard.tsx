@@ -72,16 +72,19 @@ export default function PlacedBetCard({
       <div className="mx-4 my-3 border-t border-dashed" style={{ borderColor: "var(--lab-border)" }} />
 
       <div className="flex items-center justify-between gap-2 px-4 pb-4">
-        <div
-          className="flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium"
-          style={{
-            background: settlement ? "transparent" : "var(--lab-surface-2)",
-            color: settlement?.status === "won" ? "var(--lab-green)" : settlement?.status === "lost" ? "var(--lab-red)" : "var(--text-faint)",
-            boxShadow: settlement ? `inset 0 0 0 1px ${settlement.status === "won" ? "var(--lab-green)" : "var(--lab-red)"}` : "none",
-          }}
-        >
-          <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />
-          {settlement?.status === "won" ? "Won" : settlement?.status === "lost" ? "Lost" : "Pending"}
+        <div className="flex flex-col items-start gap-1">
+          <div
+            className="flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium"
+            style={{
+              background: settlement ? "transparent" : "var(--lab-surface-2)",
+              color: settlement?.status === "won" ? "var(--lab-green)" : settlement?.status === "lost" ? "var(--lab-red)" : "var(--text-faint)",
+              boxShadow: settlement ? `inset 0 0 0 1px ${settlement.status === "won" ? "var(--lab-green)" : "var(--lab-red)"}` : "none",
+            }}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />
+            {settlement?.status === "won" ? "Won" : settlement?.status === "lost" ? "Lost" : "Pending"}
+          </div>
+          <span className="pl-0.5 text-[10px] tabular-nums text-text-faint">Staked {formatEur(bet.stake)}</span>
         </div>
         {settlement ? (
           <div className="flex items-center gap-3 text-right">

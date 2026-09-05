@@ -1,41 +1,34 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { SavedPick, SavedMarketPick } from "@/lib/types";
+import type { SavedPick } from "@/lib/types";
 import { pruneFinishedPicks, hasKickedOff } from "@/lib/picks";
-import { loadMarketPicks } from "@/lib/marketPicks";
-import { loadSlip, saveSlip, legFromPick, legFromMarketPick, type SlipLeg, type Outcome } from "@/lib/betslip";
+import { loadSlip, saveSlip, legFromPick, type SlipLeg, type Outcome } from "@/lib/betslip";
 import { loadPlacedBets, removePlacedBet, type PlacedBet } from "@/lib/placedBets";
 import { resolvePendingSettlements } from "@/lib/settlement";
 import { buildCelebration, type Celebration } from "@/lib/celebration";
 import { liveKey, fetchLivePrices, type LivePriceRequest } from "@/lib/livePrices";
 import { RISK_MODES, buildRiskSlip, type RiskMode } from "@/lib/riskModes";
 import SlipPickRow from "@/components/SlipPickRow";
-import MarketPickRow from "@/components/MarketPickRow";
 import PlacedBetCard from "@/components/PlacedBetCard";
 import BetSlipBar from "@/components/BetSlipBar";
 import PickDetailSheet from "@/components/PickDetailSheet";
-import MarketPickDetailSheet from "@/components/MarketPickDetailSheet";
 import WinCelebration from "@/components/WinCelebration";
 import { useRequestLogos } from "@/components/ClubLogosProvider";
 import { SearchIcon, TicketIcon, CoinsIcon } from "@/components/icons";
 
-type Filter = "all" | "football";
 type Tab = "build" | "bets";
 
-type AnyPick =
-  | { kind: "sports"; savedAt: string; pick: SavedPick }
-  | { kind: "market"; savedAt: string; pick: SavedMarketPick };
-
+// Discover (and its saved market picks) is deactivated for now — Build is football-only, with no
+// All/Football filter since there's nothing else to filter between. Market picks already saved
+// from before stay in storage untouched (lib/marketPicks.ts), just not read or shown here.
 export default function LabPage() {
   const [sportsPicks, setSportsPicks] = useState<SavedPick[] | null>(null);
-  const [marketPicks, setMarketPicks] = useState<SavedMarketPick[] | null>(null);
   const [placedBets, setPlacedBets] = useState<PlacedBet[] | null>(null);
   const [legs, setLegs] = useState<SlipLeg[]>([]);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
   const [tab, setTab] = useState<Tab>("build");
-  const [openPick, setOpenPick] = useState<AnyPick | null>(null);
+  const [openPick, setOpenPick] = useState<SavedPick | null>(null);
   const [livePrices, setLivePrices] = useState<Record<string, number>>({});
   const [riskError, setRiskError] = useState<string | null>(null);
   const [celebration, setCelebration] = useState<Celebration | null>(null);
@@ -48,7 +41,6 @@ export default function LabPage() {
     // analysis archive (that's Picks, which still shows it until pruneFinishedPicks eventually
     // removes it outright).
     setSportsPicks(pruneFinishedPicks().filter((p) => !hasKickedOff(p.startTime)));
-    setMarketPicks(loadMarketPicks());
     const loadedLegs = loadSlip();
     const buildableLegs = loadedLegs.filter(
       (leg) => leg.kind !== "sports" || !leg.startTime || !hasKickedOff(leg.startTime)
@@ -78,14 +70,7 @@ export default function LabPage() {
     requestLogos(sportsPicks.flatMap((p) => [p.homeTeam, p.awayTeam]));
   }, [sportsPicks, requestLogos]);
 
-  const picks = useMemo<AnyPick[] | null>(() => {
-    if (sportsPicks === null || marketPicks === null) return null;
-    const merged: AnyPick[] = [
-      ...sportsPicks.map((pick): AnyPick => ({ kind: "sports", savedAt: pick.savedAt, pick })),
-      ...marketPicks.map((pick): AnyPick => ({ kind: "market", savedAt: pick.savedAt, pick })),
-    ];
-    return merged.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
-  }, [sportsPicks, marketPicks]);
+  const picks = sportsPicks;
 
   // Every picked outcome's live current price, keyed the same way a SlipLeg identifies itself
   // (liveKey) — one fetch serves the browsing rows below, the slip bar, and My Bets alike, all
@@ -94,18 +79,10 @@ export default function LabPage() {
   useEffect(() => {
     if (!picks || picks.length === 0) return;
     const requests: LivePriceRequest[] = [];
-    for (const item of picks) {
-      if (item.kind === "sports") {
-        const p = item.pick;
-        requests.push({ key: liveKey(p.id, p.homeTeam), tokenId: p.tokenIds?.home, fallback: p.market.home });
-        requests.push({ key: liveKey(p.id, "Draw"), tokenId: p.tokenIds?.draw, fallback: p.market.draw });
-        requests.push({ key: liveKey(p.id, p.awayTeam), tokenId: p.tokenIds?.away, fallback: p.market.away });
-      } else {
-        const p = item.pick;
-        for (const o of p.market) {
-          requests.push({ key: liveKey(p.id, o.label), tokenId: o.tokenId, fallback: o.price });
-        }
-      }
+    for (const p of picks) {
+      requests.push({ key: liveKey(p.id, p.homeTeam), tokenId: p.tokenIds?.home, fallback: p.market.home });
+      requests.push({ key: liveKey(p.id, "Draw"), tokenId: p.tokenIds?.draw, fallback: p.market.draw });
+      requests.push({ key: liveKey(p.id, p.awayTeam), tokenId: p.tokenIds?.away, fallback: p.market.away });
     }
     let cancelled = false;
     fetchLivePrices(requests).then((result) => {
@@ -118,17 +95,15 @@ export default function LabPage() {
 
   const filteredPicks = useMemo(() => {
     if (!picks) return [];
-    const byKind = filter === "football" ? picks.filter((p) => p.kind === "sports") : picks;
     const q = query.trim().toLowerCase();
-    if (!q) return byKind;
-    return byKind.filter((item) =>
-      item.kind === "sports"
-        ? item.pick.homeTeam.toLowerCase().includes(q) ||
-          item.pick.awayTeam.toLowerCase().includes(q) ||
-          item.pick.leagueName.toLowerCase().includes(q)
-        : item.pick.title.toLowerCase().includes(q) || item.pick.category.toLowerCase().includes(q)
+    if (!q) return picks;
+    return picks.filter(
+      (p) =>
+        p.homeTeam.toLowerCase().includes(q) ||
+        p.awayTeam.toLowerCase().includes(q) ||
+        p.leagueName.toLowerCase().includes(q)
     );
-  }, [picks, query, filter]);
+  }, [picks, query]);
 
   const legByPickId = useMemo(() => {
     const map = new Map<string, string>();
@@ -154,11 +129,6 @@ export default function LabPage() {
   };
 
   const handlePickSports = (pick: SavedPick, outcome: Outcome) => upsertLeg(pick.id, legFromPick(pick, outcome));
-
-  const handlePickMarket = (pick: SavedMarketPick, outcomeLabel: string) => {
-    const leg = legFromMarketPick(pick, outcomeLabel);
-    if (leg) upsertLeg(pick.id, leg);
-  };
 
   const handleRemove = (pickId: string) => {
     setLegs((current) => {
@@ -222,13 +192,6 @@ export default function LabPage() {
               onClick={() => setTab("bets")}
             />
           </div>
-
-          {tab === "build" && picks && picks.length > 0 && (
-            <div className="flex flex-1 gap-1.5 rounded-full p-1" style={{ background: "var(--lab-surface-2)" }}>
-              <FilterButton label="All" active={filter === "all"} onClick={() => setFilter("all")} />
-              <FilterButton label="Football" active={filter === "football"} onClick={() => setFilter("football")} />
-            </div>
-          )}
         </div>
 
         {tab === "build" && sportsPicks && sportsPicks.length > 0 && (
@@ -253,7 +216,7 @@ export default function LabPage() {
               >
                 <TicketIcon className="h-6 w-6" style={{ color: "var(--lab-gold)" }} />
                 <p className="max-w-[240px] text-[13px] text-text-dim">
-                  Analyze a match or a market and save it as a pick, then stack it into a slip here.
+                  Analyze a match and save it as a pick, then stack it into a slip here.
                 </p>
               </div>
             )}
@@ -266,27 +229,16 @@ export default function LabPage() {
 
             {filteredPicks.length > 0 && (
               <div className="space-y-3">
-                {filteredPicks.map((item) =>
-                  item.kind === "sports" ? (
-                    <SlipPickRow
-                      key={item.pick.id}
-                      pick={item.pick}
-                      livePrices={livePrices}
-                      selectedOutcome={legByPickId.get(item.pick.id) ?? null}
-                      onPick={(outcome) => handlePickSports(item.pick, outcome)}
-                      onOpen={() => setOpenPick(item)}
-                    />
-                  ) : (
-                    <MarketPickRow
-                      key={item.pick.id}
-                      pick={item.pick}
-                      livePrices={livePrices}
-                      selectedOutcomeLabel={legByPickId.get(item.pick.id) ?? null}
-                      onPick={(outcomeLabel) => handlePickMarket(item.pick, outcomeLabel)}
-                      onOpen={() => setOpenPick(item)}
-                    />
-                  )
-                )}
+                {filteredPicks.map((pick) => (
+                  <SlipPickRow
+                    key={pick.id}
+                    pick={pick}
+                    livePrices={livePrices}
+                    selectedOutcome={legByPickId.get(pick.id) ?? null}
+                    onPick={(outcome) => handlePickSports(pick, outcome)}
+                    onOpen={() => setOpenPick(pick)}
+                  />
+                ))}
               </div>
             )}
           </>
@@ -330,12 +282,7 @@ export default function LabPage() {
         onPlaced={() => setPlacedBets(loadPlacedBets())}
       />
 
-      {openPick?.kind === "sports" && (
-        <PickDetailSheet pick={openPick.pick} onClose={() => setOpenPick(null)} />
-      )}
-      {openPick?.kind === "market" && (
-        <MarketPickDetailSheet pick={openPick.pick} onClose={() => setOpenPick(null)} />
-      )}
+      {openPick && <PickDetailSheet pick={openPick} onClose={() => setOpenPick(null)} />}
       {celebration && (
         <WinCelebration
           teams={celebration.teams}
@@ -367,18 +314,6 @@ function TabButton({
     >
       {label}
       {typeof count === "number" && count > 0 && ` (${count})`}
-    </button>
-  );
-}
-
-function FilterButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="press flex-1 rounded-full py-1.5 text-[12px] font-medium"
-      style={active ? { background: "rgba(var(--lab-gold-rgb), 0.16)", color: "var(--lab-gold)" } : { color: "var(--text-faint)" }}
-    >
-      {label}
     </button>
   );
 }

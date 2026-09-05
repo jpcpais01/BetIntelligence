@@ -1,28 +1,32 @@
 # BetIntelligence
 
 AI odds-intelligence for Polymarket prediction markets. **Home** (`/`, the app's default tab) is
-your paper-trading portfolio — see below. **Discover** covers *everything else* on Polymarket —
-politics, crypto, business, entertainment, science, sports, anything — and lets an LLM
-independently research and form its own probability read on a market before it ever sees
-Polymarket's price, then compares the two to flag markets that might be mispriced. **Sports** is
-the original, more specialized version of the same idea: upcoming 1X2 matches from Polymarket's
-top 8 European football leagues, with the same blind-then-compare flow.
+your paper-trading portfolio — see below. **Sports** is the app's focus: upcoming 1X2 matches from
+Polymarket's top 8 European football leagues, with an LLM independently researching and forming
+its own probability read on a match before it ever sees Polymarket's price, then comparing the two
+to flag matches that might be mispriced.
 
 This is a paper-trading / research tool: there is no real-money betting. "Saving a pick" just
 stores your AI's read in your browser's local storage, and **Home**'s portfolio balance is play
 money you can top up freely — see below.
 
-## Discover
+## Discover (currently deactivated)
 
-The **Discover** tab (`app/discover/page.tsx`) is a trending feed of Polymarket's highest-volume markets
-across every category, refreshed from a live sweep of Polymarket's Gamma API (`lib/allMarkets.ts`)
-— no fixed list of categories or leagues, whatever is actually trending shows up. Tap a category
-chip to filter, or **Analyze** any card to run the same independent-research-then-compare flow
-described below, generalized for markets with anywhere from 2 (Yes/No) to a dozen-plus named
-outcomes (`lib/openrouterMarkets.ts`, `/api/analyze/market/predict`, `/api/analyze/market/compare`).
-A saved analysis lands in `lib/marketPicks.ts` — a separate store from Sports' picks
-(`lib/picks.ts`), so the two flows can never corrupt each other's data — but both are shown
-together everywhere a pick is shown: **Picks** and **Lab**.
+**Discover** was the app's second, more general tab — a trending feed of Polymarket's
+highest-volume markets across every non-football category (politics, crypto, business,
+entertainment, science, ...), analyzed with the same independent-research-then-compare flow
+generalized for markets with anywhere from 2 (Yes/No) to a dozen-plus named outcomes. It's hidden
+and deactivated for now: it no longer has a **Bottom navigation** entry, and its route
+(`app/discover/page.tsx`) redirects straight to Home rather than rendering, so a stale bookmark or
+the browser's back button can't reach it either. Nothing about it was deleted — the full
+implementation (`lib/allMarkets.ts`, `lib/openrouterMarkets.ts`, `/api/markets`,
+`/api/analyze/market/predict`, `/api/analyze/market/compare`, `lib/marketPicks.ts`,
+`components/MarketCard.tsx`/`MarketAnalysisSheet.tsx`/`MarketPickDetailSheet.tsx`, and more) is
+still in the codebase, just not wired up to any page right now, and any market pick or bet placed
+on it before deactivation is untouched in storage — **Picks** and **Lab** simply don't read
+`lib/marketPicks.ts` anymore while this is off. Re-enabling it is a matter of restoring
+`app/discover/page.tsx`'s original component and its `BottomNav.tsx` entry — both recoverable from
+git history.
 
 ## Sports
 
@@ -92,18 +96,19 @@ is deleted from storage; the panel just isn't rendered once `game.startTime` has
 
 ## Picks and Lab: one shared view across both
 
-Every analysis you save, whether it came from Discover or Sports, shows up together:
+With Discover deactivated (see above), both pages are football-only for now — no **All /
+Football** filter, since there's nothing else to filter between:
 
-- **Picks** lists every saved analysis — football and any other market — sorted by when you saved
-  it, each rendered with its own card style but in one merged, chronological feed. An **All /
-  Football** filter narrows the feed to just football picks; tapping any card reopens its full
-  analysis report (independent read, key factors, sources, market comparison, verdict — everything
-  shown live while it was analyzing, plus the multi-run breakdown if it was researched more than
-  once) in a read-only detail sheet (`components/PickDetailSheet.tsx` /
-  `components/MarketPickDetailSheet.tsx`).
+- **Picks** lists every saved football analysis, sorted by when you saved it; tapping any card
+  reopens its full analysis report (independent read, key factors, sources, market comparison,
+  verdict — everything shown live while it was analyzing, plus the multi-run breakdown if it was
+  researched more than once) in a read-only detail sheet (`components/PickDetailSheet.tsx`).
 - **Lab** (formerly "Slip") builds a single or multi-leg (parlay) bet from any combination of your
-  saved picks, football and Discover markets alike, then lets you place it as a paper bet — see
-  below for how it looks and works.
+  saved football picks, then lets you place it as a paper bet — see below for how it looks and
+  works.
+
+Any market pick saved from Discover before it was deactivated stays in `lib/marketPicks.ts`
+untouched — it's just not read or shown by either page while Discover is off.
 
 A saved football pick is pruned automatically once its match has finished — there's nothing left
 to bet on, so keeping the analysis around is just clutter, unlike a placed bet (which stays as a
@@ -113,8 +118,7 @@ hidden) the moment either page next opens. Whether a match has finished is a pla
 heuristic (3+ hours past kickoff, comfortably longer than any real match takes) rather than a real
 status check — unlike settlement, getting this wrong costs nothing worse than a free re-analysis,
 so it isn't worth an extra network round-trip on every page load for the rare edge case (a
-postponed match) it could get wrong. Discover picks aren't pruned this way — a market has no
-equivalent "kickoff has definitely passed" moment.
+postponed match) it could get wrong.
 
 Lab goes a step further for its own **Build** tab: a match that's merely *started* (kickoff has
 passed at all, `hasKickedOff`) is filtered out of the buildable list the moment Lab loads, well
@@ -157,7 +161,7 @@ new API route was needed) and every card, slip leg, and placed bet reads from th
 saved before this shipped, or a double-chance combo (no single token prices "1X"), simply has
 nothing to reprice and holds at its last known value.
 
-- **Build** tab: search across every saved pick (with the same All/Football filter as Picks), tap
+- **Build** tab: search across every saved football pick, tap
   an outcome to add it as a leg, or tap the pick's own title/teams to open its full analysis
   report. Every football pick also offers **double chance** — **1X** (home win or draw) and **X2**
   (draw or away win) — as two extra buttons alongside the main three-way ones. Neither is a market
@@ -189,18 +193,20 @@ nothing to reprice and holds at its last known value.
   Tapping the pill again morphs it back shut the same way. Open, it shows the full slip: every leg with its own live odds/edge, a **stake**
   picker (quick chips of €10/€25/€50/€100), and — with 2+ legs — the combined market and AI
   probability, each the product of every leg's own probability for its chosen outcome
-  (`combineSlip`, `lib/betslip.ts`). This math doesn't care what kind of market a leg came from, so a parlay can
-  freely mix a football result with, say, a crypto price target.
+  (`combineSlip`, `lib/betslip.ts`). This math doesn't care what kind of market a leg came from — with Discover
+  deactivated the Build tab only ever offers football legs for now, but a parlay placed back when Discover was
+  active, freely mixing a football result with, say, a crypto price target, still displays and reprices correctly.
 - **Buy**: tapping the gold **Buy €N at Nx** button places the slip as a paper bet at today's
   market price (not whatever it was at analysis time) — a brief "placing" animation, then a
   confetti-and-receipt confirmation, and the slip clears. The stake is spent from the play-money
   balance Home tracks (see below); `lib/placedBets.ts` snapshots the legs, the live entry price,
   and the stake into local storage.
-- **My Bets** tab lists every bet you've placed as a ticket-style card — legs, live odds/edge, and a
-  **Pending** status, honestly reflecting that this is a record of what you bought, not a settled
-  result — the app has no way to know how a match or market
-  actually resolved. Each card has its own delete button (`removePlacedBet`, `lib/placedBets.ts`) to
-  clear out a bet you no longer want tracked.
+- **My Bets** tab lists every bet you've placed as a ticket-style card — legs, live odds/edge (or
+  the real payout and P&amp;L once settled — see
+  [Settling football bets against the real result](#settling-football-bets-against-the-real-result)
+  below), a status pill (**Pending** / **Won** / **Lost**), and how much you staked on it. Each card
+  has its own delete button (`removePlacedBet`, `lib/placedBets.ts`) to clear out a bet you no
+  longer want tracked.
 
 ## Home: a paper portfolio
 
@@ -656,10 +662,10 @@ required to run AI analysis.
 ```
 app/
   page.tsx                            Home (default route) — portfolio balance, value graph, recent bets
-  discover/page.tsx                   Discover — trending markets across all of Polymarket
+  discover/page.tsx                   Deactivated for now — redirects to Home, see "Discover" above
   sports/page.tsx                     Sports — the original football-only game list
-  picks/page.tsx                      Every saved analysis, football and Discover, merged
-  lab/page.tsx                        Build a single/multi bet from any saved pick and buy it
+  picks/page.tsx                      Every saved football analysis, sorted by when you saved it
+  lab/page.tsx                        Build a single/multi football bet from any saved pick and buy it
   api/markets/route.ts                Fetches + normalizes Discover's trending markets
   api/analyze/market/predict/route.ts Discover step 1: independent AI prediction (any market)
   api/analyze/market/compare/route.ts Discover step 2: compare prediction against market odds
