@@ -422,6 +422,44 @@ only ever reports a bet in its `newlyWon` list the one time it transitions from 
 never again on a later reload — and a failed/empty vibe fetch just means no celebration shows, never
 an error over what should be a purely happy moment.
 
+### The Edge Score: are we actually beating the market?
+
+`lib/edgeScore.ts` answers one question — across every football leg that's actually resolved, are
+we ahead of what the market's own odds would imply, or behind? For each resolved leg, the running
+score is multiplied by:
+
+- **Won**: `1 / p` — the market's own decimal payout for that pick. A longshot that hits rewards
+  the score far more than a favorite that hits, exactly as a real payout would.
+- **Lost**: `(1 - p)` — not `p`, and not the payout of the side that actually happened. This is
+  "how surprising was this miss": losing a bet the market gave 90% to (a real upset) shrinks the
+  score to a tenth; losing a longshot the market only gave 20% to (the likely result most of the
+  time) barely dents it. Every win multiplies by something ≥ 1, every loss by something < 1, so
+  the running product only grows on genuinely good calls, never on a lucky miss.
+
+A leg counts the moment **it** resolves, independent of whether the parlay it's part of has (see
+above) — a calm favorite that won still counts toward "calm" even bundled into a bet that lost
+overall, and a mega longshot that lost still counts toward "mega" even inside a bet whose other
+legs won. Only football legs that actually settle are counted; a Discover/market leg never
+resolves in this app at all, so it's excluded rather than treated as forever pending.
+
+`EdgeScorePanel` (Home) shows the overall score as a signed percentage against break-even ("+34%
+vs. fair odds"), the raw multiplier underneath ("1.34× running"), and a breakdown by risk tier —
+see below — so it's possible to see whether one tier in particular is carrying (or dragging) the
+results, not just how the bets as placed happened to turn out.
+
+#### Risk tiers: Calm, Easy, Normal, Risky, Mega
+
+`lib/riskLevel.ts` buckets any market probability into one of five tiers, safest to longest-shot
+(`riskLevelFor`) — purely from the market's own number, independent of the AI's edge or
+confidence: **Calm** (≥70%), **Easy** (≥55%), **Normal** (≥40%), **Risky** (≥25%), **Mega**
+(below that). Any game card that's been analyzed at least once (saved or not — the same
+`lastAnalysis` cache the last-analysis panel reads) shows its tier as a tiny colored label right
+in the card header, based on the market probability of the AI's actual recommended pick
+(`comparison.bestValue`) at the moment it was analyzed — a card with no clear edge (`bestValue`
+`"none"`) shows no tier at all, since there's no specific pick to rate. The same five colors
+(`--risk-calm` … `--risk-mega`, `app/globals.css`) drive both that badge and the Home breakdown,
+so the two always read as the same scale.
+
 ## Odds history
 
 Every card — a Discover market or a Sports match — has a collapsed **Odds history** dropdown that

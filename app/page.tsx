@@ -12,6 +12,7 @@ import { formatEur, toSignedReturnPercent } from "@/lib/format";
 import PortfolioChart from "@/components/PortfolioChart";
 import PortfolioBetRow from "@/components/PortfolioBetRow";
 import WinCelebration from "@/components/WinCelebration";
+import EdgeScorePanel from "@/components/EdgeScorePanel";
 import { PlusIcon, CloseIcon, CoinsIcon } from "@/components/icons";
 
 const QUICK_ADD_AMOUNTS = [50, 100, 250, 500];
@@ -117,19 +118,25 @@ export default function HomePage() {
 
   return (
     <div className="mx-auto max-w-md">
-      <header className="safe-top sticky top-0 z-30 border-b border-border-soft bg-bg/85 px-4 pb-3 backdrop-blur-xl">
-        <h1 className="font-display text-[19px] font-bold tracking-tight text-text">Home</h1>
-        <p className="text-[11px] text-text-faint">Your paper portfolio</p>
+      <header className="safe-top sticky top-0 z-30 bg-bg/85 px-5 pb-4 backdrop-blur-xl">
+        <h1 className="font-display text-[26px] font-bold tracking-tight text-text">Home</h1>
+        <p className="text-[12px] text-text-faint">Your paper portfolio</p>
       </header>
 
-      <div className="px-4 pt-4 pb-6">
-        <div className="rounded-2xl border border-border-soft bg-surface p-4">
-          <div className="flex items-start justify-between gap-2">
+      <div className="px-4 pt-1 pb-8">
+        <div
+          className="surface-glow relative overflow-hidden rounded-3xl border border-border-soft p-5"
+          style={{ ["--lift-rgb" as string]: positive ? "var(--accent-rgb)" : negative ? "var(--accent-3-rgb)" : "155, 161, 172" }}
+        >
+          <div className="ambient-glow" />
+          <div className="relative flex items-start justify-between gap-2">
             <div>
-              <p className="text-[11px] uppercase tracking-wide text-text-faint">Portfolio value</p>
-              <p className="font-display text-[32px] font-bold tabular-nums text-text">{formatEur(currentValue)}</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-text-faint">Portfolio value</p>
+              <p className="glow-num font-display text-[38px] font-bold tabular-nums leading-none text-text">
+                {formatEur(currentValue)}
+              </p>
               <p
-                className="mt-0.5 text-[12px] font-medium tabular-nums"
+                className="mt-2 text-[12px] font-semibold tabular-nums"
                 style={{ color: positive ? "var(--accent)" : negative ? "var(--accent-3)" : "var(--text-faint)" }}
               >
                 {allTimePnl >= 0 ? "+" : ""}
@@ -138,25 +145,29 @@ export default function HomePage() {
             </div>
             <button
               onClick={() => setShowAddFunds(true)}
-              className="press flex shrink-0 items-center gap-1 rounded-full bg-accent/12 px-3 py-2 text-[11px] font-semibold text-accent ring-1 ring-inset ring-accent/25"
+              className="press-spring flex shrink-0 items-center gap-1 rounded-full bg-accent px-3.5 py-2.5 text-[11px] font-bold text-bg shadow-[0_6px_20px_-4px_rgba(var(--accent-rgb),0.5)]"
             >
               <PlusIcon className="h-3.5 w-3.5" />
               Add funds
             </button>
           </div>
 
-          <div className="mt-4">
+          <div className="relative mt-4">
             <PortfolioChart series={series ?? []} />
           </div>
         </div>
 
-        <div className="mt-5">
-          <div className="mb-2.5 flex items-center justify-between gap-2">
-            <h2 className="text-[13px] font-semibold text-text">Recent bets</h2>
+        <div className="mt-4">
+          <EdgeScorePanel bets={bets ?? []} />
+        </div>
+
+        <div className="mt-6">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="font-display text-[15px] font-bold text-text">Recent bets</h2>
             {sortedBets && sortedBets.length > 5 && (
               <button
                 onClick={() => setVisibleCount((v) => (v === 5 ? 10 : 5))}
-                className="press text-[11px] font-medium text-accent"
+                className="press rounded-full bg-surface px-2.5 py-1 text-[11px] font-semibold text-accent"
               >
                 {visibleCount === 5 ? "Show 10" : "Show 5"}
               </button>
@@ -166,7 +177,7 @@ export default function HomePage() {
           {sortedBets === null && <div className="py-10" />}
 
           {sortedBets !== null && sortedBets.length === 0 && (
-            <div className="flex flex-col items-center gap-2.5 rounded-2xl border border-border-soft bg-surface px-5 py-12 text-center">
+            <div className="surface-lift flex flex-col items-center gap-2.5 rounded-3xl border border-border-soft px-5 py-14 text-center">
               <CoinsIcon className="h-6 w-6 text-text-faint" />
               <p className="max-w-[240px] text-[13px] text-text-dim">
                 No bets placed yet. Build a slip in Lab and tap Buy to see it here.

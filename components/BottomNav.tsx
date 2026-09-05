@@ -35,19 +35,22 @@ export default function BottomNav() {
 
   return (
     <nav ref={navRef} className="fixed inset-x-0 bottom-0 z-40 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-      <div className="mx-auto flex max-w-md items-stretch rounded-3xl border border-border-soft bg-bg-elevated/90 px-2 py-1.5 shadow-lg backdrop-blur-xl">
+      <div className="surface-lift mx-auto flex max-w-md items-stretch gap-1 rounded-[28px] border border-border-soft px-2 py-2 shadow-2xl backdrop-blur-xl">
         {TABS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href;
           return (
             <Link
               key={href}
               href={href}
-              className={`press flex flex-1 flex-col items-center gap-1 rounded-2xl py-2 text-[10px] font-medium ${
-                active ? "text-accent" : "text-text-faint"
+              className={`press-spring relative flex flex-1 flex-col items-center gap-1 rounded-2xl py-2 text-[10px] font-semibold transition-colors ${
+                active ? "bg-accent/12 text-accent" : "text-text-faint"
               }`}
             >
               <Icon className="h-[22px] w-[22px]" />
               {label}
+              {active && (
+                <span className="absolute -top-1 h-1 w-1 rounded-full bg-accent shadow-[0_0_8px_rgba(var(--accent-rgb),0.8)]" />
+              )}
             </Link>
           );
         })}

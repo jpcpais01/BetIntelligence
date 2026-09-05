@@ -8,6 +8,7 @@ import { formatCompactNumber, formatKickoff, formatRelativeTime, toPercent, toSi
 import { isTopGame } from "@/lib/topTeams";
 import { hasKickedOff } from "@/lib/matchClock";
 import { agreementLabel, agreementTone } from "@/lib/aggregate";
+import { riskLevelFor, riskLevelLabel, riskLevelColor } from "@/lib/riskLevel";
 import Avatar from "./Avatar";
 import OutcomeBar from "./OutcomeBar";
 import ConfidenceBadge from "./ConfidenceBadge";
@@ -60,13 +61,21 @@ export default function GameCard({
     : null;
   const isLive = liveScore ? liveScore.status === "IN_PLAY" || liveScore.status === "PAUSED" : heuristicLive;
 
+  // A one-word read on how risky the AI's actual recommendation is, from the market's own
+  // probability of that specific outcome — not shown at all when there's no recommendation to
+  // rate (bestValue "none", or never analyzed). Uses the market probability AT ANALYSIS TIME
+  // (entry.market), not the live-updating effectiveOdds above: this describes the pick that was
+  // actually made, which shouldn't relabel itself as prices move afterward.
+  const bestValue = lastAnalysis?.comparison.bestValue;
+  const riskLevel = lastAnalysis && bestValue && bestValue !== "none" ? riskLevelFor(lastAnalysis.market[bestValue]) : null;
+
   return (
     <div
       onClick={selectMode ? () => onToggleSelect?.(game) : undefined}
-      className={`rise-in rounded-2xl border p-4 ${
+      className={`rise-in rounded-3xl border p-4 ${
         selectMode
-          ? `cursor-pointer press ${selected ? "border-accent/40 bg-accent/6" : "border-border-soft bg-surface"}`
-          : "border-border-soft bg-surface"
+          ? `cursor-pointer press ${selected ? "border-accent/40 bg-accent/6" : "surface-lift border-border-soft"}`
+          : "surface-lift border-border-soft"
       }`}
       style={style}
     >
@@ -84,6 +93,14 @@ export default function GameCard({
           <span className="text-xs leading-none">{game.leagueFlag}</span>
           <span className="truncate">{game.leagueName}</span>
           {top && <StarIcon className="h-3 w-3 shrink-0 text-warn" filled />}
+          {riskLevel && (
+            <span
+              className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
+              style={{ color: riskLevelColor(riskLevel), background: `color-mix(in srgb, ${riskLevelColor(riskLevel)} 14%, transparent)` }}
+            >
+              {riskLevelLabel(riskLevel)}
+            </span>
+          )}
         </div>
         <span
           className={`shrink-0 text-[11px] tabular-nums ${isLive ? "font-medium text-accent-3" : "text-text-faint"}`}
