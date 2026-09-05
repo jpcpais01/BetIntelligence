@@ -4,19 +4,17 @@ import { applySettlements, applyLegResults } from "./placedBets";
 import type { LiveScoreEntry } from "./footballData";
 import type { LeagueId } from "./types";
 import { teamNamesMatch, anyTeamNameMatches } from "./teamNameMatching";
-import { isOverByClock } from "./matchClock";
 import { leagueIdByName } from "./leagues";
-import { fetchLivePrices, type LivePriceRequest } from "./livePrices";
 
 export type LegResult = "won" | "lost" | "pending";
 
 // A leg placed before it started carrying its own league/homeTeam/awayTeam/startTime would
-// otherwise never be checked at all: settlementRefs and marketPriceRequests below both silently
-// skip anything missing these, so a genuinely finished match's bet just sat as "Pending" forever
-// with no way to ever notice it — that's the exact bug this fixes. Every leg has always carried
-// `title` ("Home v Away", set once at leg-creation and never since changed) and `meta`
-// ("🏴 League Name"), and every bet has always carried `placedAt` — recovered from those instead
-// of needing the user to somehow fix data already sitting in their own browser storage.
+// otherwise never be checked at all: settlementRefs below silently skips anything missing these,
+// so a genuinely finished match's bet just sat as "Pending" forever with no way to ever notice it
+// — that's the exact bug this fixes. Every leg has always carried `title` ("Home v Away", set once
+// at leg-creation and never since changed) and `meta` ("🏴 League Name"), and every bet has always
+// carried `placedAt` — recovered from those instead of needing the user to somehow fix data
+// already sitting in their own browser storage.
 function backfillLeg(leg: SlipLeg, placedAt: string): SlipLeg {
   if (leg.kind !== "sports") return leg;
   let { league, homeTeam, awayTeam, startTime } = leg;
@@ -43,59 +41,10 @@ function backfilledLegs(bet: PlacedBet): SlipLeg[] {
   return bet.legs.map((leg) => backfillLeg(leg, bet.placedAt));
 }
 
-// --- Market-based settlement (primary) --------------------------------------------------------
-//
-// A match's own market price is trusted as its result once the match is over (lib/matchClock.ts,
-// the same line the Sports page uses to drop a finished game off the list — one definition of
-// "over" for the whole app). Before then the price is still moving: a side leading at the 85th
-// minute is priced like a winner without being one, so reading a winner out of it early risks
-// settling a bet the wrong way. This used to gate at 2h10m on its own separate reasoning, which
-// was both a fourth copy of "how long is a match" and the least conservative of them.
-//
-// The football-data.org score check further down still runs as a fallback for whatever this can't
-// resolve: thin post-match liquidity, a missing token, or a leg placed before tokenIds existed.
-type Side = "home" | "draw" | "away";
-const SIDES: Side[] = ["home", "draw", "away"];
-
-export function marketOutcomeKey(pickId: string, side: Side): string {
-  return `settlement-market:${pickId}:${side}`;
-}
-
-// Whichever of home/draw/away the match's OWN current price says is now most likely — however
-// narrow the gap, not a "must clearly converge past some threshold" rule. A real market's price
-// only has to lean toward the actual winner once the result is known; it never has to fully
-// converge to 0/1 (thin post-match liquidity, or trading simply stopping once the outcome is
-// obvious, can leave it well short of that) — requiring full convergence would leave exactly the
-// bets this exists to unstick still stuck.
-function marketImpliedWinner(prices: Partial<Record<Side, number>>): Side | null {
-  const known = SIDES.filter((s) => Number.isFinite(prices[s]));
-  if (known.length === 0) return null;
-  return known.reduce((best, s) => ((prices[s] as number) > (prices[best] as number) ? s : best));
-}
-
-function outcomeMatchesSide(leg: SlipLeg, side: Side): boolean {
-  if (leg.outcomeLabel === "1X") return side === "home" || side === "draw";
-  if (leg.outcomeLabel === "X2") return side === "draw" || side === "away";
-  if (leg.outcomeLabel === "Draw") return side === "draw";
-  if (side === "home") return !!leg.homeTeam && teamNamesMatch(leg.outcomeLabel, leg.homeTeam);
-  if (side === "away") return !!leg.awayTeam && teamNamesMatch(leg.outcomeLabel, leg.awayTeam);
-  return false;
-}
-
-// Stays "pending" until the match is actually over — before that the price is still moving, and a
-// number that's still moving isn't a result.
-export function legResultFromMarket(leg: SlipLeg, prices: Record<string, number>): LegResult {
-  if (leg.kind !== "sports" || !leg.homeTeam || !leg.awayTeam || !isOverByClock(leg.startTime)) return "pending";
-  const winner = marketImpliedWinner({
-    home: prices[marketOutcomeKey(leg.pickId, "home")],
-    draw: prices[marketOutcomeKey(leg.pickId, "draw")],
-    away: prices[marketOutcomeKey(leg.pickId, "away")],
-  });
-  if (!winner) return "pending";
-  return outcomeMatchesSide(leg, winner) ? "won" : "lost";
-}
-
-// --- football-data.org-based settlement (fallback) --------------------------------------------
+// A bet settles from exactly one source of truth: the real, final score of the match it was
+// placed on. Nothing is inferred from Polymarket's own price — a side trading like the winner
+// isn't the same thing as having won, and settling from a number that's still moving is how a bet
+// gets called the wrong way. "Is the game finished?" is the only question this asks.
 
 // Matched against both the full and short club names the provider gives, not just the full one:
 // several clubs are only recognisable from Polymarket's naming under the short form ("Wolves",
@@ -131,16 +80,6 @@ export function legResult(leg: SlipLeg, scores: LiveScoreEntry[]): LegResult {
   return "pending";
 }
 
-// The market read settles first (fast, no football-data.org dependency); the real final score is
-// the fallback for whatever it can't resolve — thin post-match liquidity, a missing token, an
-// older leg that predates tokenIds. Whichever source resolves first wins; if neither can, the leg
-// stays open (never settled by guessing).
-function combinedLegResult(leg: SlipLeg, scores: LiveScoreEntry[], marketPrices: Record<string, number>): LegResult {
-  const fromMarket = legResultFromMarket(leg, marketPrices);
-  if (fromMarket !== "pending") return fromMarket;
-  return legResult(leg, scores);
-}
-
 export interface BetOutcome {
   status: "won" | "lost";
   payout: number;
@@ -149,24 +88,26 @@ export interface BetOutcome {
 // Per-leg results — independent of whether the WHOLE bet has settled, and exported so the "My
 // Bets" list can color an individual leg green/red the moment ITS OWN match resolves, well before
 // (or even instead of, if the bet ends up Lost) the parlay as a whole ever does.
-export function computeLegResults(
-  bet: PlacedBet,
-  scores: LiveScoreEntry[],
-  marketPrices: Record<string, number> = {}
-): LegResult[] {
-  return backfilledLegs(bet).map((leg) => combinedLegResult(leg, scores, marketPrices));
+//
+// A leg already resolved won/lost on a PREVIOUS check is never recomputed — that result is final
+// (a finished match's score doesn't change), so it's just carried forward from `bet.legResults`
+// rather than asking again. Only a leg still "pending" gets a fresh look each time. This is what
+// makes the recurring check cheap: a parlay with one match still to finish only ever needs that
+// one match's score, however many times it's rechecked while waiting.
+export function computeLegResults(bet: PlacedBet, scores: LiveScoreEntry[]): LegResult[] {
+  const cached = bet.legResults ?? [];
+  return backfilledLegs(bet).map((leg, i) => {
+    if (cached[i] === "won" || cached[i] === "lost") return cached[i];
+    return legResult(leg, scores);
+  });
 }
 
 // A parlay settles LOST the moment any leg is confirmed lost, regardless of the others — no need
 // to wait on a still-open leg once the bet can no longer possibly win. It only settles WON once
 // EVERY leg is confirmed won; a bet with any market leg can never reach that (no resolution source
 // for those), so it just stays open forever — deliberate, not a gap, same as before this existed.
-export function settleBet(
-  bet: PlacedBet,
-  scores: LiveScoreEntry[],
-  marketPrices: Record<string, number> = {}
-): BetOutcome | null {
-  const results = computeLegResults(bet, scores, marketPrices);
+export function settleBet(bet: PlacedBet, scores: LiveScoreEntry[]): BetOutcome | null {
+  const results = computeLegResults(bet, scores);
   if (results.some((r) => r === "lost")) return { status: "lost", payout: 0 };
   if (results.length > 0 && results.every((r) => r === "won")) {
     const payout = bet.combined.marketProb > 0 ? bet.stake / bet.combined.marketProb : bet.stake;
@@ -188,42 +129,25 @@ export function wonTeamName(leg: SlipLeg): string | null {
   return leg.outcomeLabel;
 }
 
+// Which leagues are actually worth asking about: only ones with at least one leg that's still
+// genuinely pending. A leg already cached won/lost (see computeLegResults) needs nothing further,
+// so a parlay waiting on one last match never asks about the others it already knows the answer
+// for, however many bets or leagues they originally spanned.
 function settlementRefs(bets: PlacedBet[]): { league: LeagueId; earliestKickoff: string }[] {
   const earliestByLeague = new Map<LeagueId, string>();
   for (const bet of bets) {
     if (bet.settlement) continue;
-    for (const leg of backfilledLegs(bet)) {
-      if (leg.kind !== "sports" || !leg.league || !leg.startTime) continue;
+    const cached = bet.legResults ?? [];
+    backfilledLegs(bet).forEach((leg, i) => {
+      if (leg.kind !== "sports" || !leg.league || !leg.startTime) return;
+      if (cached[i] === "won" || cached[i] === "lost") return;
       const current = earliestByLeague.get(leg.league);
       if (!current || new Date(leg.startTime).getTime() < new Date(current).getTime()) {
         earliestByLeague.set(leg.league, leg.startTime);
       }
-    }
+    });
   }
   return [...earliestByLeague.entries()].map(([league, earliestKickoff]) => ({ league, earliestKickoff }));
-}
-
-// One request per distinct (match, side) still needed across every still-open bet — deduped by
-// key so a parlay of several bets on the same match never asks twice. `fallback: NaN`, never a
-// real number: a failed or incomplete fetch must never look like a real price, or settlement
-// could compare a genuine number against a fabricated one and pick a "winner" out of thin air.
-function marketPriceRequests(bets: PlacedBet[]): LivePriceRequest[] {
-  const seen = new Set<string>();
-  const requests: LivePriceRequest[] = [];
-  for (const bet of bets) {
-    if (bet.settlement) continue;
-    for (const leg of backfilledLegs(bet)) {
-      if (leg.kind !== "sports" || !leg.tokenIds || !isOverByClock(leg.startTime)) continue;
-      for (const side of SIDES) {
-        const key = marketOutcomeKey(leg.pickId, side);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const tokenId = leg.tokenIds[side];
-        if (tokenId) requests.push({ key, tokenId, fallback: NaN });
-      }
-    }
-  }
-  return requests;
 }
 
 async function fetchScores(refs: { league: LeagueId; earliestKickoff: string }[]): Promise<LiveScoreEntry[]> {
@@ -251,28 +175,24 @@ export interface SettlementRun {
   newlyWon: PlacedBet[];
 }
 
-// Settles whatever it can — the market's own post-match read first, football-data.org's confirmed
-// score as the fallback — persists it, and returns bets with settlement filled in. Best-effort
-// throughout: a failed fetch on either side just leaves those bets exactly as they were (still
-// open), same as any other best-effort enrichment in this app — never invents an outcome from
-// missing data. Also persists per-leg results (computeLegResults) for every still-open bet, even
-// ones that don't fully settle this round, so the UI can show an individual leg's own outcome
-// ahead of (or instead of, if the parlay ends up Lost) the bet as a whole ever settling.
+// The whole algorithm, plainly: for every still-open bet, look up the real score of whichever of
+// its matches haven't finished yet; if a leg's match is done, that leg is won or lost, for good —
+// never recomputed again (see computeLegResults); once every leg is decided, the bet is too.
+// Called every 60 seconds from Home and Lab while their tab is open (see SETTLEMENT_CHECK_INTERVAL_MS
+// there) — best-effort throughout: a failed fetch just leaves those bets exactly as they were
+// (still open), same as any other best-effort enrichment in this app, never inventing an outcome
+// from missing data. The next check picks up wherever this one left off.
 export async function resolvePendingSettlements(bets: PlacedBet[]): Promise<SettlementRun> {
   const refs = settlementRefs(bets);
-  const priceRequests = marketPriceRequests(bets);
-  if (refs.length === 0 && priceRequests.length === 0) return { bets, newlyWon: [] };
+  if (refs.length === 0) return { bets, newlyWon: [] };
 
-  const [scores, marketPrices] = await Promise.all([
-    fetchScores(refs),
-    priceRequests.length > 0 ? fetchLivePrices(priceRequests) : Promise.resolve({}),
-  ]);
+  const scores = await fetchScores(refs);
 
   const settlementUpdates: Record<string, BetOutcome> = {};
   const legResultUpdates: Record<string, LegResult[]> = {};
   for (const bet of bets) {
     if (bet.settlement) continue;
-    const results = computeLegResults(bet, scores, marketPrices);
+    const results = computeLegResults(bet, scores);
     legResultUpdates[bet.id] = results;
     if (results.some((r) => r === "lost")) {
       settlementUpdates[bet.id] = { status: "lost", payout: 0 };

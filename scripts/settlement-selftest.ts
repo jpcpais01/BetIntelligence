@@ -1,8 +1,7 @@
-import { legResult, legResultFromMarket, settleBet, marketOutcomeKey, computeLegResults, wonTeamName } from "../lib/settlement";
+import { legResult, settleBet, computeLegResults, wonTeamName } from "../lib/settlement";
 import type { SlipLeg } from "../lib/betslip";
 import type { PlacedBet } from "../lib/placedBets";
 import type { LiveScoreEntry } from "../lib/footballData";
-import { MATCH_OVER_AFTER_MS } from "../lib/matchClock";
 
 const HOUR = 60 * 60 * 1000;
 
@@ -24,24 +23,6 @@ function sportsLeg(overrides: Partial<SlipLeg> = {}): SlipLeg {
     awayTeam: "Chelsea",
     startTime: new Date().toISOString(),
     ...overrides,
-  };
-}
-
-// A leg whose match is comfortably over (lib/matchClock.ts's MATCH_OVER_AFTER_MS), carrying all
-// three outcome tokens — the shape legResultFromMarket actually needs.
-function pastGateLeg(overrides: Partial<SlipLeg> = {}): SlipLeg {
-  return sportsLeg({
-    startTime: isoAgo(MATCH_OVER_AFTER_MS + HOUR),
-    tokenIds: { home: "tok-home", draw: "tok-draw", away: "tok-away" },
-    ...overrides,
-  });
-}
-
-function marketPrices(pickId: string, home: number, draw: number, away: number): Record<string, number> {
-  return {
-    [marketOutcomeKey(pickId, "home")]: home,
-    [marketOutcomeKey(pickId, "draw")]: draw,
-    [marketOutcomeKey(pickId, "away")]: away,
   };
 }
 
@@ -158,74 +139,6 @@ function run() {
     ]) === "won"
   );
 
-  // --- legResultFromMarket: settle on whichever side the match's own current price says won ---
-  {
-    const homeClearlyWon = marketPrices("p1", 0.95, 0.03, 0.02);
-    check(
-      "home backed, market heavily favors home -> won",
-      legResultFromMarket(pastGateLeg({ outcomeLabel: "Arsenal" }), homeClearlyWon) === "won"
-    );
-    check(
-      "away backed, market heavily favors home -> lost",
-      legResultFromMarket(pastGateLeg({ outcomeLabel: "Chelsea" }), homeClearlyWon) === "lost"
-    );
-    check(
-      "1X backed, market heavily favors home -> won",
-      legResultFromMarket(pastGateLeg({ outcomeLabel: "1X" }), homeClearlyWon) === "won"
-    );
-    check(
-      "X2 backed, market heavily favors home -> lost",
-      legResultFromMarket(pastGateLeg({ outcomeLabel: "X2" }), homeClearlyWon) === "lost"
-    );
-  }
-  check(
-    "settles on whichever side is highest even without full convergence (thin post-match liquidity)",
-    legResultFromMarket(pastGateLeg({ outcomeLabel: "Arsenal" }), marketPrices("p1", 0.52, 0.28, 0.2)) === "won"
-  );
-  check(
-    "before the time gate, market data is ignored entirely -> pending, even with a clear price",
-    legResultFromMarket(sportsLeg({ outcomeLabel: "Arsenal", tokenIds: { home: "h", draw: "d", away: "a" } }), marketPrices("p1", 0.97, 0.02, 0.01)) === "pending"
-  );
-  // A match still running long (VAR, injuries, a delayed restart) is priced like the side that's
-  // currently ahead — settling off that would call a bet the 85th minute's way, not the result's.
-  // The gate is the app's one "this match is definitely over" line, nothing shorter.
-  check(
-    "a match 2h20m in is still not settled from the market, however lopsided the price",
-    legResultFromMarket(
-      sportsLeg({ outcomeLabel: "Arsenal", startTime: isoAgo(2 * HOUR + 20 * 60 * 1000), tokenIds: { home: "h", draw: "d", away: "a" } }),
-      marketPrices("p1", 0.97, 0.02, 0.01)
-    ) === "pending"
-  );
-  check(
-    "no price data at all for this match -> pending, never guessed",
-    legResultFromMarket(pastGateLeg(), {}) === "pending"
-  );
-  check(
-    "a market (Discover) leg is always pending here too, even past any time gate",
-    legResultFromMarket({ ...marketLeg(), startTime: isoAgo(3 * HOUR) }, marketPrices("m1", 0.97, 0.02, 0.01)) === "pending"
-  );
-
-  // --- settleBet: the market read resolves FIRST, before football-data.org is even consulted —
-  // demonstrated by giving it a score that would say the opposite and confirming the market wins ---
-  {
-    const contradictingScore = [score({ homeGoals: 0, awayGoals: 3 })]; // Chelsea won on the scoreboard...
-    const marketSaysHomeWon = marketPrices("p1", 0.96, 0.02, 0.02); // ...but the market says Arsenal.
-    const bet = fakeBet([pastGateLeg({ outcomeLabel: "Arsenal" })], 0.5);
-    const outcome = settleBet(bet, contradictingScore, marketSaysHomeWon);
-    check("the market read settles the bet before football-data.org's score is even used", outcome?.status === "won");
-  }
-
-  // --- settleBet: falls back to football-data.org's real score when no market data is available
-  // (no tokenIds, or still before the time gate) — the two paths compose, not compete ---
-  {
-    const betNoTokens = fakeBet([sportsLeg({ outcomeLabel: "Arsenal", startTime: isoAgo(3 * HOUR) })], 0.5);
-    const outcome = settleBet(betNoTokens, homeWinScore, marketPrices("p1", 0.5, 0.3, 0.2));
-    check(
-      "a leg with no tokenIds falls back to the real score even with market prices available for other legs",
-      outcome?.status === "won"
-    );
-  }
-
   // --- settleBet: a leg placed before it carried league/homeTeam/awayTeam/startTime/tokenIds at
   // all (the exact reported bug: a bet placed days ago, its match long finished, stuck on
   // "Pending" forever) still settles — recovered from title ("Home v Away"), meta
@@ -297,6 +210,39 @@ function run() {
       JSON.stringify(results)
     );
   }
+
+  // --- computeLegResults: a leg already resolved won/lost is cached, never recomputed — the exact
+  // "check every minute and cache the settled ones" behavior. Proven by handing it a fresh score
+  // that says the OPPOSITE of the cached result and confirming the cached one still wins: once a
+  // leg is decided, nothing fetched afterward can flip it. ---
+  {
+    const bet: PlacedBet = {
+      ...fakeBet(
+        [
+          sportsLeg({ pickId: "p1", outcomeLabel: "Arsenal" }), // cached as already won
+          sportsLeg({ pickId: "p2", outcomeLabel: "Liverpool", homeTeam: "Liverpool", awayTeam: "Everton" }), // still pending
+        ],
+        0.2
+      ),
+      legResults: ["won", "pending"],
+    };
+    // A contradicting score for leg 1 (Chelsea actually won) plus the real answer for leg 2.
+    const freshScores = [
+      score({ homeTeam: "Arsenal", awayTeam: "Chelsea", homeGoals: 0, awayGoals: 3 }),
+      score({ homeTeam: "Liverpool", awayTeam: "Everton", homeGoals: 2, awayGoals: 0 }),
+    ];
+    const results = computeLegResults(bet, freshScores);
+    check(
+      "a leg already cached as won stays won even when the fresh score disagrees",
+      results[0] === "won",
+      JSON.stringify(results)
+    );
+    check("a still-pending leg is freshly resolved from the real score", results[1] === "won", JSON.stringify(results));
+  }
+  check(
+    "a leg with no prior legResults at all is resolved fresh, same as always",
+    computeLegResults(fakeBet([sportsLeg({ outcomeLabel: "Arsenal" })], 0.5), homeWinScore)[0] === "won"
+  );
 
   // --- wonTeamName: which real club a single-leg win was actually "on", for the win-celebration
   // flourish — 1X/X2 collapse to the one side they lock in, a market leg or a draw have no club. ---

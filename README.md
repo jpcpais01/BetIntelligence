@@ -48,11 +48,12 @@ rather than sitting there for the rest of the day showing odds nobody can bet in
   match would stay "in play" on screen forever.
 
 That single definition also decides when a saved pick is pruned (`pruneFinishedPicks`), how long
-`mergeGames` keeps carrying a game the upstream feed has dropped, when live-score polling stops,
-and when a bet is allowed to settle from market prices. It used to be four different hardcoded
-numbers — 3h in two places, 24h in two others — and the mismatch was the bug: score polling gave up
-at 6h while the card stayed on screen for 24h, so a finished match spent the rest of the day
-displaying its pre-match kickoff time and never a result.
+`mergeGames` keeps carrying a game the upstream feed has dropped, and when live-score polling
+stops. It used to be four different hardcoded numbers — 3h in two places, 24h in two others — and
+the mismatch was the bug: score polling gave up at 6h while the card stayed on screen for 24h, so a
+finished match spent the rest of the day displaying its pre-match kickoff time and never a result.
+[Settlement](#settling-football-bets-against-the-real-result) doesn't consult this module at all —
+it settles from the real score directly, not from a clock-based guess about whether one exists yet.
 
 Because kickoff and full time are moments that pass with no data arriving to announce them, the
 page keeps its own 30-second clock tick, so a match appears and disappears on time rather than
@@ -218,14 +219,13 @@ nothing to reprice and holds at its last known value.
 not the 7-day one. This matters more than it sounds: the 7-day series is bucketed at *three hours*,
 so its last point (which is what "the price now" means here) could be that far behind. A match
 would finish and its odds would sit there still showing the pre-match 70/20 read for the rest of
-the afternoon, and because [settlement](#settling-football-bets-against-the-real-result) decides
-won/lost from these same numbers, a stale bucket wasn't only cosmetic — it delayed and could
-misread a real result. The tradeoff is deliberate: a token with no trades at all in the last few
-hours now returns nothing rather than an hours-old number, and each caller falls back to its own
-honest stand-in (a leg's entry price; for settlement, no price at all, which simply leaves the bet
-open for the real final score to resolve). A stale number that looks live is worse than no number.
-Home's portfolio graph is the one place that still asks for the 7-day series, because it is drawing
-a 7-day graph — a finer window wouldn't reach back far enough.
+the afternoon. The tradeoff is deliberate: a token with no trades at all in the last few hours now
+returns nothing rather than an hours-old number, and the caller falls back to its own honest
+stand-in — a leg's entry price — rather than showing a stale number that looks live. Home's
+portfolio graph is the one place that still asks for the 7-day series, because it is drawing a
+7-day graph — a finer window wouldn't reach back far enough. (Settlement itself doesn't use this
+mechanism at all — see [below](#settling-football-bets-against-the-real-result) — so a stale odds
+number was never able to affect a real win/loss, only what Lab's live odds display showed.)
 
 - **Build** tab: search across every saved football pick, tap
   an outcome to add it as a leg, or tap the pick's own title/teams to open its full analysis
@@ -303,8 +303,13 @@ placed bets with their own live P&L.
 
 A placed bet used to just sit as mark-to-market forever — the app had no way to know how a match
 actually finished, so even a bet on a match that ended days ago kept "repricing" instead of ever
-becoming a real win or loss. `lib/settlement.ts` fixes this for football legs, trying two sources
-in order.
+becoming a real win or loss. `lib/settlement.ts` fixes this for football legs, and does it from
+exactly one source of truth: **the real, final score of the match**, from football-data.org. There
+used to be a second path that read a bet's own match-price on Polymarket instead, on the theory
+that it would settle faster — it added a whole second way for a leg to resolve, with its own gate
+and its own edge cases, and was removed because relying on price movement to mean the same thing
+as a result is exactly the kind of "clever" that made settlement hard to reason about. The rule now
+is the plain one: **if the game is finished, settle the bet — or the part of it that's decided.**
 
 `resolvePendingSettlements` runs once when Home or Lab first loads, and then again every 60
 seconds for as long as the tab stays open — it used to run only on that first load, so a match
@@ -314,47 +319,32 @@ ref mirroring state rather than a direct effect dependency, for the same reason 
 live-score/live-odds polling does: depending on the bets array directly would tear the interval
 down and rebuild it every time a bet settled, so it would never actually run on schedule.
 
-The two sources, in order:
+Each check looks only at legs still genuinely open. `getMatchResultsSince` (`lib/footballData.ts`)
+asks `/api/bets/settlement-scores` for the real final score of every match a still-pending leg
+belongs to, looking back as far as that league's oldest unsettled bet needs rather than just "right
+now" — matched against both of football-data.org's names for a club, full and short, since checking
+only the full name meant a bet on Wolves, Spurs, Man City or Inter never found its own match and
+stayed Pending forever, however long ago it finished, while bets on other clubs settled normally.
+This request is also best-effort: it skips rather than queues behind AI analysis work sharing the
+same football-data.org budget, and the next check (60 seconds later) tries again.
 
-1. **The market's own post-match read (primary, fast).** Once the match is over — the app's one
-   shared definition of that, [above](#a-matchs-lifecycle-upcoming-live-gone) — a leg is settled by
-   reading Polymarket's *current* home/draw/away prices for it (via the same live-price mechanism
-   Lab's mark-to-market uses) and taking whichever side is priced highest, however narrow the gap,
-   as the winner. This deliberately trusts the market over football-data.org's confirmed score:
-   waiting on that provider to report FINISHED (and on the app to happen to be open once it does)
-   was what made settlement slow, and a real market's price only has to *lean* toward the actual
-   winner once the result is known — it never has to converge to a clean 0/1, so this doesn't get
-   stuck waiting for that either.
+**A leg's result is cached the moment it's known, and never asked about again.** Once
+`computeLegResults` has resolved a leg to Won or Lost, that's final — a finished match's score
+doesn't change — so every later check carries it forward from `PlacedBet.legResults` instead of
+looking it up again. This is also why the recurring check stays cheap however long a parlay takes
+to fully resolve: a 3-leg parlay waiting on its last match only ever asks about that one match, not
+all three, and `settlementRefs` doesn't even include a league in the request once every leg it
+covers is already decided.
 
-   This gate used to open earlier, at 2h10m, on its own separate reasoning. That was both a fourth
-   copy of "how long is a match" and the least conservative of them, and it carried a real risk: a
-   match running long (VAR, injuries, a delayed restart) is priced like whichever side is ahead at
-   the time, so reading a winner out of it early could settle a bet the 85th minute's way rather
-   than the result's. Nothing shorter than "definitely over" is safe to read a result from.
-2. **football-data.org's confirmed score (fallback).** For whatever the market read can't settle
-   — thin post-match liquidity, a missing token, an older leg that predates carrying all three
-   outcomes' tokens — `getMatchResultsSince` (`lib/footballData.ts`) asks `/api/bets/settlement-scores`
-   for the real final score, looking back as far as that league's oldest unsettled bet needs, not
-   just "right now". This path matches clubs on both of the provider's names, full and short, for
-   the same reason [live scores do](#live-scores-on-the-card): checking only the full name meant a
-   bet on Wolves, Spurs, Man City or Inter never found its own match and stayed Pending forever,
-   however long ago it finished, while bets on other clubs settled normally. It's also best-effort
-   in the same way and for the same reason — it skips rather than queues behind analysis work, and
-   the next settlement check (every 60 seconds; see above) tries again.
-
-Whichever source resolves a leg first wins; if neither can, it stays open rather than guessing.
-Both compose into the same parlay-level rules:
-
-Both paths need a leg's league/homeTeam/awayTeam (and, for the market path, all three outcome
-tokens) to even attempt a lookup — fields added to `SlipLeg` after this app had already been in
-real use for a while. Without a backfill, a bet placed before that would carry none of them and
-`settlementRefs`/`marketPriceRequests` would silently skip it forever: not "can't settle it yet",
-but never even trying — the actual bug behind "the game finished a day ago and it's still Pending".
-`backfillLeg` (`lib/settlement.ts`) recovers what it can from fields that have *never* been
-optional — `title` ("Home v Away") and `meta` ("🏴 League Name") for the team names and league,
-`placedAt` as a safe (if conservative) stand-in kickoff lower bound — so every bet ever placed gets
-the same chance to settle as one placed today, with no need to touch data already sitting in a
-user's own browser storage.
+Every leg needs its own league/homeTeam/awayTeam to be looked up at all — fields added to `SlipLeg`
+after this app had already been in real use for a while. Without a backfill, a bet placed before
+that would carry none of them and `settlementRefs` would silently skip it forever: not "can't
+settle it yet", but never even trying — the actual bug behind "the game finished a day ago and it's
+still Pending". `backfillLeg` (`lib/settlement.ts`) recovers what it can from fields that have
+*never* been optional — `title` ("Home v Away") and `meta` ("🏴 League Name") for the team names and
+league, `placedAt` as a safe (if conservative) stand-in kickoff lower bound — so every bet ever
+placed gets the same chance to settle as one placed today, with no need to touch data already
+sitting in a user's own browser storage.
 
 - A parlay settles **Lost** the instant *any* leg is confirmed lost, whatever the others are doing.
 - It only settles **Won** once *every* leg is confirmed won, at `stake / combined market
