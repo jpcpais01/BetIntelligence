@@ -283,14 +283,17 @@ exact value of every line at that point in time. The dropdown only appears when 
 gave us a price-history token for at least one outcome — some thin or brand-new markets don't have
 one yet, and there's nothing to chart in that case.
 
-A row of three small **7D / 1D / 3H** buttons under the chart narrows which slice of that same
-week of data is shown — they don't trigger a second, finer-grained fetch, since the underlying data
-is always pulled at one fixed 3-hour bucket resolution (`lib/oddsHistoryServer.ts`). That means 1D
-still looks like a real trend (roughly 8 buckets), while 3H will often have 0-1 buckets to work with
-and fall back to the same "not enough trading history" message a brand-new market gets — an honest
-reflection of the data's real resolution rather than a fake zoomed-in line. The buttons stay visible
-and clickable even in that fallback state, so switching back to a wider window is always one tap
-away.
+A row of three small **7D / 1D / 3H** buttons under the chart switches how much history is shown
+— and each one fetches its own CLOB interval/fidelity rather than just re-slicing the same 7-day
+series, so 3H is genuinely higher resolution than 1D, which is higher resolution than 7D, not the
+same coarse buckets zoomed in (`WINDOW_CONFIG` in `lib/oddsHistoryServer.ts`: `1w`/3-hour buckets,
+`1d`/30-minute buckets, and `6h`/5-minute buckets trimmed down to the labeled 3h client-side, since
+CLOB has no exact "3h" interval of its own). Only the `1w` combination has actually been confirmed
+against the real API (from before these buttons existed); `1d` and `6h` are CLOB's documented
+shorter intervals but haven't been confirmed the same way — if either turns out wrong, a button
+just falls back to the same "not enough trading history" message a thin/brand-new market already
+gets, never a crash. Each window's data is fetched once per card and cached for the rest of that
+card's session, so switching between already-visited windows is instant.
 
 This is backed by Polymarket's own CLOB order-book API
 (`clob.polymarket.com/prices-history`), proxied through `/api/odds-history`

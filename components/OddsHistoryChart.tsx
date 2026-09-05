@@ -24,11 +24,11 @@ function niceTick(p: number): string {
   return `${Math.round(p * 100)}%`;
 }
 
-// The underlying fetch (lib/oddsHistoryServer.ts) always pulls one week of history at a fixed
-// 3-hour bucket resolution — these buttons just narrow which slice of that same data is shown,
-// they never trigger a second, finer-grained fetch. That means "3H" will often have 0-1 buckets
-// to show and fall through to the same "not enough trading history" message a brand-new market
-// gets — an honest reflection of the data's real resolution, not a bug.
+// Each window fetches its OWN interval/fidelity from CLOB (lib/oddsHistoryServer.ts's
+// WINDOW_CONFIG) rather than just re-slicing the 7-day series, so 1D shows real half-hour
+// resolution and 3H real five-minute resolution — each one strictly finer than the last, not the
+// same coarse 3-hour buckets zoomed in. `ms` here is the window this button actually promises;
+// CLOB has no exact "3h" interval, so that one over-fetches 6h and gets trimmed down to this.
 const WINDOWS = [
   { id: "7d", label: "7D", ms: 7 * 24 * 60 * 60 * 1000 },
   { id: "1d", label: "1D", ms: 24 * 60 * 60 * 1000 },
@@ -45,37 +45,53 @@ export default function OddsHistoryChart({
   // than showing a mismatched halo (Discover's dark-green theme vs. Sports' neutral one).
   surfaceColor?: string;
 }) {
-  const [series, setSeries] = useState<HistorySeries[] | null>(null);
-  const [failed, setFailed] = useState(false);
+  // Keyed by depKey+window together (not two separate "which outcomes" / "which window" pieces
+  // of state) so a change to either invalidates cleanly with no race between an outcomes-changed
+  // reset and a window-changed fetch landing in the wrong order. Each distinct combination this
+  // card instance visits is cached — switching back to an already-fetched window is instant, no
+  // re-fetch, and the user's window choice survives a price tick changing depKey underneath it.
+  const [cache, setCache] = useState<Record<string, HistorySeries[]>>({});
+  const [failedKeys, setFailedKeys] = useState<Set<string>>(new Set());
   const [hoverT, setHoverT] = useState<number | null>(null);
   const [windowId, setWindowId] = useState<WindowId>("7d");
   const svgRef = useRef<SVGSVGElement>(null);
 
   const depKey = outcomes.map((o) => `${o.label}:${o.tokenId ?? ""}:${o.current}`).join("|");
+  const cacheKey = `${depKey}::${windowId}`;
 
   useEffect(() => {
+    if (cache[cacheKey] !== undefined || failedKeys.has(cacheKey)) return;
     let cancelled = false;
-    /* eslint-disable react-hooks/set-state-in-effect -- resetting to a loading state for a new fetch, not syncing derived state */
-    setSeries(null);
-    setFailed(false);
-    /* eslint-enable react-hooks/set-state-in-effect */
-    fetchOddsHistory(outcomes.map((o) => ({ label: o.label, tokenId: o.tokenId ?? null, current: o.current, color: o.color })))
+    fetchOddsHistory(
+      outcomes.map((o) => ({ label: o.label, tokenId: o.tokenId ?? null, current: o.current, color: o.color })),
+      windowId
+    )
       .then((result) => {
-        if (!cancelled) setSeries(result);
+        if (cancelled) return;
+        setCache((cur) => ({ ...cur, [cacheKey]: result }));
       })
       .catch(() => {
-        if (!cancelled) setFailed(true);
+        if (cancelled) return;
+        setFailedKeys((cur) => new Set(cur).add(cacheKey));
       });
     return () => {
       cancelled = true;
     };
-    // depKey is the real dependency (a flattened primitive of everything outcomes carries) —
-    // the array/object literal itself is a new reference on every parent render.
+    // cacheKey is the real dependency (a flattened primitive of everything outcomes and windowId
+    // carry) — cache/failedKeys are read here to decide whether to skip an already-satisfied
+    // fetch, not depended on (including them would refetch every time this effect's own success
+    // handler updates them).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [depKey]);
+  }, [cacheKey]);
+
+  const series = cache[cacheKey] ?? null;
+  const failed = failedKeys.has(cacheKey);
 
   // Anchored to the latest point actually in the data, not wall-clock Date.now() — the fetch can
   // lag "now" by a little, and clipping against real time would cut off the most recent point.
+  // Also trims a window whose real CLOB interval had to over-fetch (3H asks CLOB for its
+  // shortest useful interval, 6h, then this cuts it down to the labeled 3h) to what the button
+  // actually promises.
   const windowed = useMemo(() => {
     if (!series) return null;
     const windowMs = WINDOWS.find((w) => w.id === windowId)!.ms;

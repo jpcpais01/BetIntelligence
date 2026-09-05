@@ -1,7 +1,19 @@
 import type { HistoryPoint } from "./oddsHistory";
+import type { HistoryWindow } from "./oddsHistoryServer";
 
-const POINT_COUNT = 40;
-const WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+// Mirrors the real per-window resolution (lib/oddsHistoryServer.ts's WINDOW_CONFIG) so mock mode
+// demonstrates the same "3h is finer than 1d is finer than 7d" behavior without hitting CLOB —
+// point count is just window span / bucket size, same relationship the real fidelity param has.
+const WINDOW_SPAN_MS: Record<HistoryWindow, number> = {
+  "7d": 7 * 24 * 60 * 60 * 1000,
+  "1d": 24 * 60 * 60 * 1000,
+  "3h": 3 * 60 * 60 * 1000,
+};
+const WINDOW_POINT_COUNT: Record<HistoryWindow, number> = {
+  "7d": 40,
+  "1d": 48,
+  "3h": 36,
+};
 
 // Deterministic PRNG (mulberry32) seeded from the outcome's own label, so the same outcome
 // always renders the same synthetic trend across repeated dropdown opens in mock mode, without
@@ -30,13 +42,20 @@ function mulberry32(seed: number): () => number {
 // card is already showing, then reverses — a fabricated history that at least agrees with the
 // one real number the app actually knows. `now` is injectable (defaults to the real clock) so a
 // test can assert determinism without two calls racing across a millisecond boundary.
-export function generateMockHistory(label: string, currentPrice: number, now: number = Date.now()): HistoryPoint[] {
+export function generateMockHistory(
+  label: string,
+  currentPrice: number,
+  now: number = Date.now(),
+  window: HistoryWindow = "7d"
+): HistoryPoint[] {
   const rand = mulberry32(seedFromString(label));
-  const start = now - WINDOW_MS;
-  const step = WINDOW_MS / (POINT_COUNT - 1);
+  const windowMs = WINDOW_SPAN_MS[window];
+  const pointCount = WINDOW_POINT_COUNT[window];
+  const start = now - windowMs;
+  const step = windowMs / (pointCount - 1);
 
   const prices: number[] = [Math.min(0.97, Math.max(0.03, currentPrice))];
-  for (let i = 1; i < POINT_COUNT; i++) {
+  for (let i = 1; i < pointCount; i++) {
     const drift = (rand() - 0.5) * 0.06;
     const prev = prices[prices.length - 1];
     prices.push(Math.min(0.97, Math.max(0.03, prev - drift)));
