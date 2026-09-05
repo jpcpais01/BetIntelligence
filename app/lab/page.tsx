@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { SavedPick, SavedMarketPick } from "@/lib/types";
-import { pruneFinishedPicks } from "@/lib/picks";
+import { pruneFinishedPicks, hasKickedOff } from "@/lib/picks";
 import { loadMarketPicks } from "@/lib/marketPicks";
 import { loadSlip, saveSlip, legFromPick, legFromMarketPick, type SlipLeg, type Outcome } from "@/lib/betslip";
 import { loadPlacedBets, removePlacedBet, type PlacedBet } from "@/lib/placedBets";
@@ -41,9 +41,17 @@ export default function LabPage() {
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect -- hydrating from localStorage, unavailable during SSR */
     const loadedBets = loadPlacedBets();
-    setSportsPicks(pruneFinishedPicks());
+    // A match already underway isn't buildable anymore — Lab is a "build a new bet" tool, not an
+    // analysis archive (that's Picks, which still shows it until pruneFinishedPicks eventually
+    // removes it outright).
+    setSportsPicks(pruneFinishedPicks().filter((p) => !hasKickedOff(p.startTime)));
     setMarketPicks(loadMarketPicks());
-    setLegs(loadSlip());
+    const loadedLegs = loadSlip();
+    const buildableLegs = loadedLegs.filter(
+      (leg) => leg.kind !== "sports" || !leg.startTime || !hasKickedOff(leg.startTime)
+    );
+    if (buildableLegs.length !== loadedLegs.length) saveSlip(buildableLegs);
+    setLegs(buildableLegs);
     setPlacedBets(loadedBets);
     /* eslint-enable react-hooks/set-state-in-effect */
 

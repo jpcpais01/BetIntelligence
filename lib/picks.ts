@@ -55,3 +55,13 @@ export function pruneFinishedPicks(): SavedPick[] {
   }
   return next;
 }
+
+// Whether kickoff has already passed — unlike isFinished above (which decides when a pick is
+// deleted entirely), this is a display-only check with no grace period: Lab is a "build a new
+// bet" tool, and a match that's already underway isn't buildable anymore, even if it's nowhere
+// near the 3-hour mark pruneFinishedPicks uses. Picks itself still shows it (as analysis history)
+// until pruneFinishedPicks actually removes it.
+export function hasKickedOff(startTime: string): boolean {
+  const t = new Date(startTime).getTime();
+  return Number.isFinite(t) && t <= Date.now();
+}

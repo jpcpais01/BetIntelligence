@@ -110,6 +110,14 @@ so it isn't worth an extra network round-trip on every page load for the rare ed
 postponed match) it could get wrong. Discover picks aren't pruned this way — a market has no
 equivalent "kickoff has definitely passed" moment.
 
+Lab goes a step further for its own **Build** tab: a match that's merely *started* (kickoff has
+passed at all, `hasKickedOff`) is filtered out of the buildable list the moment Lab loads, well
+before pruneFinishedPicks' 3-hour mark ever deletes it — Lab is a "build a new bet" tool, so a
+game already underway isn't something you can act on anymore, even though Picks still shows it as
+recent analysis history in the meantime. Any leg already sitting in the draft slip for a match that
+has since kicked off is removed the same way, so the slip never carries something no longer
+placeable.
+
 ### Lab: a sportsbook-style slip
 
 Lab is deliberately styled unlike the rest of the app — a very dark, restrained "private members'
@@ -216,18 +224,28 @@ placed bets with their own live P&L.
 ### Settling football bets against the real result
 
 A placed bet used to just sit as mark-to-market forever — the app had no way to know how a match
-actually finished, so even a bet on a match that ended days ago kept "repricing" against whatever
-Polymarket price data was still available (or its own entry price, once that ran out) instead of
-ever becoming a real win or loss. `lib/settlement.ts` fixes this for football legs specifically,
-using football-data.org's own confirmed result as ground truth (the same provider behind the AI's
-research digest and the live-score badges) rather than trusting Polymarket's price feed — a
-market's own on-chain resolution can lag the real-world result by hours or days, and post-match
-trading can simply stop, leaving the last traded price stale rather than converged to a clean 0/1.
+actually finished, so even a bet on a match that ended days ago kept "repricing" instead of ever
+becoming a real win or loss. `lib/settlement.ts` fixes this for football legs, trying two sources
+in order every time Home or Lab loads and calls `resolvePendingSettlements`:
 
-Home and Lab both call `resolvePendingSettlements` once on load: it collects every league touched
-by a still-open bet's football legs, asks `/api/bets/settlement-scores` for each one's real final
-score (looking back as far as that league's oldest unsettled bet needs, not just "right now" —
-`getMatchResultsSince`, `lib/footballData.ts`), and settles whatever it can —
+1. **The market's own post-match read (primary, fast).** Once at least 2h10m has passed since
+   kickoff — comfortably longer than any real match takes, plus a 10-minute buffer for the market
+   to finish digesting the result — a leg's match is settled by simply reading Polymarket's
+   *current* home/draw/away prices for it (via the same live-price mechanism Lab's mark-to-market
+   already uses) and picking whichever side is priced highest, however narrow the gap, as the
+   winner. This is a deliberate choice to trust the market over football-data.org's own confirmed
+   score: waiting on football-data.org to confirm FINISHED (and for the app to happen to be open
+   again once it does) was what made settlement slow before this, and a real market's price only
+   has to *lean* toward the actual winner once the result is known — it doesn't need to fully
+   converge to a clean 0/1, so this never gets stuck waiting for that either.
+2. **football-data.org's confirmed score (fallback).** For whatever the market read can't settle
+   — thin post-match liquidity, a missing token, an older leg that predates carrying all three
+   outcomes' tokens — `getMatchResultsSince` (`lib/footballData.ts`) asks `/api/bets/settlement-scores`
+   for the real final score, looking back as far as that league's oldest unsettled bet needs, not
+   just "right now".
+
+Whichever source resolves a leg first wins; if neither can, it stays open rather than guessing.
+Both compose into the same parlay-level rules:
 
 - A parlay settles **Lost** the instant *any* leg is confirmed lost, whatever the others are doing.
 - It only settles **Won** once *every* leg is confirmed won, at `stake / combined market

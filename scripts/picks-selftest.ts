@@ -16,7 +16,7 @@ class MemoryStorage {
   localStorage: new MemoryStorage(),
 };
 
-import { loadPicks, savePick, pruneFinishedPicks } from "../lib/picks";
+import { loadPicks, savePick, pruneFinishedPicks, hasKickedOff } from "../lib/picks";
 import type { SavedPick } from "../lib/types";
 
 function fakePick(id: string, startTime: string): SavedPick {
@@ -83,6 +83,12 @@ function run() {
   const before = loadPicks();
   const prunedAgain = pruneFinishedPicks();
   check("pruning again with nothing finished is a no-op", prunedAgain.length === before.length);
+
+  // hasKickedOff: a display-only check with no grace period, unlike isFinished above — Lab uses
+  // this to hide a match the instant it's underway, well before pruneFinishedPicks would delete it.
+  check("a match that started 1h ago has kicked off", hasKickedOff(isoAgo(HOUR)));
+  check("a match starting in 2h has not kicked off", !hasKickedOff(isoFromNow(2 * HOUR)));
+  check("a match starting this exact instant has kicked off", hasKickedOff(new Date().toISOString()));
 
   if (failures.length > 0) {
     console.log("\nFAILURES:");

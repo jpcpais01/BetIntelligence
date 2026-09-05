@@ -4,8 +4,70 @@ import { applySettlements } from "./placedBets";
 import type { LiveScoreEntry } from "./footballData";
 import type { LeagueId } from "./types";
 import { teamNamesMatch } from "./teamNameMatching";
+import { fetchLivePrices, type LivePriceRequest } from "./livePrices";
 
 export type LegResult = "won" | "lost" | "pending";
+
+// --- Market-based settlement (primary) --------------------------------------------------------
+//
+// How long after kickoff the match's own current market price is trusted as the real result,
+// without ever needing football-data.org to confirm FINISHED — comfortably longer than any real
+// match takes (~2h including stoppage/extra time) plus a 10-minute buffer for the market to
+// finish digesting the result. This is what makes settlement fast: the football-data.org check
+// further down still runs as a fallback (thin post-match liquidity, a missing token, an older leg
+// that predates tokenIds), but most bets resolve here well before football-data.org would ever
+// confirm FINISHED on its own slower, narrower-coverage schedule.
+const MARKET_SETTLEMENT_GATE_MS = 130 * 60 * 1000;
+
+function pastMarketGate(startTime: string | undefined): boolean {
+  if (!startTime) return false;
+  const t = new Date(startTime).getTime();
+  return Number.isFinite(t) && Date.now() - t >= MARKET_SETTLEMENT_GATE_MS;
+}
+
+type Side = "home" | "draw" | "away";
+const SIDES: Side[] = ["home", "draw", "away"];
+
+export function marketOutcomeKey(pickId: string, side: Side): string {
+  return `settlement-market:${pickId}:${side}`;
+}
+
+// Whichever of home/draw/away the match's OWN current price says is now most likely — however
+// narrow the gap, not a "must clearly converge past some threshold" rule. A real market's price
+// only has to lean toward the actual winner once the result is known; it never has to fully
+// converge to 0/1 (thin post-match liquidity, or trading simply stopping once the outcome is
+// obvious, can leave it well short of that) — requiring full convergence would leave exactly the
+// bets this exists to unstick still stuck.
+function marketImpliedWinner(prices: Partial<Record<Side, number>>): Side | null {
+  const known = SIDES.filter((s) => Number.isFinite(prices[s]));
+  if (known.length === 0) return null;
+  return known.reduce((best, s) => ((prices[s] as number) > (prices[best] as number) ? s : best));
+}
+
+function outcomeMatchesSide(leg: SlipLeg, side: Side): boolean {
+  if (leg.outcomeLabel === "1X") return side === "home" || side === "draw";
+  if (leg.outcomeLabel === "X2") return side === "draw" || side === "away";
+  if (leg.outcomeLabel === "Draw") return side === "draw";
+  if (side === "home") return !!leg.homeTeam && teamNamesMatch(leg.outcomeLabel, leg.homeTeam);
+  if (side === "away") return !!leg.awayTeam && teamNamesMatch(leg.outcomeLabel, leg.awayTeam);
+  return false;
+}
+
+// Only ever attempted once pastMarketGate(leg.startTime) — before that, a mid-match or
+// just-finished price hasn't had time to reflect the real result yet, so this stays "pending"
+// rather than guessing from a number that's still moving.
+export function legResultFromMarket(leg: SlipLeg, prices: Record<string, number>): LegResult {
+  if (leg.kind !== "sports" || !leg.homeTeam || !leg.awayTeam || !pastMarketGate(leg.startTime)) return "pending";
+  const winner = marketImpliedWinner({
+    home: prices[marketOutcomeKey(leg.pickId, "home")],
+    draw: prices[marketOutcomeKey(leg.pickId, "draw")],
+    away: prices[marketOutcomeKey(leg.pickId, "away")],
+  });
+  if (!winner) return "pending";
+  return outcomeMatchesSide(leg, winner) ? "won" : "lost";
+}
+
+// --- football-data.org-based settlement (fallback) --------------------------------------------
 
 function findMatch(leg: SlipLeg, scores: LiveScoreEntry[]): LiveScoreEntry | null {
   if (leg.kind !== "sports" || !leg.league || !leg.homeTeam || !leg.awayTeam) return null;
@@ -36,6 +98,16 @@ export function legResult(leg: SlipLeg, scores: LiveScoreEntry[]): LegResult {
   return "pending";
 }
 
+// The market read settles first (fast, no football-data.org dependency); the real final score is
+// the fallback for whatever it can't resolve — thin post-match liquidity, a missing token, an
+// older leg that predates tokenIds. Whichever source resolves first wins; if neither can, the leg
+// stays open (never settled by guessing).
+function combinedLegResult(leg: SlipLeg, scores: LiveScoreEntry[], marketPrices: Record<string, number>): LegResult {
+  const fromMarket = legResultFromMarket(leg, marketPrices);
+  if (fromMarket !== "pending") return fromMarket;
+  return legResult(leg, scores);
+}
+
 export interface BetOutcome {
   status: "won" | "lost";
   payout: number;
@@ -45,8 +117,12 @@ export interface BetOutcome {
 // to wait on a still-open leg once the bet can no longer possibly win. It only settles WON once
 // EVERY leg is confirmed won; a bet with any market leg can never reach that (no resolution source
 // for those), so it just stays open forever — deliberate, not a gap, same as before this existed.
-export function settleBet(bet: PlacedBet, scores: LiveScoreEntry[]): BetOutcome | null {
-  const results = bet.legs.map((leg) => legResult(leg, scores));
+export function settleBet(
+  bet: PlacedBet,
+  scores: LiveScoreEntry[],
+  marketPrices: Record<string, number> = {}
+): BetOutcome | null {
+  const results = bet.legs.map((leg) => combinedLegResult(leg, scores, marketPrices));
   if (results.some((r) => r === "lost")) return { status: "lost", payout: 0 };
   if (results.length > 0 && results.every((r) => r === "won")) {
     const payout = bet.combined.marketProb > 0 ? bet.stake / bet.combined.marketProb : bet.stake;
@@ -70,14 +146,31 @@ function settlementRefs(bets: PlacedBet[]): { league: LeagueId; earliestKickoff:
   return [...earliestByLeague.entries()].map(([league, earliestKickoff]) => ({ league, earliestKickoff }));
 }
 
-// Fetches real match results for every league a still-open placed bet touches, settles whatever
-// that resolves, persists it, and returns bets with settlement filled in. Best-effort: a failed
-// fetch just leaves every bet exactly as it was (still open), same as any other best-effort
-// enrichment in this app — never invents an outcome from missing data.
-export async function resolvePendingSettlements(bets: PlacedBet[]): Promise<PlacedBet[]> {
-  const refs = settlementRefs(bets);
-  if (refs.length === 0) return bets;
+// One request per distinct (match, side) still needed across every still-open bet — deduped by
+// key so a parlay of several bets on the same match never asks twice. `fallback: NaN`, never a
+// real number: a failed or incomplete fetch must never look like a real price, or settlement
+// could compare a genuine number against a fabricated one and pick a "winner" out of thin air.
+function marketPriceRequests(bets: PlacedBet[]): LivePriceRequest[] {
+  const seen = new Set<string>();
+  const requests: LivePriceRequest[] = [];
+  for (const bet of bets) {
+    if (bet.settlement) continue;
+    for (const leg of bet.legs) {
+      if (leg.kind !== "sports" || !leg.tokenIds || !pastMarketGate(leg.startTime)) continue;
+      for (const side of SIDES) {
+        const key = marketOutcomeKey(leg.pickId, side);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const tokenId = leg.tokenIds[side];
+        if (tokenId) requests.push({ key, tokenId, fallback: NaN });
+      }
+    }
+  }
+  return requests;
+}
 
+async function fetchScores(refs: { league: LeagueId; earliestKickoff: string }[]): Promise<LiveScoreEntry[]> {
+  if (refs.length === 0) return [];
   try {
     const res = await fetch("/api/bets/settlement-scores", {
       method: "POST",
@@ -85,20 +178,35 @@ export async function resolvePendingSettlements(bets: PlacedBet[]): Promise<Plac
       body: JSON.stringify({ refs }),
       cache: "no-store",
     });
-    if (!res.ok) return bets;
+    if (!res.ok) return [];
     const data = await res.json();
-    const scores: LiveScoreEntry[] = Array.isArray(data.scores) ? data.scores : [];
-    if (scores.length === 0) return bets;
-
-    const updates: Record<string, BetOutcome> = {};
-    for (const bet of bets) {
-      if (bet.settlement) continue;
-      const outcome = settleBet(bet, scores);
-      if (outcome) updates[bet.id] = outcome;
-    }
-    if (Object.keys(updates).length === 0) return bets;
-    return applySettlements(updates);
+    return Array.isArray(data.scores) ? data.scores : [];
   } catch {
-    return bets;
+    return [];
   }
+}
+
+// Settles whatever it can — the market's own post-match read first, football-data.org's confirmed
+// score as the fallback — persists it, and returns bets with settlement filled in. Best-effort
+// throughout: a failed fetch on either side just leaves those bets exactly as they were (still
+// open), same as any other best-effort enrichment in this app — never invents an outcome from
+// missing data.
+export async function resolvePendingSettlements(bets: PlacedBet[]): Promise<PlacedBet[]> {
+  const refs = settlementRefs(bets);
+  const priceRequests = marketPriceRequests(bets);
+  if (refs.length === 0 && priceRequests.length === 0) return bets;
+
+  const [scores, marketPrices] = await Promise.all([
+    fetchScores(refs),
+    priceRequests.length > 0 ? fetchLivePrices(priceRequests) : Promise.resolve({}),
+  ]);
+
+  const updates: Record<string, BetOutcome> = {};
+  for (const bet of bets) {
+    if (bet.settlement) continue;
+    const outcome = settleBet(bet, scores, marketPrices);
+    if (outcome) updates[bet.id] = outcome;
+  }
+  if (Object.keys(updates).length === 0) return bets;
+  return applySettlements(updates);
 }

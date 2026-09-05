@@ -1,4 +1,4 @@
-import type { SavedPick, SavedMarketPick, LeagueId } from "./types";
+import type { SavedPick, SavedMarketPick, LeagueId, OutcomeTokenIds } from "./types";
 import { leagueIdByName } from "./leagues";
 
 // v2: legs now carry a resolved title/meta/outcomeLabel directly instead of a fixed
@@ -34,6 +34,11 @@ export interface SlipLeg {
   homeTeam?: string;
   awayTeam?: string;
   startTime?: string;
+  // All three outcomes' tokens for this leg's underlying match (not just the one backed) —
+  // needed to read the market's OWN post-match verdict for settlement (lib/settlement.ts: whichever
+  // side is currently priced highest). `tokenId` above only ever carries the backed side's token,
+  // which isn't enough to compare it against the other two.
+  tokenIds?: OutcomeTokenIds;
 }
 
 export function legFromPick(pick: SavedPick, outcome: Outcome): SlipLeg {
@@ -46,6 +51,7 @@ export function legFromPick(pick: SavedPick, outcome: Outcome): SlipLeg {
     homeTeam: pick.homeTeam,
     awayTeam: pick.awayTeam,
     startTime: pick.startTime,
+    tokenIds: pick.tokenIds,
   };
 
   // Double chance is just the sum of the two 1X2 outcomes it covers — both sides (mutually
