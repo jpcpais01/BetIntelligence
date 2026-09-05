@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { loadDeposits, addFunds, totalDeposited, STARTING_BALANCE, type Deposit } from "@/lib/portfolio";
 import { loadPlacedBets, type PlacedBet } from "@/lib/placedBets";
+import { resolvePendingSettlements } from "@/lib/settlement";
 import { fetchPriceSeries, liveKey, type LivePriceRequest } from "@/lib/livePrices";
 import { buildPortfolioSeries } from "@/lib/portfolioHistory";
 import type { HistoryPoint } from "@/lib/oddsHistory";
@@ -26,10 +27,19 @@ export default function HomePage() {
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect -- hydrating from localStorage, unavailable during SSR */
+    const loaded = loadPlacedBets();
     setDeposits(loadDeposits());
-    setBets(loadPlacedBets());
+    setBets(loaded);
     setNow(Date.now());
     /* eslint-enable react-hooks/set-state-in-effect */
+
+    let cancelled = false;
+    resolvePendingSettlements(loaded).then((settled) => {
+      if (!cancelled) setBets(settled);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {

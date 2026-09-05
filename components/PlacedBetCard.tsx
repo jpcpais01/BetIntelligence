@@ -1,14 +1,16 @@
 import type { PlacedBet } from "@/lib/placedBets";
 import { combineSlip } from "@/lib/betslip";
 import { liveKey } from "@/lib/livePrices";
-import { toSignedPercent, toDecimalOdds, toPercent, formatRelativeTime } from "@/lib/format";
+import { toSignedPercent, toDecimalOdds, toPercent, toSignedReturnPercent, formatEur, formatRelativeTime } from "@/lib/format";
 import { TicketIcon, CloseIcon } from "./icons";
 
-// A placed bet is a permanent paper-trade record, not a live position — the app has no way to
-// know how a match or market actually resolved, so every entry just shows "Pending" rather than
-// fabricating a win/loss. Odds and edge are repriced against the current market (same livePrices
-// map Lab's build view uses). Styled like a ticket stub: a dashed divider separates "what you
-// bought" from the live snapshot, same visual language real sportsbook confirmations use.
+// A placed bet is a paper-trade record. Once football-data.org confirms every football leg's
+// match finished (lib/settlement.ts), it shows a real Won/Lost outcome and payout instead of
+// "Pending" — a bet with any Discover/market leg has no resolution source and just stays Pending
+// forever, same as before settlement existed. Odds/edge for a still-open bet are repriced against
+// the current market (same livePrices map Lab's build view uses). Styled like a ticket stub: a
+// dashed divider separates "what you bought" from the live snapshot/outcome, same visual language
+// real sportsbook confirmations use.
 export default function PlacedBetCard({
   bet,
   livePrices,
@@ -18,12 +20,14 @@ export default function PlacedBetCard({
   livePrices: Record<string, number>;
   onRemove: (id: string) => void;
 }) {
-  const { legs } = bet;
+  const { legs, settlement } = bet;
   const liveLegs = legs.map((leg) => ({
     ...leg,
     marketProb: livePrices[liveKey(leg.pickId, leg.outcomeLabel)] ?? leg.marketProb,
   }));
   const live = combineSlip(liveLegs);
+  const pnl = settlement ? settlement.payout - bet.stake : 0;
+  const pnlPct = bet.stake > 0 ? pnl / bet.stake : 0;
 
   return (
     <div className="overflow-hidden rounded-3xl" style={{ background: "var(--lab-surface)", border: "1px solid var(--lab-border)" }}>
@@ -61,30 +65,58 @@ export default function PlacedBetCard({
       <div className="mx-4 my-3 border-t border-dashed" style={{ borderColor: "var(--lab-border)" }} />
 
       <div className="flex items-center justify-between gap-2 px-4 pb-4">
-        <div className="flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium text-text-faint" style={{ background: "var(--lab-surface-2)" }}>
+        <div
+          className="flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium"
+          style={{
+            background: settlement ? "transparent" : "var(--lab-surface-2)",
+            color: settlement?.status === "won" ? "var(--lab-green)" : settlement?.status === "lost" ? "var(--lab-red)" : "var(--text-faint)",
+            boxShadow: settlement ? `inset 0 0 0 1px ${settlement.status === "won" ? "var(--lab-green)" : "var(--lab-red)"}` : "none",
+          }}
+        >
           <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />
-          Pending
+          {settlement?.status === "won" ? "Won" : settlement?.status === "lost" ? "Lost" : "Pending"}
         </div>
-        <div className="flex items-center gap-3 text-right">
-          <div>
-            <p className="text-[9px] text-text-faint">Odds now</p>
-            <p className="flex items-baseline justify-end gap-1">
-              <span className="font-display text-[13px] font-bold tabular-nums" style={{ color: "var(--lab-gold)" }}>
-                {toDecimalOdds(live.marketProb)}x
-              </span>
-              <span className="text-[9px] font-medium tabular-nums text-text-faint">{toPercent(live.marketProb)}</span>
-            </p>
+        {settlement ? (
+          <div className="flex items-center gap-3 text-right">
+            <div>
+              <p className="text-[9px] text-text-faint">Payout</p>
+              <p className="font-display text-[13px] font-bold tabular-nums" style={{ color: "var(--lab-gold)" }}>
+                {formatEur(settlement.payout)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[9px] text-text-faint">P&amp;L</p>
+              <p
+                className="font-display text-[13px] font-bold tabular-nums"
+                style={{ color: pnl > 0.005 ? "var(--lab-green)" : pnl < -0.005 ? "var(--lab-red)" : "var(--text)" }}
+              >
+                {pnl >= 0 ? "+" : ""}
+                {formatEur(pnl)} ({toSignedReturnPercent(pnlPct)})
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-[9px] text-text-faint">Edge now</p>
-            <p
-              className="font-display text-[13px] font-bold tabular-nums"
-              style={{ color: live.edge > 0.005 ? "var(--lab-green)" : live.edge < -0.005 ? "var(--lab-red)" : "var(--text)" }}
-            >
-              {toSignedPercent(live.edge)}
-            </p>
+        ) : (
+          <div className="flex items-center gap-3 text-right">
+            <div>
+              <p className="text-[9px] text-text-faint">Odds now</p>
+              <p className="flex items-baseline justify-end gap-1">
+                <span className="font-display text-[13px] font-bold tabular-nums" style={{ color: "var(--lab-gold)" }}>
+                  {toDecimalOdds(live.marketProb)}x
+                </span>
+                <span className="text-[9px] font-medium tabular-nums text-text-faint">{toPercent(live.marketProb)}</span>
+              </p>
+            </div>
+            <div>
+              <p className="text-[9px] text-text-faint">Edge now</p>
+              <p
+                className="font-display text-[13px] font-bold tabular-nums"
+                style={{ color: live.edge > 0.005 ? "var(--lab-green)" : live.edge < -0.005 ? "var(--lab-red)" : "var(--text)" }}
+              >
+                {toSignedPercent(live.edge)}
+              </p>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

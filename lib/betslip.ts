@@ -1,4 +1,5 @@
-import type { SavedPick, SavedMarketPick } from "./types";
+import type { SavedPick, SavedMarketPick, LeagueId } from "./types";
+import { leagueIdByName } from "./leagues";
 
 // v2: legs now carry a resolved title/meta/outcomeLabel directly instead of a fixed
 // home/draw/away enum plus raw match fields, so a leg can come from either a football pick or
@@ -24,6 +25,15 @@ export interface SlipLeg {
   // lib/portfolioHistory.ts). Null for a double-chance combo (no single token prices "1X") or when
   // the underlying pick predates this field — those legs just hold at their entry value instead.
   tokenId?: string | null;
+  // Real-world match identity for a football leg — absent for a market pick (no equivalent
+  // concept) and for any leg placed before settlement existed. This is what lets a leg be checked
+  // against football-data.org's confirmed result later (lib/settlement.ts); nothing else on this
+  // leg (title is a display string, outcomeLabel a free-form team/combo name) is reliable enough
+  // to look a match up by.
+  league?: LeagueId;
+  homeTeam?: string;
+  awayTeam?: string;
+  startTime?: string;
 }
 
 export function legFromPick(pick: SavedPick, outcome: Outcome): SlipLeg {
@@ -32,6 +42,10 @@ export function legFromPick(pick: SavedPick, outcome: Outcome): SlipLeg {
     kind: "sports" as const,
     title: `${pick.homeTeam} v ${pick.awayTeam}`,
     meta: `${pick.leagueFlag} ${pick.leagueName}`,
+    league: leagueIdByName(pick.leagueName),
+    homeTeam: pick.homeTeam,
+    awayTeam: pick.awayTeam,
+    startTime: pick.startTime,
   };
 
   // Double chance is just the sum of the two 1X2 outcomes it covers — both sides (mutually

@@ -60,6 +60,19 @@ Serie A) is resolved once and cached, not rediscovered on every poll. The result
 card's odds bars and its "Odds history" chart's live end-point for whatever it covers; a game not
 returned (its league not currently live, or between polls) just keeps showing its last known odds.
 
+### A recently-kicked-off game doesn't vanish from the list
+
+`getUpcomingGames` (`lib/polymarket.ts`) asks Polymarket for events with `closed:"false"`, and
+Polymarket appears to flip that flag well before our own generous "still worth showing" grace
+window (24h, `withinWindow`) elapses — in practice within hours of kickoff. Left alone, that meant
+a full refresh (every 30 minutes, or on tab focus) would silently drop a game the instant Polymarket
+stopped offering it, however recently it had actually started. `mergeGames` (`lib/gamesCache.ts`)
+fixes this client-side rather than guessing at Polymarket's exact timing: each refresh merges the
+fresh fetch with whatever was already on screen, keeping an already-started game that's missing
+from the fresh list for up to `GAME_VISIBLE_GRACE_MS` (24h) before letting it go. A game that
+hasn't started yet and is simply missing from a fresh fetch is never resurrected this way — that's
+a real removal, not the "closed right after kickoff" case this exists to paper over.
+
 ### Stale analysis disappears at kickoff
 
 The "AI last said" panel a card shows (see below) reflects whatever the match looked like *before*
@@ -188,6 +201,36 @@ placed bets with their own live P&L.
   € and % — with a **Show 10** toggle to see more. Nothing here is a real trade; it's the same
   paper-trade philosophy as the rest of the app, just tracked in one place with real numbers instead
   of just probabilities.
+
+### Settling football bets against the real result
+
+A placed bet used to just sit as mark-to-market forever — the app had no way to know how a match
+actually finished, so even a bet on a match that ended days ago kept "repricing" against whatever
+Polymarket price data was still available (or its own entry price, once that ran out) instead of
+ever becoming a real win or loss. `lib/settlement.ts` fixes this for football legs specifically,
+using football-data.org's own confirmed result as ground truth (the same provider behind the AI's
+research digest and the live-score badges) rather than trusting Polymarket's price feed — a
+market's own on-chain resolution can lag the real-world result by hours or days, and post-match
+trading can simply stop, leaving the last traded price stale rather than converged to a clean 0/1.
+
+Home and Lab both call `resolvePendingSettlements` once on load: it collects every league touched
+by a still-open bet's football legs, asks `/api/bets/settlement-scores` for each one's real final
+score (looking back as far as that league's oldest unsettled bet needs, not just "right now" —
+`getMatchResultsSince`, `lib/footballData.ts`), and settles whatever it can —
+
+- A parlay settles **Lost** the instant *any* leg is confirmed lost, whatever the others are doing.
+- It only settles **Won** once *every* leg is confirmed won, at `stake / combined market
+  probability` (the same decimal-odds math shown everywhere else).
+- A leg from a Discover/market pick has no equivalent resolution source and is never guessed at —
+  a bet mixing one in can still settle **Lost** if a football leg busts, but can never settle
+  **Won** while a market leg remains, so it just stays open forever, same as before this existed.
+
+Once settled, a bet's value is final and frozen from that moment on — `computeBetValue`
+(`lib/portfolioHistory.ts`) shows the real payout instead of a live mark-to-market estimate for any
+timestamp at or after settlement, while a portfolio-history point from *before* that moment still
+shows exactly what the mark-to-market path looked like at the time. `PortfolioBetRow` and
+`PlacedBetCard` show a **Won**/**Lost** badge in place of the live odds/edge readout once a bet
+resolves either way.
 
 ## Odds history
 

@@ -6,6 +6,7 @@ import { loadPicks } from "@/lib/picks";
 import { loadMarketPicks } from "@/lib/marketPicks";
 import { loadSlip, saveSlip, legFromPick, legFromMarketPick, type SlipLeg, type Outcome } from "@/lib/betslip";
 import { loadPlacedBets, removePlacedBet, type PlacedBet } from "@/lib/placedBets";
+import { resolvePendingSettlements } from "@/lib/settlement";
 import { liveKey, fetchLivePrices, type LivePriceRequest } from "@/lib/livePrices";
 import { RISK_MODES, buildRiskSlip, type RiskMode } from "@/lib/riskModes";
 import SlipPickRow from "@/components/SlipPickRow";
@@ -39,11 +40,20 @@ export default function LabPage() {
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect -- hydrating from localStorage, unavailable during SSR */
+    const loadedBets = loadPlacedBets();
     setSportsPicks(loadPicks());
     setMarketPicks(loadMarketPicks());
     setLegs(loadSlip());
-    setPlacedBets(loadPlacedBets());
+    setPlacedBets(loadedBets);
     /* eslint-enable react-hooks/set-state-in-effect */
+
+    let cancelled = false;
+    resolvePendingSettlements(loadedBets).then((settled) => {
+      if (!cancelled) setPlacedBets(settled);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {

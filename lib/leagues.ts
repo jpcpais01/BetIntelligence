@@ -264,6 +264,14 @@ export function getLeague(id: LeagueId): LeagueConfig {
   return league;
 }
 
+// A SavedPick only carries this league's display name (leagueName), not its canonical id — that
+// name is always written from this exact config's own `name` field at save time, so an exact
+// string match reliably recovers the id (needed to look a match's real result up later; see
+// lib/settlement.ts).
+export function leagueIdByName(name: string): LeagueId | undefined {
+  return LEAGUES.find((l) => l.name === name)?.id;
+}
+
 // Server-side: validates a (possibly untrusted, client-supplied) league id before it's used to
 // look up an API-Football league id or run any other lookup keyed by LeagueId.
 export function isLeagueId(value: unknown): value is LeagueId {

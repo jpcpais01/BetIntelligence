@@ -16,6 +16,7 @@ import {
   loadCachedGames,
   saveCachedGames,
   isStale,
+  mergeGames,
   REFRESH_INTERVAL_MS,
 } from "@/lib/gamesCache";
 import { loadSelectedLeagues, saveSelectedLeagues } from "@/lib/leaguePrefs";
@@ -96,10 +97,13 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not load games.");
       const now = new Date().toISOString();
-      setGames(data.games);
+      setGames((current) => {
+        const merged = mergeGames(current ?? [], data.games);
+        saveCachedGames(merged, now);
+        return merged;
+      });
       setFetchedAt(now);
       setError(null);
-      saveCachedGames(data.games, now);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load games.");
     } finally {

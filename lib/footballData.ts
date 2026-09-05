@@ -322,18 +322,37 @@ const LIVE_RELEVANT_STATUSES = new Set(["LIVE", "IN_PLAY", "PAUSED", "FINISHED"]
 const LIVE_WINDOW_CACHE_TTL_MS = 60_000;
 const liveWindowCache = new Map<string, { at: number; matches: FootballDataMatch[] }>();
 
-async function fetchLeagueLiveWindow(code: string): Promise<FootballDataMatch[]> {
-  const cached = liveWindowCache.get(code);
-  if (cached && Date.now() - cached.at < LIVE_WINDOW_CACHE_TTL_MS) return cached.matches;
+function dateOnly(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
 
-  const now = Date.now();
-  const from = new Date(now - 86_400_000).toISOString().slice(0, 10);
-  const to = new Date(now + 86_400_000).toISOString().slice(0, 10);
+async function fetchLeagueMatchesInRange(
+  code: string,
+  from: string,
+  to: string,
+  cache: Map<string, { at: number; matches: FootballDataMatch[] }>,
+  ttlMs: number
+): Promise<FootballDataMatch[]> {
+  const cacheKey = `${code}:${from}:${to}`;
+  const cached = cache.get(cacheKey);
+  if (cached && Date.now() - cached.at < ttlMs) return cached.matches;
+
   const response = await footballDataFetch<{ matches: FootballDataMatch[] }>(
     `/matches?competitions=${code}&dateFrom=${from}&dateTo=${to}`
   );
-  liveWindowCache.set(code, { at: now, matches: response.matches });
+  cache.set(cacheKey, { at: Date.now(), matches: response.matches });
   return response.matches;
+}
+
+async function fetchLeagueLiveWindow(code: string): Promise<FootballDataMatch[]> {
+  const now = Date.now();
+  return fetchLeagueMatchesInRange(
+    code,
+    dateOnly(now - 86_400_000),
+    dateOnly(now + 86_400_000),
+    liveWindowCache,
+    LIVE_WINDOW_CACHE_TTL_MS
+  );
 }
 
 // Test-only: clears the live-window cache so selftest cases don't see stale matches from an
@@ -349,28 +368,75 @@ export function __resetLiveWindowCacheForTests(): void {
 // calls into 429s), protected by the same rate limiter as every other call in this module. A
 // league whose fetch fails, or one this provider doesn't cover at all, just contributes nothing to
 // the result rather than breaking the rest of the games list.
+function toLiveScoreEntries(league: LeagueId, matches: FootballDataMatch[]): LiveScoreEntry[] {
+  return matches
+    .filter((m) => LIVE_RELEVANT_STATUSES.has(m.status))
+    .map((m): LiveScoreEntry => ({
+      league,
+      homeTeam: m.homeTeam.name,
+      awayTeam: m.awayTeam.name,
+      status: m.status,
+      statusLabel: STATUS_LABEL[m.status] ?? m.status,
+      homeGoals: m.score.fullTime.home,
+      awayGoals: m.score.fullTime.away,
+    }));
+}
+
 export async function getLiveScores(leagues: LeagueId[]): Promise<LiveScoreEntry[]> {
   const entries = await Promise.all(
     [...new Set(leagues)].map(async (league) => {
       const code = COMPETITION_CODE[league];
       if (!code) return [] as LiveScoreEntry[];
       try {
-        const matches = await fetchLeagueLiveWindow(code);
-        return matches
-          .filter((m) => LIVE_RELEVANT_STATUSES.has(m.status))
-          .map((m): LiveScoreEntry => ({
-            league,
-            homeTeam: m.homeTeam.name,
-            awayTeam: m.awayTeam.name,
-            status: m.status,
-            statusLabel: STATUS_LABEL[m.status] ?? m.status,
-            homeGoals: m.score.fullTime.home,
-            awayGoals: m.score.fullTime.away,
-          }));
+        return toLiveScoreEntries(league, await fetchLeagueLiveWindow(code));
       } catch {
         return [];
       }
     })
   );
   return entries.flat();
+}
+
+const MATCH_RESULTS_CACHE_TTL_MS = 5 * 60_000;
+const matchResultsCache = new Map<string, { at: number; matches: FootballDataMatch[] }>();
+// football-data.org's free tier rejects a dateFrom/dateTo span wider than this (undocumented in
+// this codebase, taken from the provider's own published limit) — bounding the lookback to it
+// keeps a settlement check for a very stale unsettled bet from erroring out the whole request
+// instead of just settling what it still can.
+const MAX_SETTLEMENT_LOOKBACK_MS = 10 * 24 * 60 * 60 * 1000;
+
+// Ground truth for settling a placed bet: the real final score of the match it was bet on,
+// however long ago it kicked off — unlike getLiveScores (a tight ±1 day window built for "is this
+// worth showing on screen right now"), this looks back as far as `earliestKickoff` needs, up to
+// MAX_SETTLEMENT_LOOKBACK_MS. One request per league regardless of how many still-unsettled bets
+// from that league are being checked. A league whose fetch fails just contributes nothing, same
+// as getLiveScores — the caller leaves those bets unsettled rather than guessing.
+export async function getMatchResultsSince(
+  refs: { league: LeagueId; earliestKickoff: string }[]
+): Promise<LiveScoreEntry[]> {
+  const now = Date.now();
+  const entries = await Promise.all(
+    refs.map(async ({ league, earliestKickoff }) => {
+      const code = COMPETITION_CODE[league];
+      if (!code) return [] as LiveScoreEntry[];
+      const kickoffMs = new Date(earliestKickoff).getTime();
+      const wanted = Number.isFinite(kickoffMs) ? now - kickoffMs + 86_400_000 : MAX_SETTLEMENT_LOOKBACK_MS;
+      const lookbackMs = Math.min(Math.max(wanted, 86_400_000), MAX_SETTLEMENT_LOOKBACK_MS);
+      const from = dateOnly(now - lookbackMs);
+      const to = dateOnly(now);
+      try {
+        const matches = await fetchLeagueMatchesInRange(code, from, to, matchResultsCache, MATCH_RESULTS_CACHE_TTL_MS);
+        return toLiveScoreEntries(league, matches);
+      } catch {
+        return [];
+      }
+    })
+  );
+  return entries.flat();
+}
+
+// Test-only: clears the match-results cache so selftest cases don't see stale matches from an
+// earlier case sharing the same competition code and date range.
+export function __resetMatchResultsCacheForTests(): void {
+  matchResultsCache.clear();
 }

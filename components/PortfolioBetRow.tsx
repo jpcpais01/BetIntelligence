@@ -19,6 +19,7 @@ export default function PortfolioBetRow({
   const positive = pnl > 0.005;
   const negative = pnl < -0.005;
   const choice = bet.legs.map((l) => l.outcomeLabel).join(" + ");
+  const { settlement } = bet;
 
   return (
     <div className="flex items-center gap-3 rounded-2xl bg-surface p-3">
@@ -26,7 +27,18 @@ export default function PortfolioBetRow({
         <TicketIcon className="h-4 w-4 text-text-faint" />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[12px] font-medium text-text">{choice}</p>
+        <p className="truncate text-[12px] font-medium text-text">
+          {choice}
+          {settlement && (
+            <span
+              className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+                settlement.status === "won" ? "bg-accent/12 text-accent" : "bg-accent-3/12 text-accent-3"
+              }`}
+            >
+              {settlement.status}
+            </span>
+          )}
+        </p>
         <p className="truncate text-[10px] text-text-faint">
           {bet.legs.length > 1 ? `${bet.legs.length}-leg parlay` : bet.legs[0]?.title}
           {" · "}

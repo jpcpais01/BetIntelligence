@@ -4,6 +4,35 @@ const STORAGE_KEY = "betintelligence.games.v1";
 
 export const REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 
+// How long a game that started in the past is still worth showing at all — mirrors the
+// server's own "recently kicked off" grace intent (lib/polymarket.ts's withinWindow). That
+// intent only holds if Polymarket keeps returning the event, but Polymarket appears to drop an
+// event from its own closed:"false" feed well before this window elapses (reported: within
+// ~5 hours of kickoff) — so a plain "replace with whatever the server just returned" wholesale
+// swap silently drops a still-recent game the moment Polymarket stops offering it, regardless of
+// our own grace policy never having a chance to apply. mergeGames keeps it around from the last
+// fetch that did have it, for as long as this window says it's still relevant.
+export const GAME_VISIBLE_GRACE_MS = 24 * 60 * 60 * 1000;
+
+// Merges a fresh fetch with the previously-known list: fresh data always wins for any game it
+// still contains, and an already-started game missing from the fresh list is kept from the
+// previous list until it ages out of GAME_VISIBLE_GRACE_MS — rather than vanishing the instant
+// the upstream feed stops returning it. A game that hasn't started yet and is missing from a
+// fresh fetch is NOT preserved: that's a real removal (delisted, filters changed), not the
+// "closed right after kickoff" case this exists to paper over.
+export function mergeGames(previous: Game[], fresh: Game[]): Game[] {
+  const freshIds = new Set(fresh.map((g) => g.id));
+  const now = Date.now();
+  const survivors = previous.filter((g) => {
+    if (freshIds.has(g.id)) return false;
+    const t = new Date(g.startTime).getTime();
+    return Number.isFinite(t) && t <= now && now - t < GAME_VISIBLE_GRACE_MS;
+  });
+  return [...fresh, ...survivors].sort(
+    (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+  );
+}
+
 export interface CachedGames {
   games: Game[];
   fetchedAt: string;

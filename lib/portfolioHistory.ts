@@ -40,8 +40,15 @@ function legMultiplierAt(leg: SlipLeg, priceSeriesByKey: Record<string, HistoryP
 
 // Current (or as-of-`t`) mark-to-market value of one placed bet, in the same currency as its
 // stake. Exported for the Recent Bets list, which shows each bet's own live value/P&L rather than
-// just the aggregate portfolio number.
+// just the aggregate portfolio number. Once a bet is settled (lib/settlement.ts), its value is no
+// longer a market-price estimate — it's the real, final payout, frozen from the moment it
+// resolved onward. A timestamp before that moment still shows the mark-to-market path exactly as
+// it looked at the time, so a historical portfolio graph doesn't rewrite its own past.
 export function computeBetValue(bet: PlacedBet, priceSeriesByKey: Record<string, HistoryPoint[]>, t: number): number {
+  if (bet.settlement) {
+    const settledAt = new Date(bet.settlement.settledAt).getTime();
+    if (t >= settledAt) return bet.settlement.payout;
+  }
   const multiplier = bet.legs.reduce((prod, leg) => prod * legMultiplierAt(leg, priceSeriesByKey, t), 1);
   return bet.stake * multiplier;
 }
