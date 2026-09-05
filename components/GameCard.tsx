@@ -6,6 +6,7 @@ import type { LastAnalysisEntry } from "@/lib/lastAnalysis";
 import type { LiveScoreEntry } from "@/lib/footballData";
 import { formatCompactNumber, formatKickoff, formatRelativeTime, toPercent, toSignedPercent, formatCostUsd } from "@/lib/format";
 import { isTopGame } from "@/lib/topTeams";
+import { hasKickedOff } from "@/lib/matchClock";
 import { agreementLabel, agreementTone } from "@/lib/aggregate";
 import Avatar from "./Avatar";
 import OutcomeBar from "./OutcomeBar";
@@ -13,10 +14,6 @@ import ConfidenceBadge from "./ConfidenceBadge";
 import ResearchRunsStepper from "./ResearchRunsStepper";
 import OddsHistoryChart from "./OddsHistoryChart";
 import { SparkleIcon, StarIcon, CheckIcon, BrainIcon, ChevronDownIcon, TrendingUpIcon } from "./icons";
-
-function hasKickedOff(startTime: string): boolean {
-  return Date.now() >= new Date(startTime).getTime();
-}
 
 export default function GameCard({
   game,

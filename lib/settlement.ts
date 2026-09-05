@@ -3,7 +3,8 @@ import type { PlacedBet } from "./placedBets";
 import { applySettlements, applyLegResults } from "./placedBets";
 import type { LiveScoreEntry } from "./footballData";
 import type { LeagueId } from "./types";
-import { teamNamesMatch } from "./teamNameMatching";
+import { teamNamesMatch, anyTeamNameMatches } from "./teamNameMatching";
+import { isOverByClock } from "./matchClock";
 import { leagueIdByName } from "./leagues";
 import { fetchLivePrices, type LivePriceRequest } from "./livePrices";
 
@@ -44,21 +45,15 @@ function backfilledLegs(bet: PlacedBet): SlipLeg[] {
 
 // --- Market-based settlement (primary) --------------------------------------------------------
 //
-// How long after kickoff the match's own current market price is trusted as the real result,
-// without ever needing football-data.org to confirm FINISHED — comfortably longer than any real
-// match takes (~2h including stoppage/extra time) plus a 10-minute buffer for the market to
-// finish digesting the result. This is what makes settlement fast: the football-data.org check
-// further down still runs as a fallback (thin post-match liquidity, a missing token, an older leg
-// that predates tokenIds), but most bets resolve here well before football-data.org would ever
-// confirm FINISHED on its own slower, narrower-coverage schedule.
-const MARKET_SETTLEMENT_GATE_MS = 130 * 60 * 1000;
-
-function pastMarketGate(startTime: string | undefined): boolean {
-  if (!startTime) return false;
-  const t = new Date(startTime).getTime();
-  return Number.isFinite(t) && Date.now() - t >= MARKET_SETTLEMENT_GATE_MS;
-}
-
+// A match's own market price is trusted as its result once the match is over (lib/matchClock.ts,
+// the same line the Sports page uses to drop a finished game off the list — one definition of
+// "over" for the whole app). Before then the price is still moving: a side leading at the 85th
+// minute is priced like a winner without being one, so reading a winner out of it early risks
+// settling a bet the wrong way. This used to gate at 2h10m on its own separate reasoning, which
+// was both a fourth copy of "how long is a match" and the least conservative of them.
+//
+// The football-data.org score check further down still runs as a fallback for whatever this can't
+// resolve: thin post-match liquidity, a missing token, or a leg placed before tokenIds existed.
 type Side = "home" | "draw" | "away";
 const SIDES: Side[] = ["home", "draw", "away"];
 
@@ -87,11 +82,10 @@ function outcomeMatchesSide(leg: SlipLeg, side: Side): boolean {
   return false;
 }
 
-// Only ever attempted once pastMarketGate(leg.startTime) — before that, a mid-match or
-// just-finished price hasn't had time to reflect the real result yet, so this stays "pending"
-// rather than guessing from a number that's still moving.
+// Stays "pending" until the match is actually over — before that the price is still moving, and a
+// number that's still moving isn't a result.
 export function legResultFromMarket(leg: SlipLeg, prices: Record<string, number>): LegResult {
-  if (leg.kind !== "sports" || !leg.homeTeam || !leg.awayTeam || !pastMarketGate(leg.startTime)) return "pending";
+  if (leg.kind !== "sports" || !leg.homeTeam || !leg.awayTeam || !isOverByClock(leg.startTime)) return "pending";
   const winner = marketImpliedWinner({
     home: prices[marketOutcomeKey(leg.pickId, "home")],
     draw: prices[marketOutcomeKey(leg.pickId, "draw")],
@@ -103,14 +97,19 @@ export function legResultFromMarket(leg: SlipLeg, prices: Record<string, number>
 
 // --- football-data.org-based settlement (fallback) --------------------------------------------
 
+// Matched against both the full and short club names the provider gives, not just the full one:
+// several clubs are only recognisable from Polymarket's naming under the short form ("Wolves",
+// "Spurs", "Inter Milan"), and checking the full name alone meant a bet on one of those never
+// found its own match and so sat unsettled no matter how long ago it finished.
 function findMatch(leg: SlipLeg, scores: LiveScoreEntry[]): LiveScoreEntry | null {
   if (leg.kind !== "sports" || !leg.league || !leg.homeTeam || !leg.awayTeam) return null;
+  const { homeTeam, awayTeam } = leg;
   return (
     scores.find(
       (s) =>
         s.league === leg.league &&
-        teamNamesMatch(s.homeTeam, leg.homeTeam as string) &&
-        teamNamesMatch(s.awayTeam, leg.awayTeam as string)
+        anyTeamNameMatches([s.homeTeam, s.homeTeamShort], homeTeam) &&
+        anyTeamNameMatches([s.awayTeam, s.awayTeamShort], awayTeam)
     ) ?? null
   );
 }
@@ -214,7 +213,7 @@ function marketPriceRequests(bets: PlacedBet[]): LivePriceRequest[] {
   for (const bet of bets) {
     if (bet.settlement) continue;
     for (const leg of backfilledLegs(bet)) {
-      if (leg.kind !== "sports" || !leg.tokenIds || !pastMarketGate(leg.startTime)) continue;
+      if (leg.kind !== "sports" || !leg.tokenIds || !isOverByClock(leg.startTime)) continue;
       for (const side of SIDES) {
         const key = marketOutcomeKey(leg.pickId, side);
         if (seen.has(key)) continue;

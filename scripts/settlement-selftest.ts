@@ -2,6 +2,7 @@ import { legResult, legResultFromMarket, settleBet, marketOutcomeKey, computeLeg
 import type { SlipLeg } from "../lib/betslip";
 import type { PlacedBet } from "../lib/placedBets";
 import type { LiveScoreEntry } from "../lib/footballData";
+import { MATCH_OVER_AFTER_MS } from "../lib/matchClock";
 
 const HOUR = 60 * 60 * 1000;
 
@@ -26,11 +27,11 @@ function sportsLeg(overrides: Partial<SlipLeg> = {}): SlipLeg {
   };
 }
 
-// A leg whose kickoff is comfortably past the market-settlement gate (2h10m after kickoff),
-// carrying all three outcome tokens — the shape legResultFromMarket actually needs.
+// A leg whose match is comfortably over (lib/matchClock.ts's MATCH_OVER_AFTER_MS), carrying all
+// three outcome tokens — the shape legResultFromMarket actually needs.
 function pastGateLeg(overrides: Partial<SlipLeg> = {}): SlipLeg {
   return sportsLeg({
-    startTime: isoAgo(3 * HOUR),
+    startTime: isoAgo(MATCH_OVER_AFTER_MS + HOUR),
     tokenIds: { home: "tok-home", draw: "tok-draw", away: "tok-away" },
     ...overrides,
   });
@@ -115,6 +116,41 @@ function run() {
     "an older leg missing league/homeTeam/awayTeam is pending, never guessed",
     legResult(sportsLeg({ league: undefined, homeTeam: undefined, awayTeam: undefined }), homeWinScore) === "pending"
   );
+  // A club Polymarket only ever names by its short form. football-data.org's full name doesn't
+  // match it at all, so before short names were carried through, a bet on one of these clubs
+  // simply never found its own result and sat unsettled forever however long ago it finished.
+  check(
+    "a club known only by its short name (Wolves) still settles",
+    legResult(
+      sportsLeg({ homeTeam: "Wolves", awayTeam: "Spurs", outcomeLabel: "Wolves" }),
+      [
+        score({
+          homeTeam: "Wolverhampton Wanderers FC",
+          homeTeamShort: "Wolves",
+          awayTeam: "Tottenham Hotspur FC",
+          awayTeamShort: "Spurs",
+          homeGoals: 2,
+          awayGoals: 1,
+        }),
+      ]
+    ) === "won"
+  );
+  check(
+    "the same short-name match resolves a LOST bet correctly too, not just a won one",
+    legResult(
+      sportsLeg({ homeTeam: "Wolves", awayTeam: "Spurs", outcomeLabel: "Spurs" }),
+      [
+        score({
+          homeTeam: "Wolverhampton Wanderers FC",
+          homeTeamShort: "Wolves",
+          awayTeam: "Tottenham Hotspur FC",
+          awayTeamShort: "Spurs",
+          homeGoals: 2,
+          awayGoals: 1,
+        }),
+      ]
+    ) === "lost"
+  );
   check(
     "team name fuzzy-matches (Newcastle vs Newcastle United) still resolve",
     legResult(sportsLeg({ homeTeam: "Newcastle United", outcomeLabel: "Newcastle United" }), [
@@ -149,6 +185,16 @@ function run() {
   check(
     "before the time gate, market data is ignored entirely -> pending, even with a clear price",
     legResultFromMarket(sportsLeg({ outcomeLabel: "Arsenal", tokenIds: { home: "h", draw: "d", away: "a" } }), marketPrices("p1", 0.97, 0.02, 0.01)) === "pending"
+  );
+  // A match still running long (VAR, injuries, a delayed restart) is priced like the side that's
+  // currently ahead — settling off that would call a bet the 85th minute's way, not the result's.
+  // The gate is the app's one "this match is definitely over" line, nothing shorter.
+  check(
+    "a match 2h20m in is still not settled from the market, however lopsided the price",
+    legResultFromMarket(
+      sportsLeg({ outcomeLabel: "Arsenal", startTime: isoAgo(2 * HOUR + 20 * 60 * 1000), tokenIds: { home: "h", draw: "d", away: "a" } }),
+      marketPrices("p1", 0.97, 0.02, 0.01)
+    ) === "pending"
   );
   check(
     "no price data at all for this match -> pending, never guessed",

@@ -43,6 +43,16 @@ export function teamNamesMatch(a: string, b: string): boolean {
   return wordSetOverlap(a, b);
 }
 
+// The same check against EVERY name a provider knows a club by, matching if any one of them does.
+// This matters more than it looks: football-data.org gives both a full legal name and a short one,
+// and for a good few clubs only the short one is recognisable from Polymarket's naming — no tier
+// above matches "Wolverhampton Wanderers FC" to "Wolves", "Tottenham Hotspur FC" to "Spurs", or
+// "FC Internazionale Milano" to "Inter Milan". Checking only the full name is why live scores and
+// settlement silently skipped exactly those clubs while working fine for everyone else.
+export function anyTeamNameMatches(candidates: (string | undefined)[], target: string): boolean {
+  return candidates.some((name) => name !== undefined && teamNamesMatch(name, target));
+}
+
 // Picks the single best-matching item out of a roster for a target display name, trying each
 // tier across the WHOLE list before falling back to the next (so an exact match anywhere in the
 // list always wins over a looser match elsewhere in it). `getNames` returns every display name an

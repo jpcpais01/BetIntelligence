@@ -392,6 +392,11 @@ export interface LiveScoreEntry {
   league: LeagueId;
   homeTeam: string;
   awayTeam: string;
+  // football-data.org's own short name for each club, carried alongside the full one because for
+  // a good few clubs it's the only form that's recognisable from Polymarket's naming ("Wolves",
+  // "Spurs", "Man City", "Inter"). Consumers match against both — see anyTeamNameMatches.
+  homeTeamShort?: string;
+  awayTeamShort?: string;
   status: string;
   statusLabel: string;
   homeGoals: number | null;
@@ -402,11 +407,16 @@ export interface LiveScoreEntry {
 // still uses the plain kickoff-time label the card already shows, no enrichment needed for those.
 const LIVE_RELEVANT_STATUSES = new Set(["LIVE", "IN_PLAY", "PAUSED", "FINISHED"]);
 
-// Shared across every request to the warm server instance (not per-user), so a page full of
-// visitors polling for live scores at once still costs at most one fetch per league per TTL —
-// this is much shorter than the digest cache above since a live score is only useful fresh. Must
-// stay comfortably above the client's own poll interval (app/sports/page.tsx) or every poll would
-// miss the cache and refetch, defeating the point of caching at all.
+// Shared across every request to the warm server instance (not per-user), so however many people
+// are watching a match at once, a league still costs at most one upstream fetch per TTL. Much
+// shorter than the digest cache above, since a live score is only useful fresh.
+//
+// This is deliberately the same interval the client polls at (app/sports/page.tsx's
+// LIVE_SCORE_POLL_MS): matching them means each poll gets genuinely fresh data at a predictable
+// cost of one request per live league per minute, which is the point — the free tier allows 10
+// requests/minute across the whole app, and the rate limiter above makes an over-budget call WAIT
+// rather than fail, so scores polled too eagerly would stall the AI analysis a user actually
+// asked for. A longer TTL wouldn't save requests here, it would just serve staler scores.
 const LIVE_WINDOW_CACHE_TTL_MS = 60_000;
 const liveWindowCache = new Map<string, { at: number; matches: FootballDataMatch[] }>();
 
@@ -463,6 +473,8 @@ function toLiveScoreEntries(league: LeagueId, matches: FootballDataMatch[]): Liv
       league,
       homeTeam: m.homeTeam.name,
       awayTeam: m.awayTeam.name,
+      homeTeamShort: m.homeTeam.shortName,
+      awayTeamShort: m.awayTeam.shortName,
       status: m.status,
       statusLabel: STATUS_LABEL[m.status] ?? m.status,
       homeGoals: m.score.fullTime.home,

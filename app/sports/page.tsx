@@ -12,49 +12,29 @@ import { AlertIcon, RefreshIcon, SparkleIcon, ListCheckIcon, CloseIcon } from "@
 import { isTopGame } from "@/lib/topTeams";
 import { useRequestLogos } from "@/components/ClubLogosProvider";
 import { formatRelativeTime } from "@/lib/format";
-import {
-  loadCachedGames,
-  saveCachedGames,
-  isStale,
-  mergeGames,
-  isLiveCandidate,
-  REFRESH_INTERVAL_MS,
-} from "@/lib/gamesCache";
+import { loadCachedGames, saveCachedGames, isStale, mergeGames, REFRESH_INTERVAL_MS } from "@/lib/gamesCache";
+import { hasKickedOff, isLiveCandidate, isMatchOver } from "@/lib/matchClock";
 import { loadSelectedLeagues, saveSelectedLeagues } from "@/lib/leaguePrefs";
 import { loadLastAnalyses, type LastAnalysisEntry } from "@/lib/lastAnalysis";
 import type { LiveScoreEntry } from "@/lib/footballData";
-import { teamNamesMatch } from "@/lib/teamNameMatching";
+import { anyTeamNameMatches } from "@/lib/teamNameMatching";
 
-// Polling cadence for live scores — much faster than the 30-minute odds refresh, since a score is
-// only useful if it's actually current.
-const LIVE_SCORE_POLL_MS = 40_000;
-// Odds move fast once a match is actually underway — this polls much more tightly than the
-// 30-minute full refresh, but only for games that have already kicked off (there's no "live"
-// odds to chase before then, the normal refresh cadence is plenty).
+// Live scores come from football-data.org's free tier, which allows 10 requests/minute across the
+// WHOLE app — AI analysis included. getLiveScores costs one request per league being polled, and
+// the server caches each league for exactly this long (lib/footballData.ts), so polling at the
+// same cadence means every poll gets fresh data at a predictable cost of one request per live
+// league per minute. That leaves most of the budget for analysis, which matters: the rate limiter
+// makes a call WAIT for a slot rather than fail, so an over-eager score poll doesn't error, it
+// just stalls whatever the user actually asked for.
+const LIVE_SCORE_POLL_MS = 60_000;
+// Odds move fast once a match is underway, and Polymarket has no comparable rate limit, so this
+// polls far more tightly than the 30-minute full refresh — but only for games actually in play.
 const LIVE_ODDS_POLL_MS = 5_000;
-// Bounded fallback for a league live-scores doesn't cover: without a real status to say the match
-// has finished, this stops polling a few hours after kickoff rather than forever.
-const LIVE_ODDS_FALLBACK_WINDOW_MS = 3 * 3_600_000;
-
-// Games worth polling for live odds: kickoff has passed, and it isn't confirmed finished. A
-// covered league's real status (from liveScoreByGameId) settles that precisely; a league
-// live-scores doesn't cover falls back to a bounded "recently started" window instead of polling
-// forever with no way to know the match ended.
-function computeLiveOddsGameRefs(
-  games: Game[],
-  liveScoreByGameId: Record<string, LiveScoreEntry>
-): { id: string; league: LeagueId }[] {
-  const now = Date.now();
-  return games
-    .filter((g) => {
-      const kickoff = new Date(g.startTime).getTime();
-      if (!Number.isFinite(kickoff) || kickoff > now) return false;
-      const score = liveScoreByGameId[g.id];
-      if (score) return score.status !== "FINISHED";
-      return now - kickoff <= LIVE_ODDS_FALLBACK_WINDOW_MS;
-    })
-    .map((g) => ({ id: g.id, league: g.league }));
-}
+// How often the page re-asks "where is each match up to now?". Kickoff and full time are moments
+// that pass on their own, with no data arriving to announce them, so the clock has to advance by
+// itself or a match would only appear/disappear when some unrelated fetch happened to land. This
+// bounds how long a match can linger once it's over, or wait to start being polled once it starts.
+const CLOCK_TICK_MS = 30_000;
 
 export default function Home() {
   const [games, setGames] = useState<Game[] | null>(null);
@@ -69,8 +49,12 @@ export default function Home() {
   const [batchGames, setBatchGames] = useState<Game[] | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const [lastAnalysisMap, setLastAnalysisMap] = useState<Record<string, LastAnalysisEntry>>({});
-  const [liveScores, setLiveScores] = useState<LiveScoreEntry[]>([]);
+  // Every match result seen so far this session, merged and never dropped — see the poll below.
+  const [scoresByMatch, setScoresByMatch] = useState<Record<string, LiveScoreEntry>>({});
   const [liveOdds, setLiveOdds] = useState<Record<string, Probabilities>>({});
+  // Read in an effect and advanced on a timer, never called during render: Date.now() is impure,
+  // so a memo that called it directly would silently disagree with itself between re-renders.
+  const [now, setNow] = useState<number | null>(null);
 
   const MAX_BATCH = 10;
   const requestLogos = useRequestLogos();
@@ -122,16 +106,59 @@ export default function Home() {
     return () => clearInterval(id);
   }, [refresh]);
 
-  // Only poll for live scores for leagues that actually have a plausibly-live game on screen —
-  // checking every covered league on every poll regardless of what's showing was most of
-  // football-data.org's entire 10-requests/minute budget by itself, starving real match analysis.
-  const liveCandidateLeagues = useMemo(
-    () => [...new Set((games ?? []).filter((g) => isLiveCandidate(g.startTime)).map((g) => g.league))],
-    [games]
-  );
+  useEffect(() => {
+    /* eslint-disable-next-line react-hooks/set-state-in-effect -- the wall clock isn't available during SSR */
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  // Which game each known result belongs to. football-data.org names a match by its own club
+  // names, so this is where those get matched back to Polymarket's naming — against both the full
+  // and short forms, since for several clubs only the short one is recognisable.
+  const scoreByGameId = useMemo(() => {
+    const entries = Object.values(scoresByMatch);
+    const map: Record<string, LiveScoreEntry> = {};
+    for (const g of games ?? []) {
+      const match = entries.find(
+        (s) =>
+          s.league === g.league &&
+          anyTeamNameMatches([s.homeTeam, s.homeTeamShort], g.homeTeam) &&
+          anyTeamNameMatches([s.awayTeam, s.awayTeamShort], g.awayTeam)
+      );
+      if (match) map[g.id] = match;
+    }
+    return map;
+  }, [games, scoresByMatch]);
+
+  // A match that's over is done being a market — it drops off the list entirely rather than
+  // lingering with odds nobody can act on. Its real FINISHED status decides that where the
+  // provider covers the league; the kickoff clock is the backstop everywhere else.
+  const liveGames = useMemo(() => {
+    if (!games) return [];
+    // Before the clock has been read (the very first render), show everything rather than nothing:
+    // briefly listing a match that's already over is a far smaller glitch than blanking the list.
+    if (now === null) return games;
+    return games.filter((g) => !isMatchOver(g.startTime, scoreByGameId[g.id]?.status, now));
+  }, [games, scoreByGameId, now]);
+
+  // Only ask about leagues that actually have a game in play right now: checking every covered
+  // league on every poll was most of football-data.org's whole request budget by itself. Both
+  // poll effects key off a joined STRING rather than a freshly-built array so they re-subscribe
+  // only when the set genuinely changes — depending on the array meant every incoming score tore
+  // down and restarted both intervals, so neither ever ran at its own stated cadence.
+  const scoreLeaguesKey = useMemo(() => {
+    if (now === null) return "";
+    const leagues = new Set<LeagueId>();
+    for (const g of liveGames) {
+      if (isLiveCandidate(g.startTime, scoreByGameId[g.id]?.status, now)) leagues.add(g.league);
+    }
+    return [...leagues].sort().join(",");
+  }, [liveGames, scoreByGameId, now]);
 
   useEffect(() => {
-    if (liveCandidateLeagues.length === 0) return;
+    if (!scoreLeaguesKey) return;
+    const leagues = scoreLeaguesKey.split(",");
 
     let cancelled = false;
     const refreshLiveScores = async () => {
@@ -139,14 +166,25 @@ export default function Home() {
         const res = await fetch("/api/games/live-scores", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ leagues: liveCandidateLeagues }),
+          body: JSON.stringify({ leagues }),
           cache: "no-store",
         });
         if (!res.ok || cancelled) return;
         const data = await res.json();
-        if (!cancelled && Array.isArray(data.liveScores)) setLiveScores(data.liveScores);
+        if (cancelled || !Array.isArray(data.liveScores)) return;
+        // Merged in, never replacing what's already known. Each poll only covers the leagues
+        // currently in play, so replacing wholesale wiped every result for a league that had just
+        // stopped being polled — which is exactly how a finished match's "FT 2-1" flipped back to
+        // showing its kickoff time, and how a match already known to be over could reappear.
+        setScoresByMatch((current) => {
+          const next = { ...current };
+          for (const entry of data.liveScores as LiveScoreEntry[]) {
+            next[`${entry.league}:${entry.homeTeam}:${entry.awayTeam}`] = entry;
+          }
+          return next;
+        });
       } catch {
-        // Best-effort enrichment — cards just keep whatever live score they last had (or none).
+        // Best-effort enrichment — cards just keep whatever result they already had.
       }
     };
 
@@ -156,26 +194,25 @@ export default function Home() {
       cancelled = true;
       clearInterval(id);
     };
-  }, [liveCandidateLeagues]);
+  }, [scoreLeaguesKey]);
 
-  const liveScoreByGameId = useMemo(() => {
-    const map: Record<string, LiveScoreEntry> = {};
-    for (const g of games ?? []) {
-      const match = liveScores.find(
-        (s) => s.league === g.league && teamNamesMatch(s.homeTeam, g.homeTeam) && teamNamesMatch(s.awayTeam, g.awayTeam)
-      );
-      if (match) map[g.id] = match;
-    }
-    return map;
-  }, [games, liveScores]);
-
-  const liveOddsGameRefs = useMemo(
-    () => computeLiveOddsGameRefs(games ?? [], liveScoreByGameId),
-    [games, liveScoreByGameId]
-  );
+  // Games worth chasing live odds for: on the list (so never one that's already over) and
+  // actually underway. Encoded as a string for the same re-subscribe reason as above.
+  const liveOddsKey = useMemo(() => {
+    if (now === null) return "";
+    return liveGames
+      .filter((g) => hasKickedOff(g.startTime, now))
+      .map((g) => `${g.id}:${g.league}`)
+      .sort()
+      .join(",");
+  }, [liveGames, now]);
 
   useEffect(() => {
-    if (liveOddsGameRefs.length === 0) return;
+    if (!liveOddsKey) return;
+    const gameRefs = liveOddsKey.split(",").map((entry) => {
+      const separator = entry.lastIndexOf(":");
+      return { id: entry.slice(0, separator), league: entry.slice(separator + 1) };
+    });
 
     let cancelled = false;
     const refreshLiveOdds = async () => {
@@ -183,7 +220,7 @@ export default function Home() {
         const res = await fetch("/api/games/live-odds", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ games: liveOddsGameRefs }),
+          body: JSON.stringify({ games: gameRefs }),
           cache: "no-store",
         });
         if (!res.ok || cancelled) return;
@@ -202,15 +239,14 @@ export default function Home() {
       cancelled = true;
       clearInterval(id);
     };
-  }, [liveOddsGameRefs]);
+  }, [liveOddsKey]);
 
   // Every team currently listed gets its crest requested — not just a curated "top club" list —
   // so the whole league, not a handful of elite names, shows real logos.
   useEffect(() => {
-    if (!games || games.length === 0) return;
-    const names = games.flatMap((g) => [g.homeTeam, g.awayTeam]);
-    requestLogos(names);
-  }, [games, requestLogos]);
+    if (liveGames.length === 0) return;
+    requestLogos(liveGames.flatMap((g) => [g.homeTeam, g.awayTeam]));
+  }, [liveGames, requestLogos]);
 
   // Coming back to a tab that's been sitting open shouldn't show half-hour-old odds.
   useEffect(() => {
@@ -259,23 +295,22 @@ export default function Home() {
   }, []);
 
   const startBatchAnalysis = useCallback(() => {
-    if (!games || selectedIds.size === 0) return;
-    setBatchGames(games.filter((g) => selectedIds.has(g.id)));
+    if (selectedIds.size === 0) return;
+    setBatchGames(liveGames.filter((g) => selectedIds.has(g.id)));
     setSelectMode(false);
     setSelectedIds(new Set());
-  }, [games, selectedIds]);
+  }, [liveGames, selectedIds]);
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: games?.length ?? 0 };
-    for (const g of games ?? []) c[g.league] = (c[g.league] ?? 0) + 1;
+    const c: Record<string, number> = { all: liveGames.length };
+    for (const g of liveGames) c[g.league] = (c[g.league] ?? 0) + 1;
     return c;
-  }, [games]);
+  }, [liveGames]);
 
-  const byLeague = useMemo(() => {
-    if (!games) return [];
-    if (selectedLeagues.length === 0) return games;
-    return games.filter((g) => selectedLeagues.includes(g.league));
-  }, [games, selectedLeagues]);
+  const byLeague = useMemo(
+    () => (selectedLeagues.length === 0 ? liveGames : liveGames.filter((g) => selectedLeagues.includes(g.league))),
+    [liveGames, selectedLeagues]
+  );
 
   const topCount = useMemo(() => byLeague.filter(isTopGame).length, [byLeague]);
 
@@ -389,7 +424,7 @@ export default function Home() {
                 selected={selectedIds.has(game.id)}
                 onToggleSelect={toggleGameSelected}
                 lastAnalysis={lastAnalysisMap[game.id] ?? null}
-                liveScore={liveScoreByGameId[game.id] ?? null}
+                liveScore={scoreByGameId[game.id] ?? null}
                 liveOdds={liveOdds[game.id] ?? null}
               />
             ))}

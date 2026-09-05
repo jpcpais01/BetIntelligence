@@ -1,4 +1,4 @@
-import { teamNamesMatch, findBestNameMatch } from "../lib/teamNameMatching";
+import { teamNamesMatch, anyTeamNameMatches, findBestNameMatch } from "../lib/teamNameMatching";
 
 function run() {
   const failures: string[] = [];
@@ -20,6 +20,41 @@ function run() {
   check("unrelated clubs do not match", !teamNamesMatch("Arsenal", "Chelsea"));
   check("empty strings never match", !teamNamesMatch("", "Arsenal"));
   check("two empty strings do not match either", !teamNamesMatch("", ""));
+
+  // --- anyTeamNameMatches: the full-vs-short-name problem ---
+  //
+  // football-data.org returns both a full legal name and a short one. For these clubs the full
+  // name alone does NOT match what Polymarket calls them, so checking only it is why their live
+  // scores never appeared and their bets never settled — while every other club worked fine,
+  // which is exactly what made the bug look random.
+  const shortNameOnlyCases: [string, string, string][] = [
+    ["Man City", "Manchester City FC", "Man City"],
+    ["Wolves", "Wolverhampton Wanderers FC", "Wolves"],
+    ["Spurs", "Tottenham Hotspur FC", "Spurs"],
+    ["Inter Milan", "FC Internazionale Milano", "Inter"],
+    ["PSG", "Paris Saint-Germain FC", "PSG"],
+  ];
+  for (const [polymarketName, fullName, shortName] of shortNameOnlyCases) {
+    check(
+      `"${polymarketName}" does not match the full name "${fullName}" on its own`,
+      !teamNamesMatch(fullName, polymarketName)
+    );
+    check(
+      `"${polymarketName}" is found once the short name is considered too`,
+      anyTeamNameMatches([fullName, shortName], polymarketName)
+    );
+  }
+
+  check(
+    "a club whose full name already matches still matches with a short name present",
+    anyTeamNameMatches(["Nottingham Forest FC", "Nottingham"], "Nottingham Forest")
+  );
+  check(
+    "a missing short name is skipped rather than breaking the check",
+    anyTeamNameMatches(["Arsenal FC", undefined], "Arsenal")
+  );
+  check("an unrelated club still does not match on either name", !anyTeamNameMatches(["Chelsea FC", "Chelsea"], "Arsenal"));
+  check("no candidate names at all never matches", !anyTeamNameMatches([], "Arsenal"));
 
   // --- findBestNameMatch: picks the best of a list, tiered ---
   interface Team {

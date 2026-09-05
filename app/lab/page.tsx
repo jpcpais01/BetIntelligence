@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { SavedPick } from "@/lib/types";
-import { pruneFinishedPicks, hasKickedOff } from "@/lib/picks";
+import { pruneFinishedPicks } from "@/lib/picks";
+import { hasKickedOff } from "@/lib/matchClock";
 import { loadSlip, saveSlip, legFromPick, type SlipLeg, type Outcome } from "@/lib/betslip";
 import { loadPlacedBets, removePlacedBet, type PlacedBet } from "@/lib/placedBets";
 import { resolvePendingSettlements } from "@/lib/settlement";

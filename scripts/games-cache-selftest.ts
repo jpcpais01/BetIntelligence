@@ -1,4 +1,5 @@
-import { mergeGames, isLiveCandidate, GAME_VISIBLE_GRACE_MS } from "../lib/gamesCache";
+import { mergeGames } from "../lib/gamesCache";
+import { MATCH_OVER_AFTER_MS } from "../lib/matchClock";
 import type { Game } from "../lib/types";
 
 function fakeGame(id: string, startTime: string): Game {
@@ -35,22 +36,20 @@ function run() {
     console.log(`  ${cond ? "ok" : "FAIL"}  ${name}`);
   };
 
-  // The exact reported bug: a game that started 5 hours ago drops out of a fresh fetch (Polymarket
-  // closed the market) — it must survive the merge since 5h is well inside the grace window.
-  const recentlyStarted = fakeGame("g1", isoAgo(5 * HOUR));
+  // The exact reported bug: a match already underway drops out of a fresh fetch (Polymarket closes
+  // its market within hours of kickoff, long before the match itself is done) — it must survive
+  // the merge rather than vanishing off the list mid-game.
+  const inProgress = fakeGame("g1", isoAgo(2 * HOUR));
   const stillThere = fakeGame("g2", isoAgo(HOUR));
-  const merged1 = mergeGames([recentlyStarted, stillThere], [stillThere]);
-  check(
-    "a game missing from a fresh fetch survives if it started within the grace window",
-    merged1.some((g) => g.id === "g1")
-  );
+  const merged1 = mergeGames([inProgress, stillThere], [stillThere]);
+  check("a match still in progress survives a fresh fetch that dropped it", merged1.some((g) => g.id === "g1"));
   check("a game still present in the fresh fetch is unaffected", merged1.some((g) => g.id === "g2"));
 
-  // A game that started long before the grace window elapsed is not resurrected — it really is
-  // gone, not just closed early.
-  const longGone = fakeGame("g3", isoAgo(GAME_VISIBLE_GRACE_MS + HOUR));
+  // A match that's already over isn't carried any further — the Sports page hides those anyway, so
+  // keeping them alive in the merge would just be work nothing consumes.
+  const longGone = fakeGame("g3", isoAgo(MATCH_OVER_AFTER_MS + HOUR));
   const merged2 = mergeGames([longGone], []);
-  check("a game past the grace window is not kept", merged2.length === 0);
+  check("a match that's already over is not kept", merged2.length === 0);
 
   // A future game missing from a fresh fetch is a real removal (delisted, filters changed), not
   // the "closed right after kickoff" case — it must NOT be preserved.
@@ -66,28 +65,12 @@ function run() {
   check("fresh data replaces the previous copy of a game present in both", merged4.length === 1 && merged4[0].odds.home === 0.4);
 
   // Result stays sorted by kickoff time even when survivors are appended after fresh games.
-  const early = fakeGame("g6", isoAgo(6 * HOUR));
+  const early = fakeGame("g6", isoAgo(2 * HOUR));
   const late = fakeGame("g7", isoAgo(HOUR));
   const merged5 = mergeGames([early], [late]);
   check(
     "merged result stays sorted by startTime",
     merged5.map((g) => g.id).join(",") === "g6,g7"
-  );
-
-  // isLiveCandidate MUST stay aligned with GAME_VISIBLE_GRACE_MS — the exact bug this guards
-  // against: a shorter live-score polling window than the game stays visible for meant a finished
-  // match could sit on screen for hours with no result ever shown, because its league had already
-  // dropped off the candidate list well before the card itself stopped being displayed.
-  check("a game kicking off in 10 minutes is a live candidate", isLiveCandidate(isoFromNow(10 * 60_000)));
-  check("a game kicking off in 20 minutes is not yet a live candidate", !isLiveCandidate(isoFromNow(20 * 60_000)));
-  check("a game that started 5 hours ago is still a live candidate", isLiveCandidate(isoAgo(5 * HOUR)));
-  check(
-    "a game right at the edge of the visibility grace window is still a live candidate",
-    isLiveCandidate(isoAgo(GAME_VISIBLE_GRACE_MS - HOUR))
-  );
-  check(
-    "a game past the visibility grace window is no longer a live candidate",
-    !isLiveCandidate(isoAgo(GAME_VISIBLE_GRACE_MS + HOUR))
   );
 
   if (failures.length > 0) {
