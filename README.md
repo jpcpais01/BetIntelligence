@@ -272,6 +272,15 @@ exact value of every line at that point in time. The dropdown only appears when 
 gave us a price-history token for at least one outcome — some thin or brand-new markets don't have
 one yet, and there's nothing to chart in that case.
 
+A row of three small **7D / 1D / 3H** buttons under the chart narrows which slice of that same
+week of data is shown — they don't trigger a second, finer-grained fetch, since the underlying data
+is always pulled at one fixed 3-hour bucket resolution (`lib/oddsHistoryServer.ts`). That means 1D
+still looks like a real trend (roughly 8 buckets), while 3H will often have 0-1 buckets to work with
+and fall back to the same "not enough trading history" message a brand-new market gets — an honest
+reflection of the data's real resolution rather than a fake zoomed-in line. The buttons stay visible
+and clickable even in that fallback state, so switching back to a wider window is always one tap
+away.
+
 This is backed by Polymarket's own CLOB order-book API
 (`clob.polymarket.com/prices-history`), proxied through `/api/odds-history`
 (`lib/oddsHistoryServer.ts`) so the real endpoint and any caching stay server-side — the browser

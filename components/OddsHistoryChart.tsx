@@ -24,6 +24,18 @@ function niceTick(p: number): string {
   return `${Math.round(p * 100)}%`;
 }
 
+// The underlying fetch (lib/oddsHistoryServer.ts) always pulls one week of history at a fixed
+// 3-hour bucket resolution — these buttons just narrow which slice of that same data is shown,
+// they never trigger a second, finer-grained fetch. That means "3H" will often have 0-1 buckets
+// to show and fall through to the same "not enough trading history" message a brand-new market
+// gets — an honest reflection of the data's real resolution, not a bug.
+const WINDOWS = [
+  { id: "7d", label: "7D", ms: 7 * 24 * 60 * 60 * 1000 },
+  { id: "1d", label: "1D", ms: 24 * 60 * 60 * 1000 },
+  { id: "3h", label: "3H", ms: 3 * 60 * 60 * 1000 },
+] as const;
+type WindowId = (typeof WINDOWS)[number]["id"];
+
 export default function OddsHistoryChart({
   outcomes,
   surfaceColor = "var(--surface-2)",
@@ -36,6 +48,7 @@ export default function OddsHistoryChart({
   const [series, setSeries] = useState<HistorySeries[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [hoverT, setHoverT] = useState<number | null>(null);
+  const [windowId, setWindowId] = useState<WindowId>("7d");
   const svgRef = useRef<SVGSVGElement>(null);
 
   const depKey = outcomes.map((o) => `${o.label}:${o.tokenId ?? ""}:${o.current}`).join("|");
@@ -61,7 +74,18 @@ export default function OddsHistoryChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [depKey]);
 
-  const plottable = useMemo(() => (series ?? []).filter((s) => s.points.length >= 2), [series]);
+  // Anchored to the latest point actually in the data, not wall-clock Date.now() — the fetch can
+  // lag "now" by a little, and clipping against real time would cut off the most recent point.
+  const windowed = useMemo(() => {
+    if (!series) return null;
+    const windowMs = WINDOWS.find((w) => w.id === windowId)!.ms;
+    const allTimes = series.flatMap((s) => s.points.map((p) => new Date(p.t).getTime()));
+    if (allTimes.length === 0) return series;
+    const cutoff = Math.max(...allTimes) - windowMs;
+    return series.map((s) => ({ ...s, points: s.points.filter((p) => new Date(p.t).getTime() >= cutoff) }));
+  }, [series, windowId]);
+
+  const plottable = useMemo(() => (windowed ?? []).filter((s) => s.points.length >= 2), [windowed]);
 
   const scale = useMemo(() => {
     const all = plottable.flatMap((s) => s.points);
@@ -105,9 +129,12 @@ export default function OddsHistoryChart({
 
   if (!scale || plottable.length === 0) {
     return (
-      <p className="px-1 py-3 text-center text-[11px] text-text-faint">
-        Not enough trading history yet for this market.
-      </p>
+      <div>
+        <p className="px-1 py-3 text-center text-[11px] text-text-faint">
+          Not enough trading history yet at this window.
+        </p>
+        <WindowSelector windowId={windowId} onSelect={setWindowId} />
+      </div>
     );
   }
 
@@ -215,7 +242,25 @@ export default function OddsHistoryChart({
           ))}
         </div>
       )}
-      <p className="mt-1 text-center text-[9px] uppercase tracking-wide text-text-faint">Past 7 days</p>
+      <WindowSelector windowId={windowId} onSelect={setWindowId} />
+    </div>
+  );
+}
+
+function WindowSelector({ windowId, onSelect }: { windowId: WindowId; onSelect: (id: WindowId) => void }) {
+  return (
+    <div className="mt-1 flex items-center justify-center gap-1">
+      {WINDOWS.map((w) => (
+        <button
+          key={w.id}
+          onClick={() => onSelect(w.id)}
+          className={`rounded-full px-2 py-0.5 text-[8px] font-semibold uppercase tracking-wide transition-colors ${
+            windowId === w.id ? "bg-surface-2 text-text ring-1 ring-inset ring-border-soft" : "text-text-faint"
+          }`}
+        >
+          {w.label}
+        </button>
+      ))}
     </div>
   );
 }
