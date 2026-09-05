@@ -236,7 +236,12 @@ Tapping **AI Analyze** runs against [`deepseek/deepseek-v4-flash-0731`](https://
    football-data.org miss does — that data was never guaranteed before, so its absence is a known, honest gap, not a
    regression.
 2. **Independent read** — an OpenRouter call, no web access, that only ever sees that digest and produces the 1X2 probability
-   estimate from it.
+   estimate from it, structured as each team's case (a short pros list and cons list, `homeAssessment`/`awayAssessment` in
+   `IndependentPrediction`) plus one overall `summary` — shown as two per-team cards (`components/TeamAssessmentSummary.tsx`,
+   shared between the live analysis sheet and a saved pick's read-only detail view) rather than a single flat bullet list,
+   so it's clear which point is about which team. Running research more than once merges pros/cons per team across runs
+   the same way it already deduped a flat list (`lib/aggregate.ts`), and the market-comparison step below is shown each
+   team's merged pros/cons alongside the summary for full context, not just the summary alone.
 3. **Market comparison** — the app reveals Polymarket's implied probabilities for the same match and asks the model to
    compare its independent view against the market, explain any disagreement, and flag whether it thinks a specific outcome
    looks mispriced.

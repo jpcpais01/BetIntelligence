@@ -369,10 +369,16 @@ rely on the form and head-to-head signal instead. You were NOT told any betting 
 somehow appears in the digest anyway, you MUST NOT let it anchor or influence your estimate in any way; disregard it \
 entirely and base your probabilities only on the underlying football facts. Think like a sharp, disciplined analyst — not \
 a fan. Respond with ONLY a single valid JSON object, no markdown, no commentary, matching exactly this shape: \
-{"homeWinProb": number, "drawProb": number, "awayWinProb": number, "confidence": "low"|"medium"|"high", "keyFactors": \
-string[3..6], "rationale": string}. The three probabilities must be between 0 and 1 and sum to approximately 1. \
-Soul: You are wise, you are advanced, you are super intelligent and smart, you are logical and certain, you are bold, you go \
-for it, you trust your decision.`;
+{"homeWinProb": number, "drawProb": number, "awayWinProb": number, "confidence": "low"|"medium"|"high", \
+"homePros": string[2..4], "homeCons": string[2..4], "awayPros": string[2..4], "awayCons": string[2..4], "summary": string}. \
+The three probabilities must be between 0 and 1 and sum to approximately 1. Each pros/cons entry must be a short, concrete, \
+specific point about THAT team drawn from the digest (current form, head-to-head edge, live/final score if the match has \
+started, a named unavailable player) — never generic filler like "has quality players" or "needs to perform". If a team \
+genuinely has little to work with in the digest (e.g. no notable head-to-head edge), it is fine for cons to include that \
+gap explicitly rather than inventing a stronger point. summary is 2-4 sentences giving your overall read after weighing \
+both teams' pros/cons against each other, and stating plainly which side (if either) it favors. Soul: You are wise, you \
+are advanced, you are super intelligent and smart, you are logical and certain, you are bold, you go for it, you trust \
+your decision.`;
 
 // The football-data.org/Big Balls Data half of an analysis — split out from the LLM call below so
 // a caller running N independent research passes over the SAME match (the research-runs stepper,
@@ -432,8 +438,11 @@ object described.`;
     drawProb: number;
     awayWinProb: number;
     confidence: string;
-    keyFactors: string[];
-    rationale: string;
+    homePros: string[];
+    homeCons: string[];
+    awayPros: string[];
+    awayCons: string[];
+    summary: string;
   }>(
     [
       { role: "system", content: withNow(PREDICT_SYSTEM_PROMPT) },
@@ -445,14 +454,16 @@ object described.`;
   );
 
   const probs = normalize(parsed.homeWinProb, parsed.drawProb, parsed.awayWinProb);
+  const stringList = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string").slice(0, 6) : []);
 
   return {
     home: probs.home,
     draw: probs.draw,
     away: probs.away,
     confidence: clampConfidence(parsed.confidence),
-    keyFactors: Array.isArray(parsed.keyFactors) ? parsed.keyFactors.slice(0, 6) : [],
-    rationale: typeof parsed.rationale === "string" ? parsed.rationale : "",
+    homeAssessment: { pros: stringList(parsed.homePros), cons: stringList(parsed.homeCons) },
+    awayAssessment: { pros: stringList(parsed.awayPros), cons: stringList(parsed.awayCons) },
+    summary: typeof parsed.summary === "string" ? parsed.summary : "",
     sources: [],
     costUsd: predictCostUsd ?? undefined,
   };
@@ -510,7 +521,11 @@ Your independent estimate (made before seeing the market):
 - Draw: ${(input.independent.draw * 100).toFixed(1)}%
 - Away win: ${(input.independent.away * 100).toFixed(1)}%
 - Your confidence: ${input.independent.confidence}
-- Your rationale: ${input.independent.rationale}
+- ${input.homeTeam} pros: ${input.independent.homeAssessment.pros.join("; ") || "none noted"}
+- ${input.homeTeam} cons: ${input.independent.homeAssessment.cons.join("; ") || "none noted"}
+- ${input.awayTeam} pros: ${input.independent.awayAssessment.pros.join("; ") || "none noted"}
+- ${input.awayTeam} cons: ${input.independent.awayAssessment.cons.join("; ") || "none noted"}
+- Your summary: ${input.independent.summary}
 
 Now revealed — Polymarket's current implied probabilities for this exact match:
 - Home win: ${(input.market.home * 100).toFixed(1)}%

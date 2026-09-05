@@ -10,6 +10,7 @@ import type {
   Confidence,
   SourceCitation,
   ResearchSummary,
+  TeamAssessment,
 } from "./types";
 
 export interface RunAgreement {
@@ -54,6 +55,30 @@ function mergeKeyFactors(runs: { keyFactors: string[] }[]): string[] {
     }
   }
   return merged;
+}
+
+// Same dedupe-and-cap logic as mergeKeyFactors above, just applied twice per team (pros, cons)
+// rather than once to a single flat list.
+function mergePointList(lists: string[][]): string[] {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const list of lists) {
+    for (const point of list) {
+      const key = point.trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      merged.push(point);
+      if (merged.length >= 4) return merged;
+    }
+  }
+  return merged;
+}
+
+function mergeTeamAssessments(assessments: TeamAssessment[]): TeamAssessment {
+  return {
+    pros: mergePointList(assessments.map((a) => a.pros)),
+    cons: mergePointList(assessments.map((a) => a.cons)),
+  };
 }
 
 function mergeSources(runs: { sources?: SourceCitation[] }[]): SourceCitation[] {
@@ -123,10 +148,11 @@ export function synthesizeFootballIndependent(runs: IndependentPrediction[]): In
     draw: average.draw,
     away: average.away,
     confidence: mostCommonConfidence(runs),
-    keyFactors: mergeKeyFactors(runs),
-    rationale:
+    homeAssessment: mergeTeamAssessments(runs.map((r) => r.homeAssessment)),
+    awayAssessment: mergeTeamAssessments(runs.map((r) => r.awayAssessment)),
+    summary:
       `Averaged across ${runs.length} independent research runs (${Math.round(agreement.agreementPct * 100)}% agreed ` +
-      `on the same top outcome). Representative take: ${representative.rationale}`,
+      `on the same top outcome). Representative take: ${representative.summary}`,
     sources: mergeSources(runs),
     costUsd: sumCost(runs),
   };

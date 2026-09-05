@@ -14,8 +14,9 @@ function football(home: number, draw: number, away: number, extra: Partial<Indep
     draw,
     away,
     confidence: "medium",
-    keyFactors: ["Form"],
-    rationale: `home ${home}`,
+    homeAssessment: { pros: ["Form"], cons: [] },
+    awayAssessment: { pros: [], cons: [] },
+    summary: `home ${home}`,
     ...extra,
   };
 }
@@ -62,20 +63,31 @@ async function run() {
     check("single football run passes through unchanged", result === single);
   }
 
-  // 4. synthesizeFootballIndependent: multi-run merges keyFactors/sources and dedupes.
+  // 4. synthesizeFootballIndependent: multi-run merges pros/cons/sources and dedupes.
   {
     const runs = [
-      football(0.5, 0.3, 0.2, { keyFactors: ["Injuries", "Form"], sources: [{ url: "https://a.com", title: "A" }] }),
-      football(0.52, 0.28, 0.2, { keyFactors: ["form", "Squad depth"], sources: [{ url: "https://a.com", title: "A dup" }, { url: "https://b.com", title: "B" }] }),
+      football(0.5, 0.3, 0.2, {
+        homeAssessment: { pros: ["Injuries", "Form"], cons: ["Away record shaky"] },
+        sources: [{ url: "https://a.com", title: "A" }],
+      }),
+      football(0.52, 0.28, 0.2, {
+        homeAssessment: { pros: ["form", "Squad depth"], cons: ["Away record shaky"] },
+        sources: [{ url: "https://a.com", title: "A dup" }, { url: "https://b.com", title: "B" }],
+      }),
     ];
     const merged = synthesizeFootballIndependent(runs);
     check(
-      "merged keyFactors dedupes case-insensitively and preserves order",
-      JSON.stringify(merged.keyFactors) === JSON.stringify(["Injuries", "Form", "Squad depth"]),
-      JSON.stringify(merged.keyFactors)
+      "merged home pros dedupes case-insensitively and preserves order",
+      JSON.stringify(merged.homeAssessment.pros) === JSON.stringify(["Injuries", "Form", "Squad depth"]),
+      JSON.stringify(merged.homeAssessment.pros)
+    );
+    check(
+      "merged home cons dedupes across runs too",
+      JSON.stringify(merged.homeAssessment.cons) === JSON.stringify(["Away record shaky"]),
+      JSON.stringify(merged.homeAssessment.cons)
     );
     check("merged sources dedupe by url", (merged.sources ?? []).length === 2, `got ${(merged.sources ?? []).length}`);
-    check("merged rationale mentions the run count", merged.rationale.includes("2 independent research runs"));
+    check("merged summary mentions the run count", merged.summary.includes("2 independent research runs"));
     check(
       "merged probabilities are the mean of the runs",
       Math.abs(merged.home - 0.51) < 0.001,

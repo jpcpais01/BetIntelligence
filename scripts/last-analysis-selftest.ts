@@ -26,8 +26,9 @@ const independent: IndependentPrediction = {
   draw: 0.3,
   away: 0.2,
   confidence: "medium",
-  keyFactors: ["Form"],
-  rationale: "r",
+  homeAssessment: { pros: ["Form"], cons: [] },
+  awayAssessment: { pros: [], cons: [] },
+  summary: "r",
 };
 const comparison: ComparisonResult = {
   edges: { home: 0.05, draw: 0, away: -0.05 },

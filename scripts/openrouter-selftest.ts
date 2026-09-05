@@ -14,8 +14,11 @@ const GOOD_JSON = JSON.stringify({
   drawProb: 0.28,
   awayWinProb: 0.22,
   confidence: "medium",
-  keyFactors: ["Form", "Injuries", "H2H"],
-  rationale: "Home side edges it.",
+  homePros: ["Good recent form", "Strong home record"],
+  homeCons: ["Head-to-head is close"],
+  awayPros: ["Head-to-head is close"],
+  awayCons: ["Missing a key player"],
+  summary: "Home side edges it.",
 });
 
 function completion(message: unknown, finishReason: string | null = "stop", usage?: unknown) {
@@ -302,6 +305,12 @@ async function runFootballPipelineChecks(failures: string[]) {
 
     check("no sources are returned (no web search happened)", (result.sources ?? []).length === 0, JSON.stringify(result.sources));
     check("cost is just the single predict call's cost, not a sum of two", Math.abs((result.costUsd ?? 0) - 0.0009) < 0.00001, `got ${result.costUsd}`);
+
+    check("home team's pros are parsed", result.homeAssessment.pros.includes("Good recent form"), JSON.stringify(result.homeAssessment));
+    check("home team's cons are parsed", result.homeAssessment.cons.includes("Head-to-head is close"), JSON.stringify(result.homeAssessment));
+    check("away team's pros are parsed", result.awayAssessment.pros.includes("Head-to-head is close"), JSON.stringify(result.awayAssessment));
+    check("away team's cons are parsed", result.awayAssessment.cons.includes("Missing a key player"), JSON.stringify(result.awayAssessment));
+    check("the overall summary is parsed", result.summary === "Home side edges it.", result.summary);
   }
 
   // --- A live match: current score should show up in the digest ---

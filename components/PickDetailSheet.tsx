@@ -2,6 +2,7 @@ import type { SavedPick } from "@/lib/types";
 import OutcomeBar from "./OutcomeBar";
 import ConfidenceBadge from "./ConfidenceBadge";
 import EdgeChip from "./EdgeChip";
+import TeamAssessmentSummary from "./TeamAssessmentSummary";
 import { CloseIcon, BrainIcon, ScaleIcon, TrendingUpIcon, GlobeIcon } from "./icons";
 import { formatKickoff, toPercent, formatCostUsd } from "@/lib/format";
 import { agreementLabel, agreementTone } from "@/lib/aggregate";
@@ -57,20 +58,7 @@ export default function PickDetailSheet({ pick, onClose }: { pick: SavedPick; on
 
             <ConfidenceBadge level={independent.confidence} />
 
-            {independent.keyFactors.length > 0 && (
-              <ul className="selectable space-y-2">
-                {independent.keyFactors.map((f, i) => (
-                  <li key={i} className="flex items-start gap-2.5 text-[13px] leading-relaxed text-text-dim">
-                    <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-accent" />
-                    {f}
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {independent.rationale && (
-              <p className="selectable text-[13px] leading-relaxed text-text-dim">{independent.rationale}</p>
-            )}
+            <TeamAssessmentSummary homeTeam={pick.homeTeam} awayTeam={pick.awayTeam} independent={independent} />
 
             <SourceList sources={independent.sources ?? []} />
           </div>

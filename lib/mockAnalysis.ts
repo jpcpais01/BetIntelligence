@@ -32,13 +32,15 @@ export async function getMockIndependentPrediction(input: {
     draw: 0.24,
     away: 0.28,
     confidence: "medium",
-    keyFactors: [
-      `${input.homeTeam} unbeaten in 5 of last 6 home matches`,
-      `${input.awayTeam} missing two starting defenders through injury`,
-      "Home side has stronger recent underlying xG numbers",
-      "Historical head-to-head is fairly even over the last 10 meetings",
-    ],
-    rationale: `${input.homeTeam} look slightly favoured at home given their current form and ${input.awayTeam}'s defensive injuries, though the gap isn't huge — this looks like a competitive match with a real draw possibility.`,
+    homeAssessment: {
+      pros: [`Unbeaten in 5 of last 6 home matches`, "Stronger recent underlying xG numbers"],
+      cons: ["Historical head-to-head is fairly even over the last 10 meetings"],
+    },
+    awayAssessment: {
+      pros: ["Historical head-to-head is fairly even over the last 10 meetings"],
+      cons: ["Missing two starting defenders through injury"],
+    },
+    summary: `${input.homeTeam} look slightly favoured at home given their current form and ${input.awayTeam}'s defensive injuries, though the gap isn't huge — this looks like a competitive match with a real draw possibility.`,
     sources: [
       { url: "https://example.com/team-news", title: "Team news: injury update ahead of the weekend" },
       { url: "https://example.com/form-guide", title: "Form guide — last six matches" },

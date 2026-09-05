@@ -48,13 +48,22 @@ export interface SourceCitation {
   title: string;
 }
 
+// A team's case as the independent read sees it — concrete, specific points, not generic filler.
+export interface TeamAssessment {
+  pros: string[];
+  cons: string[];
+}
+
 export interface IndependentPrediction {
   home: number;
   draw: number;
   away: number;
   confidence: Confidence;
-  keyFactors: string[];
-  rationale: string;
+  homeAssessment: TeamAssessment;
+  awayAssessment: TeamAssessment;
+  // 2-4 sentences: the overall read and which side (if any) it favors, after weighing both
+  // teams' pros/cons against each other.
+  summary: string;
   sources?: SourceCitation[];
   // In USD, from OpenRouter's usage accounting — the sum of every OpenRouter call this read
   // took to produce (the research call plus the predict call, and across every independent run

@@ -16,8 +16,9 @@ function fakePick(): SavedPick {
       draw: 0.24,
       away: 0.28,
       confidence: "medium",
-      keyFactors: [],
-      rationale: "",
+      homeAssessment: { pros: [], cons: [] },
+      awayAssessment: { pros: [], cons: [] },
+      summary: "",
     },
     comparison: {
       edges: { home: 0.07, draw: -0.05, away: -0.02 },

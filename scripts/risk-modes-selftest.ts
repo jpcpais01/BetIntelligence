@@ -11,7 +11,13 @@ function fakePick(id: string, market: Probabilities, independent: Probabilities)
     leagueFlag: "🏴",
     startTime: new Date().toISOString(),
     market,
-    independent: { ...independent, confidence: "medium", keyFactors: [], rationale: "" },
+    independent: {
+      ...independent,
+      confidence: "medium",
+      homeAssessment: { pros: [], cons: [] },
+      awayAssessment: { pros: [], cons: [] },
+      summary: "",
+    },
     comparison: {
       edges: { home: 0, draw: 0, away: 0 },
       bestValue: "none",
