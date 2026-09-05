@@ -338,9 +338,9 @@ export default function LabPage() {
       )}
       {celebration && (
         <WinCelebration
-          teamName={celebration.teamName}
-          emojis={celebration.emojis}
-          colors={celebration.colors}
+          teams={celebration.teams}
+          fallEmojis={celebration.fallEmojis}
+          bgColors={celebration.bgColors}
           onClose={() => setCelebration(null)}
         />
       )}

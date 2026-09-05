@@ -286,20 +286,31 @@ are reporting two different, both-true things, not disagreeing.
 
 ### A quick, silly reward for winning
 
-Whenever a **single-leg** bet (not a parlay — there's no one club to celebrate for those) settles
-**Won**, `lib/celebration.ts` fires a one-time congratulations overlay. It's kept completely
-separate from the app's real analysis pipeline — no user-selected model, no betting context at
-all — down to a single lightweight OpenRouter call to Gemini (`lib/clubVibe.ts`) asking for exactly
-5 emojis and 2 hex colors that match the winning club's vibe (a plain double-chance win collapses
-to the one real side it locks in: 1X → the home club, X2 → the away club; a bare draw win has no
-club at all, so it's skipped). `WinCelebration.tsx` renders those two colors and five emojis as a
-full-screen falling-emoji animation over a panel styled to match the Lab bet slip's own violet
-"modern sportsbook" look (the same `--slip-*` tokens `BetSlipBar.tsx` uses, re-established via a
-wrapping `.lab` class so they resolve correctly even when triggered from Home, which isn't normally
-inside that scope). Fires at most once per bet — `resolvePendingSettlements` only ever reports a
-bet in its `newlyWon` list the one time it transitions from unsettled to Won, never again on a
-later reload — and a failed/empty vibe fetch just means no celebration shows, never an error over
-what should be a purely happy moment.
+Whenever a bet settles **Won**, `lib/celebration.ts` fires a one-time congratulations overlay. It's
+kept completely separate from the app's real analysis pipeline — no user-selected model, no betting
+context at all — down to a lightweight OpenRouter call to Gemini (`lib/clubVibe.ts`), shaped
+differently depending on whether it's a single bet or a parlay:
+
+- **Single-leg win** — one club to celebrate, so the call (`getClubVibe`) asks for exactly 5 emojis
+  and 2 hex colors matching that club's vibe (a plain double-chance win collapses to the one real
+  side it locks in: 1X → the home club, X2 → the away club; a bare draw win has no club at all, so
+  it's skipped). All 5 emojis fall in the rain animation, and both colors become the background.
+- **Parlay win** — a parlay can only ever settle Won once **every** leg has won, so every leg's own
+  team gets to celebrate. One call (`getClubVibes`) asks for one emoji + one color per team, matched
+  back to the caller's own team list purely by position (a draw leg is skipped, same as above). Every
+  team's emoji falls in the rain, and the background gradient is 2 colors picked **at random** from
+  the full set the teams returned (`pickTwoRandom`) — a different pair, in a different order, each
+  time.
+
+`WinCelebration.tsx` renders whichever shape it's given — a single "Congratulations! X came through"
+line for one team, or a per-team list (each team's name in its own color) captioned "Every leg came
+through" for a parlay — as a full-screen falling-emoji animation over a panel styled to match the Lab
+bet slip's own violet "modern sportsbook" look (the same `--slip-*` tokens `BetSlipBar.tsx` uses,
+re-established via a wrapping `.lab` class so they resolve correctly even when triggered from Home,
+which isn't normally inside that scope). Fires at most once per bet — `resolvePendingSettlements`
+only ever reports a bet in its `newlyWon` list the one time it transitions from unsettled to Won,
+never again on a later reload — and a failed/empty vibe fetch just means no celebration shows, never
+an error over what should be a purely happy moment.
 
 ## Odds history
 

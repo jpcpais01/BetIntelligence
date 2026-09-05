@@ -161,9 +161,9 @@ export default function HomePage() {
       {showAddFunds && <AddFundsModal onClose={() => setShowAddFunds(false)} onConfirm={handleAddFunds} />}
       {celebration && (
         <WinCelebration
-          teamName={celebration.teamName}
-          emojis={celebration.emojis}
-          colors={celebration.colors}
+          teams={celebration.teams}
+          fallEmojis={celebration.fallEmojis}
+          bgColors={celebration.bgColors}
           onClose={() => setCelebration(null)}
         />
       )}

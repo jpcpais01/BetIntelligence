@@ -5,6 +5,12 @@ import { useEffect, useState } from "react";
 const AUTO_DISMISS_MS = 5000;
 const PIECE_COUNT = 32;
 
+export interface CelebrationTeam {
+  name: string;
+  emoji: string;
+  color: string;
+}
+
 interface FallingPiece {
   left: number;
   delay: number;
@@ -14,20 +20,21 @@ interface FallingPiece {
   emoji: string;
 }
 
-// A full-screen celebration for a single-leg bet that just won — colors and emojis are both
-// runtime variables (from lib/clubVibe.ts's real-time Gemini call), never hardcoded, so this reads
-// as "that specific club" rather than a generic confetti burst every time. Wrapped in its own
-// `.lab` scope so the --slip-* tokens it borrows for the "look like the bet slip" panel resolve
-// correctly regardless of which page (Home, not normally inside .lab) triggered it.
+// A full-screen celebration for a bet that just won — single-leg (one club) or a parlay (one row
+// per leg, each with its own emoji/color) alike. Every color and emoji is a runtime variable (from
+// lib/clubVibe.ts's real-time Gemini call), never hardcoded, so this reads as "those specific
+// clubs" rather than a generic confetti burst every time. Wrapped in its own `.lab` scope so the
+// --slip-* tokens it borrows for the "look like the bet slip" panel resolve correctly regardless
+// of which page (Home, not normally inside .lab) triggered it.
 export default function WinCelebration({
-  teamName,
-  emojis,
-  colors,
+  teams,
+  fallEmojis,
+  bgColors,
   onClose,
 }: {
-  teamName: string;
-  emojis: string[];
-  colors: [string, string];
+  teams: CelebrationTeam[];
+  fallEmojis: string[];
+  bgColors: [string, string];
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -48,19 +55,21 @@ export default function WinCelebration({
         duration: 2.8 + Math.random() * 2.2,
         size: 16 + Math.random() * 16,
         drift: (Math.random() - 0.5) * 70,
-        emoji: emojis[i % emojis.length],
+        emoji: fallEmojis[i % fallEmojis.length],
       }))
     );
-    // emojis is stable for this component's whole mount-to-dismiss lifetime (a fresh
+    // fallEmojis is stable for this component's whole mount-to-dismiss lifetime (a fresh
     // WinCelebration mounts per bet), so this only ever needs to run once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const isParlay = teams.length > 1;
 
   return (
     <div className="lab fixed inset-0 z-[200] flex items-center justify-center px-6" onClick={onClose}>
       <div
         className="absolute inset-0"
-        style={{ background: `linear-gradient(160deg, ${colors[0]}4d, ${colors[1]}4d), rgba(8,6,16,0.72)` }}
+        style={{ background: `linear-gradient(160deg, ${bgColors[0]}4d, ${bgColors[1]}4d), rgba(8,6,16,0.72)` }}
       />
 
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -88,14 +97,30 @@ export default function WinCelebration({
         style={{ background: "var(--slip-surface)", borderColor: "var(--slip-border)" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="text-4xl">{emojis[0]}</p>
+        <p className="text-4xl">{teams[0].emoji}</p>
         <p className="mt-3 font-display text-[20px] font-bold text-text">Congratulations!</p>
-        <p className="mt-1 text-[13px] text-text-dim">
-          <span className="font-semibold" style={{ color: colors[0] }}>
-            {teamName}
-          </span>{" "}
-          came through {emojis[1]}
-        </p>
+
+        {isParlay ? (
+          <div className="mt-3 space-y-1.5 text-left">
+            {teams.map((t, i) => (
+              <p key={`${t.name}-${i}`} className="flex items-center gap-2 text-[13px] text-text-dim">
+                <span className="text-base">{t.emoji}</span>
+                <span className="font-semibold" style={{ color: t.color }}>
+                  {t.name}
+                </span>
+              </p>
+            ))}
+            <p className="pt-1 text-[11px] text-text-faint">Every leg came through</p>
+          </div>
+        ) : (
+          <p className="mt-1 text-[13px] text-text-dim">
+            <span className="font-semibold" style={{ color: teams[0].color }}>
+              {teams[0].name}
+            </span>{" "}
+            came through {fallEmojis[1] ?? teams[0].emoji}
+          </p>
+        )}
+
         <button
           onClick={onClose}
           className="press mt-5 rounded-full px-5 py-2 text-[11px] font-semibold uppercase tracking-wide"
