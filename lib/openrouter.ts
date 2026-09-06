@@ -12,6 +12,7 @@ import { MODELS, DEFAULT_MODEL } from "./models";
 import { buildFootballDigest } from "./footballData";
 import { buildInjuryDigest, fetchInjurySummary } from "./bigBallsData";
 import { fetchMatchLineups } from "./lineups";
+import { MATCH_OVER_AFTER_MS } from "./matchClock";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -348,6 +349,33 @@ export function withNow(systemPrompt: string): string {
   return `${systemPrompt}\n\n${nowLine()}`;
 }
 
+// A single, unmissable, pre-computed fact about where this match sits in its own clock right now —
+// not left for the model to work out for itself from two separate raw timestamps (kickoff and
+// nowLine() above), which is exactly what it kept getting wrong: a "Current date and time" line
+// buried in a paragraph, and a kickoff time buried in a different sentence, is easy to skim past or
+// miscompute the difference of. This does that arithmetic up front and labels the answer plainly,
+// in minutes elapsed since kickoff — the model still has to reason about what that number means in
+// football terms (which half, how much stoppage time is plausible), but it's never left to notice
+// on its own THAT a match might already be well underway or over.
+//
+// Purely a wall-clock estimate (same heuristic MATCH_OVER_AFTER_MS already is elsewhere) — it has
+// no access to the real live match clock or score, so it's phrased as "kickoff was N minutes ago",
+// never as a confirmed minute of play.
+export function gameTimeLine(startTimeIso: string, now: number = Date.now()): string {
+  const kickoff = new Date(startTimeIso).getTime();
+  if (!Number.isFinite(kickoff)) return "Current Game Time: unknown (invalid kickoff time provided).";
+
+  const elapsedMin = Math.round((now - kickoff) / 60_000);
+  if (elapsedMin < 0) {
+    const untilMin = Math.abs(elapsedMin);
+    return `Current Game Time: NOT STARTED YET — kickoff is ${untilMin} minute${untilMin === 1 ? "" : "s"} from now (${new Date(startTimeIso).toUTCString()}).`;
+  }
+  if (elapsedMin * 60_000 >= MATCH_OVER_AFTER_MS) {
+    return `Current Game Time: PROBABLY OVER — kickoff was ${elapsedMin} minutes ago (${new Date(startTimeIso).toUTCString()}), well past a normal 90 minutes plus stoppage time.`;
+  }
+  return `Current Game Time: LIVE / IN PROGRESS — kickoff was ${elapsedMin} minute${elapsedMin === 1 ? "" : "s"} ago (${new Date(startTimeIso).toUTCString()}). Work out the likely match minute yourself from this (accounting for the half-time break and possible stoppage time) rather than assuming it's still early.`;
+}
+
 export function clampConfidence(value: unknown): Confidence {
   return value === "low" || value === "medium" || value === "high" ? value : "medium";
 }
@@ -373,7 +401,10 @@ function normalize(home: number, draw: number, away: number): Probabilities {
 const PREDICT_SYSTEM_PROMPT = `You are an elite football (soccer) analyst working for BetIntelligence, an AI odds-intelligence \
 app. You are given a research digest compiled from live match-data feeds — recent form, head-to-head record, current match \
 status, and (when available) reported injuries/unavailable players — and asked for your own independent 1X2 probability \
-estimate based on it. If the digest's injuries/availability section names unavailable players, factor that into your read; \
+estimate based on it. You are also given a line labeled "Current Game Time" telling you plainly whether this match hasn't \
+started yet, is live (and how many minutes since kickoff), or is probably over already — trust that line over any guess of \
+your own, and weigh it when reading the digest's own match-status text. If the digest's injuries/availability section \
+names unavailable players, factor that into your read; \
 if it says injury data isn't available for this match, don't assume either squad is missing anyone or at full strength — \
 rely on the form and head-to-head signal instead. You were NOT told any betting or prediction-market odds — but if any odds/price language \
 somehow appears in the digest anyway, you MUST NOT let it anchor or influence your estimate in any way; disregard it \
@@ -478,6 +509,7 @@ export async function getIndependentPredictionFromDigest(input: {
   const matchDate = new Date(input.startTime).toUTCString();
 
   const predictPrompt = `${nowLine()}
+${gameTimeLine(input.startTime)}
 
 Match: ${input.homeTeam} (home) vs ${input.awayTeam} (away), ${input.leagueName}, kicking off ${matchDate}.
 
@@ -549,10 +581,11 @@ const COMPARE_SYSTEM_PROMPT = `You are the same elite football analyst from BetI
 You previously produced an independent 1X2 probability estimate WITHOUT seeing the betting market. You are now being shown the real \
 Polymarket prediction-market implied probabilities for the same match for the first time. Compare your independent view against the \
 market, reason about where and why you might disagree (market overreacting to news, public bias toward big clubs, your own analysis \
-possibly missing something, etc), and decide if the market looks mispriced anywhere. You are told the match's kickoff time and the \
-current date/time — work out for yourself whether kickoff has already passed; if it has, the match may be live or finished, and the \
-market you're shown reflects that (an in-play score, not just pre-match news), so weigh your disagreement accordingly rather than \
-assuming the market is simply wrong. Respond with ONLY a single valid JSON object, no \
+possibly missing something, etc), and decide if the market looks mispriced anywhere. You are given a line labeled "Current Game \
+Time" telling you plainly whether this match hasn't started yet, is live (and how many minutes since kickoff), or is probably over \
+already — trust that line directly rather than computing it yourself from the kickoff time and current date/time separately. If \
+it's live or over, the market you're shown reflects that (an in-play or closing price, not just pre-match news), so weigh your \
+disagreement accordingly rather than assuming the market is simply wrong. Respond with ONLY a single valid JSON object, no \
 markdown, no commentary, matching exactly this shape: {"homeEdge": number, "drawEdge": number, "awayEdge": number, \
 "bestValue": "home"|"draw"|"away"|"none", "confidence": "low"|"medium"|"high", "agreesWithMarket": boolean, "verdict": string}. \
 Edges are (your probability - market probability) expressed as a decimal, e.g. 0.08 means you think that outcome is 8 percentage \
@@ -570,17 +603,18 @@ export async function compareToMarket(input: {
   market: Probabilities;
   model?: string;
 }): Promise<ComparisonResult> {
-  // Alongside nowLine() below, this is what actually lets the model reason "has this kicked off
-  // yet" for itself — comparing two real timestamps it's both given directly — rather than the
-  // app trying to compute and hand over a pre-judged started/not-started verdict of its own. The
-  // market probabilities passed in are already live/current once a match is underway (see
-  // GameCard's effectiveOdds, app/sports/page.tsx), so a market that looks unusual relative to the
-  // independent pre-match read may simply mean the match is live and already unfolding, not that
-  // the market is mispriced — the model can only draw that distinction if it knows the kickoff
-  // time, same as the independent prediction step already does.
+  // gameTimeLine below is what actually lets the model reason "has this kicked off yet, and how
+  // far in" reliably — it used to be left to compute that itself from nowLine() plus the kickoff
+  // time buried in the next line, which is exactly what it kept getting wrong. The market
+  // probabilities passed in are already live/current once a match is underway (see GameCard's
+  // effectiveOdds, app/sports/page.tsx), so a market that looks unusual relative to the independent
+  // pre-match read may simply mean the match is live and already unfolding, not that the market is
+  // mispriced — the model can only draw that distinction if it's actually registered where the
+  // match's own clock stands right now.
   const matchDate = new Date(input.startTime).toUTCString();
 
   const userPrompt = `${nowLine()}
+${gameTimeLine(input.startTime)}
 
 Match: ${input.homeTeam} vs ${input.awayTeam} (${input.leagueName}), kicking off ${matchDate}.
 

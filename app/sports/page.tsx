@@ -17,6 +17,7 @@ import { hasKickedOff, isLiveCandidate, isMatchOver } from "@/lib/matchClock";
 import { loadSelectedLeagues, saveSelectedLeagues } from "@/lib/leaguePrefs";
 import { loadLastAnalyses, type LastAnalysisEntry } from "@/lib/lastAnalysis";
 import type { LiveScoreEntry } from "@/lib/liveScores";
+import { parseElapsedMinutes } from "@/lib/liveScores";
 import { anyTeamNameMatches } from "@/lib/teamNameMatching";
 import { liveKey, fetchLivePrices, type LivePriceRequest } from "@/lib/livePrices";
 
@@ -27,6 +28,12 @@ const LIVE_SCORE_POLL_MS = 20_000;
 // Odds move fast once a match is underway; Polymarket has no comparable rate limit either, but
 // there's no reason to poll faster than the market itself meaningfully updates.
 const LIVE_ODDS_POLL_MS = 10_000;
+// From the 85th minute on, a goal (or full time itself) can swing both the result and the market
+// in seconds — worth tightening the live-score poll down to match odds' own 10s cadence for
+// whichever games have actually reached that point, rather than leaving it at the general
+// LIVE_SCORE_POLL_MS the rest of the live list is still fine with.
+const LATE_GAME_MINUTE = 85;
+const LATE_LIVE_SCORE_POLL_MS = 10_000;
 // Lineups aren't announced continuously the way a score or a price is — there's nothing to gain
 // from polling faster than every few minutes, and starting an hour out comfortably covers even the
 // top-5 leagues' earliest announcements without wasting requests on a match still a day away.
@@ -223,9 +230,20 @@ export default function Home() {
     return [...leagues].sort().join(",");
   }, [liveGames, scoreByGameId, now]);
 
+  // Whether any currently-live game has actually reached LATE_GAME_MINUTE, per ESPN's own clock —
+  // not a wall-clock guess, since the whole point is reacting to the real match clock (stoppage
+  // time varies a lot). Drives the poll interval's own delay below; re-included as an effect
+  // dependency so a game crossing into (or out of) "late" immediately restarts the interval at the
+  // right cadence rather than waiting out whatever's left of the old one.
+  const anyLateLiveGame = useMemo(
+    () => liveGames.some((g) => (parseElapsedMinutes(scoreByGameId[g.id]?.clockLabel) ?? -1) >= LATE_GAME_MINUTE),
+    [liveGames, scoreByGameId]
+  );
+
   useEffect(() => {
     if (!scoreLeaguesKey) return;
     const leagues = scoreLeaguesKey.split(",");
+    const pollMs = anyLateLiveGame ? LATE_LIVE_SCORE_POLL_MS : LIVE_SCORE_POLL_MS;
 
     let cancelled = false;
     const refreshLiveScores = async () => {
@@ -256,12 +274,12 @@ export default function Home() {
     };
 
     void refreshLiveScores();
-    const id = setInterval(() => void refreshLiveScores(), LIVE_SCORE_POLL_MS);
+    const id = setInterval(() => void refreshLiveScores(), pollMs);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [scoreLeaguesKey]);
+  }, [scoreLeaguesKey, anyLateLiveGame]);
 
   // Games worth chasing live odds for: on the list (so never one that's already over) and
   // actually underway. Encoded as a string for the same re-subscribe reason as above.

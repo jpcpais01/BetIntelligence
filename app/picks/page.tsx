@@ -10,6 +10,7 @@ import { BookmarkIcon } from "@/components/icons";
 import { hasKickedOff, isLiveCandidate, isMatchOver } from "@/lib/matchClock";
 import { leagueIdByName } from "@/lib/leagues";
 import type { LiveScoreEntry } from "@/lib/liveScores";
+import { parseElapsedMinutes } from "@/lib/liveScores";
 import { anyTeamNameMatches } from "@/lib/teamNameMatching";
 import { liveKey, fetchLivePrices, type LivePriceRequest } from "@/lib/livePrices";
 
@@ -18,6 +19,10 @@ import { liveKey, fetchLivePrices, type LivePriceRequest } from "@/lib/livePrice
 // second-class static one just because it lives on a different tab.
 const LIVE_SCORE_POLL_MS = 20_000;
 const LIVE_ODDS_POLL_MS = 10_000;
+// Same reasoning as the Sports page: from the 85th minute on, worth checking the score as often
+// as odds already are, not the general live cadence the rest of the list is still fine with.
+const LATE_GAME_MINUTE = 85;
+const LATE_LIVE_SCORE_POLL_MS = 10_000;
 const CLOCK_TICK_MS = 30_000;
 
 // Discover (and its saved market picks) is deactivated for now — this page is football-only,
@@ -107,9 +112,18 @@ export default function PicksPage() {
     return [...leagues].sort().join(",");
   }, [sportsPicks, leagueByPickId, scoreByPickId, now]);
 
+  // Same reasoning as the Sports page's own anyLateLiveGame — a pick whose match has actually
+  // reached LATE_GAME_MINUTE (per ESPN's own clock, not a wall-clock guess) is worth checking as
+  // often as its odds already are.
+  const anyLateLiveGame = useMemo(
+    () => (sportsPicks ?? []).some((p) => (parseElapsedMinutes(scoreByPickId[p.id]?.clockLabel) ?? -1) >= LATE_GAME_MINUTE),
+    [sportsPicks, scoreByPickId]
+  );
+
   useEffect(() => {
     if (!scoreLeaguesKey) return;
     const leagues = scoreLeaguesKey.split(",");
+    const pollMs = anyLateLiveGame ? LATE_LIVE_SCORE_POLL_MS : LIVE_SCORE_POLL_MS;
 
     let cancelled = false;
     const refreshLiveScores = async () => {
@@ -139,12 +153,12 @@ export default function PicksPage() {
     };
 
     void refreshLiveScores();
-    const id = setInterval(() => void refreshLiveScores(), LIVE_SCORE_POLL_MS);
+    const id = setInterval(() => void refreshLiveScores(), pollMs);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [scoreLeaguesKey]);
+  }, [scoreLeaguesKey, anyLateLiveGame]);
 
   // Picks worth chasing live odds for: kicked off, not yet over. Encoded as a string for the same
   // re-subscribe reason as above.

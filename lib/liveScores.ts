@@ -114,6 +114,22 @@ function clockLabelFor(status: string, displayClock: string | undefined): string
   return undefined;
 }
 
+// The real elapsed match minute from ESPN's own clock label ("63'" -> 63, "90+4'" -> 94,
+// "45+2'" -> 47), used to spot a match worth polling tighter as it heads toward the final whistle
+// (see LATE_GAME_MINUTE in app/sports/page.tsx and app/picks/page.tsx). "HT" reads as 45 (the
+// second half hasn't started yet, but a full first half has elapsed) since that's the only elapsed
+// minute count implied by half-time itself; "FT" and anything unparseable return null rather than
+// guessing — a match already at full time has nothing left worth polling faster for.
+export function parseElapsedMinutes(clockLabel: string | undefined): number | null {
+  if (!clockLabel) return null;
+  if (clockLabel === "HT") return 45;
+  const match = clockLabel.match(/^(\d+)(?:\+(\d+))?/);
+  if (!match) return null;
+  const base = Number(match[1]);
+  const extra = match[2] ? Number(match[2]) : 0;
+  return base + extra;
+}
+
 function toGoals(score: string | undefined): number | null {
   if (score === undefined) return null;
   const n = Number(score);

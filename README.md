@@ -75,13 +75,18 @@ source with no shared budget removes the failure mode outright rather than paper
 
 From 15 minutes before kickoff until the match is over, the page polls `/api/games/live-scores`
 every 20 seconds — comfortably inside "at least once a minute," and cheap to do since there's no
-budget to protect — sending only the leagues that actually have a match in play right now. The
-result replaces the guessed "LIVE NOW" badge with the real thing: the score **and** ESPN's own live
-match clock — "63′ 2-1", "HT 1-0", "FT 3-1" — which is what actually makes a card read as live
-rather than just eventually-correct; a bare "LIVE" label never said whether that meant kickoff had
-just happened or the 90th minute had. It's also what tells the page a match is finished so it can
-drop off the list. Two details worth knowing about, both from the football-data.org era and still
-true here since the underlying problem was never about which provider:
+budget to protect — sending only the leagues that actually have a match in play right now. Once
+ESPN's own clock label says any polled match has reached the 85th minute, that poll tightens to
+every 10 seconds instead — the same cadence live odds already run at (below) — since a goal or the
+final whistle in that stretch can flip both the result and the market within seconds, on both
+Sports and Picks (`LATE_GAME_MINUTE`/`parseElapsedMinutes` in `app/sports/page.tsx`,
+`app/picks/page.tsx`, `lib/liveScores.ts`). The result replaces the guessed "LIVE NOW" badge with
+the real thing: the score **and** ESPN's own live match clock — "63′ 2-1", "HT 1-0", "FT 3-1" —
+which is what actually makes a card read as live rather than just eventually-correct; a bare "LIVE"
+label never said whether that meant kickoff had just happened or the 90th minute had. It's also
+what tells the page a match is finished so it can drop off the list. Two details worth knowing
+about, both from the football-data.org era and still true here since the underlying problem was
+never about which provider:
 
 - **Results are merged, never replaced.** Each poll only covers the leagues in play at that moment,
   so overwriting the whole set would wipe every result belonging to a league that had just stopped
@@ -551,10 +556,11 @@ Tapping **AI Analyze** runs against [`deepseek/deepseek-v4-flash-0731`](https://
    not the Gamma snapshot the game object was originally built from. `GameCard`'s Analyze button and the Sports page's
    batch-analysis flow both carry that live price into the `Game` object handed to the analysis sheet, so a live match
    whose odds have moved since kickoff gets compared against where the market actually is right now, not where it was
-   when the general sweep last ran. This step also gets the match's own kickoff time in its prompt (`compareToMarket`,
-   `lib/openrouter.ts`) — alongside `nowLine()`'s current date/time below, that's what lets the model work out for
-   itself whether kickoff has already passed, rather than the app pre-computing a started/not-started verdict and
-   handing that over instead. Without it, a live match's already-moved market odds could read as the market simply
+   when the general sweep last ran. Both this step and the independent-read step above are given a pre-computed,
+   plainly labeled **Current Game Time** line (`gameTimeLine`, `lib/openrouter.ts`) — "NOT STARTED YET", "LIVE / IN
+   PROGRESS" with the real elapsed minutes, or "PROBABLY OVER" — instead of being left to work that out for
+   themselves from the kickoff time and `nowLine()`'s current date/time separately, which is exactly what the model
+   kept getting wrong. Without it, a live match's already-moved market odds could read as the market simply
    disagreeing with the pre-match independent view, instead of what it actually is: the market pricing in a match
    that's already underway.
 

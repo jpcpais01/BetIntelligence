@@ -1,4 +1,4 @@
-import { getLiveScores, getMatchResultsSince } from "../lib/liveScores";
+import { getLiveScores, getMatchResultsSince, parseElapsedMinutes } from "../lib/liveScores";
 import type { LeagueId } from "../lib/types";
 
 function ok(json: unknown) {
@@ -237,6 +237,16 @@ async function run() {
     "an uncovered league (no ESPN slug mapping) contributes nothing rather than erroring",
     (await getMatchResultsSince([{ league: "premier-league", earliestKickoff: new Date().toISOString() }])) !== undefined
   );
+
+  // --- parseElapsedMinutes: the real elapsed match minute, for spotting a game worth polling
+  // tighter as it heads toward the final whistle (app/sports/page.tsx, app/picks/page.tsx) ---
+  check("a plain minute clock parses", parseElapsedMinutes("63'") === 63);
+  check("stoppage time adds to the base minute", parseElapsedMinutes("90+4'") === 94);
+  check("first-half stoppage time adds to 45", parseElapsedMinutes("45+2'") === 47);
+  check("half-time reads as 45 (a full first half has elapsed)", parseElapsedMinutes("HT") === 45);
+  check("full time is unparseable by design — nothing left worth polling faster for", parseElapsedMinutes("FT") === null);
+  check("no clock label at all returns null, not a crash", parseElapsedMinutes(undefined) === null);
+  check("a completely malformed label returns null rather than guessing", parseElapsedMinutes("??") === null);
 
   if (failures.length > 0) {
     console.log("\nFAILURES:");

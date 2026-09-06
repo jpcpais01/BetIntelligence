@@ -4,8 +4,10 @@ import {
   buildFootballAnalysisDigest,
   getIndependentPredictionFromDigest,
   compareToMarket,
+  gameTimeLine,
 } from "../lib/openrouter";
 import { __resetRateLimiterForTests } from "../lib/footballData";
+import { MATCH_OVER_AFTER_MS } from "../lib/matchClock";
 
 process.env.OPENROUTER_API_KEY = "test-key";
 process.env.API_FOOTBALL_KEY = "test-key";
@@ -664,10 +666,10 @@ async function runCostTrackingChecks(failures: string[]) {
 }
 
 // The compare step has no research digest of its own (unlike predict, which gets the real
-// live/final status baked into what it reads) — the match's own kickoff time, alongside
-// nowLine()'s current date/time, is the ONLY thing that lets it work out for itself whether the
-// match it's comparing against the market has actually kicked off yet, rather than the app
-// pre-computing a started/not-started verdict and handing that over instead.
+// live/final status baked into what it reads) — gameTimeLine() is the pre-computed "Current Game
+// Time" fact that tells it plainly whether the match it's comparing against the market has
+// actually kicked off yet, rather than leaving it to work that out itself from two separate raw
+// timestamps (kickoff and nowLine()'s current date/time), which is what it kept getting wrong.
 async function runCompareChecks(failures: string[]) {
   const check = (name: string, cond: boolean, detail?: string) => {
     if (!cond) failures.push(detail ? `${name}: ${detail}` : name);
@@ -722,14 +724,55 @@ async function runCompareChecks(failures: string[]) {
     capturedUserPrompt
   );
   check(
-    "the system prompt tells the model to work out kickoff-vs-now for itself",
-    /work out for yourself whether kickoff has already passed/.test(capturedSystemPrompt)
+    "the compare prompt includes a labeled Current Game Time line",
+    /Current Game Time:/.test(capturedUserPrompt),
+    capturedUserPrompt
   );
+  check(
+    "the system prompt tells the model to trust the Current Game Time line over its own guess",
+    /"Current Game Time"/.test(capturedSystemPrompt) && /trust that line/.test(capturedSystemPrompt),
+    capturedSystemPrompt
+  );
+}
+
+// gameTimeLine() itself — the pre-computed fact that used to be left to the model to work out
+// from two separate raw timestamps.
+function runGameTimeLineChecks(failures: string[]) {
+  const check = (name: string, cond: boolean, detail?: string) => {
+    if (!cond) failures.push(detail ? `${name}: ${detail}` : name);
+    console.log(`  ${cond ? "ok" : "FAIL"}  ${name}`);
+  };
+
+  const now = Date.now();
+  const isoIn = (ms: number) => new Date(now + ms).toISOString();
+
+  const notStarted = gameTimeLine(isoIn(45 * 60_000), now);
+  check("a match 45 minutes from kickoff reads as not started yet", /NOT STARTED YET/.test(notStarted), notStarted);
+  check("a not-started line names how many minutes until kickoff", /45 minutes from now/.test(notStarted), notStarted);
+
+  const justKickedOff = gameTimeLine(isoIn(0), now);
+  check("a match kicking off this exact instant reads as live, not not-started", /LIVE \/ IN PROGRESS/.test(justKickedOff), justKickedOff);
+
+  const midway = gameTimeLine(isoIn(-63 * 60_000), now);
+  check("a match 63 minutes past kickoff reads as live", /LIVE \/ IN PROGRESS/.test(midway), midway);
+  check("the live line states the real elapsed minutes plainly", /kickoff was 63 minutes ago/.test(midway), midway);
+
+  const probablyOver = gameTimeLine(isoIn(-(MATCH_OVER_AFTER_MS + 60_000)), now);
+  check("a match past MATCH_OVER_AFTER_MS reads as probably over", /PROBABLY OVER/.test(probablyOver), probablyOver);
+
+  const rightAtBoundary = gameTimeLine(isoIn(-MATCH_OVER_AFTER_MS), now);
+  check("right at the MATCH_OVER_AFTER_MS boundary, it's already probably over (>=, not >)", /PROBABLY OVER/.test(rightAtBoundary), rightAtBoundary);
+
+  const invalid = gameTimeLine("not a real date", now);
+  check("an invalid kickoff time never crashes — it reads as unknown instead", /unknown/.test(invalid), invalid);
+
+  check("every branch starts with the same unmissable label", [notStarted, midway, probablyOver].every((l) => l.startsWith("Current Game Time:")));
 }
 
 async function run() {
   const failures: string[] = [];
 
+  runGameTimeLineChecks(failures);
   await runResilienceCases(failures);
   await runFootballPipelineChecks(failures);
   await runCostTrackingChecks(failures);
