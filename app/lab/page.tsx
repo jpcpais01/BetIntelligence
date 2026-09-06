@@ -50,9 +50,17 @@ export default function LabPage() {
     placedBetsRef.current = placedBets;
   }, [placedBets]);
 
+  // Dev-only React Strict Mode double-invokes every effect (mount, cleanup, mount again) to surface
+  // exactly this class of bug: a cleanup-only effect body (no setup) leaves mountedRef.current false
+  // forever after that simulated remount, since nothing ever flips it back to true. The setup itself
+  // must set it true — not just declare the initial useRef(true) — so the real, final mount ends up
+  // with it true again in dev, matching production (where Strict Mode's double-invoke never happens).
   const mountedRef = useRef(true);
-  useEffect(() => () => {
-    mountedRef.current = false;
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   const checkSettlements = useCallback(async (bets: PlacedBet[] | null) => {
