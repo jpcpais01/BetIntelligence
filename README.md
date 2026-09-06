@@ -592,14 +592,17 @@ nothing rather than guessing.
 
 ### "11s Are Here!" — a heads-up before you even tap Analyze
 
-The Sports page polls separately for whichever upcoming games are getting close to kickoff: every game less than an
-hour from starting gets asked about every 5 minutes (`/api/games/lineups`, backed by `getLineupAvailability` in
-`lib/lineups.ts` — one ESPN scoreboard request per league covered among those games, not one per game). The moment a
-lineup shows up for a match, its card gets a small **11s Are Here!** badge next to the league name
-(`components/GameCard.tsx`) — purely a heads-up that the next analysis will have real squad data to work with, not a
-lineup preview itself (that's what tapping Analyze, or the Starting XI infogram above, is for). A match that's
-already kicked off drops out of this poll on its own, the same "stop asking once it's moot" reasoning behind the live
-score/odds polls next to it.
+The Sports page polls separately for whichever games are worth asking about right now: anything less than an hour
+from kickoff, plus anything already live (kicked off but not yet over — a lineup is just as relevant mid-match as it
+is beforehand, and checking early doesn't help if you only open the app once a match is already underway). That set
+gets asked about every 5 minutes (`/api/games/lineups`, backed by `getLineupAvailability` in `lib/lineups.ts` — one
+ESPN scoreboard request per league covered among those games, not one per game), immediately on page load, and again
+right away whenever the tab regains focus (the same reasoning `refresh` already follows for odds — a backgrounded
+tab's timers can be throttled or paused outright by the browser, so returning to it shouldn't mean waiting out
+whatever's left of that 5-minute window). The moment a lineup shows up for a match, its card gets a small **11s Are
+Here!** badge next to the league name (`components/GameCard.tsx`) — purely a heads-up that the next analysis will
+have real squad data to work with, not a lineup preview itself (that's what tapping Analyze, or the Starting XI
+infogram above, is for). A match drops out of the poll once it has a lineup or is over, whichever comes first.
 
 **Discover markets** (`lib/openrouterMarkets.ts`) — any non-football question, where no equivalent structured API exists —
 keep the original three-step shape:

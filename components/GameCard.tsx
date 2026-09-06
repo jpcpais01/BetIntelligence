@@ -106,7 +106,7 @@ export default function GameCard({
               {riskLevelLabel(riskLevel)}
             </span>
           )}
-          {!started && lineupsReady && (
+          {lineupsReady && (
             <span className="shrink-0 rounded-full bg-accent/14 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-accent">
               11s Are Here!
             </span>

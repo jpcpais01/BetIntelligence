@@ -325,66 +325,72 @@ export default function Home() {
     };
   }, [liveOddsKey]);
 
-  // Games worth asking about a lineup: not kicked off yet, within an hour of it, and not already
-  // known to have one — a game that already has its lineup, or one already underway, drops out of
-  // this key on its own, which is what stops it from being asked about again. Encoded as a string
-  // for the same re-subscribe reason as scoreLeaguesKey/liveOddsKey above.
+  // Games worth asking about a lineup: within an hour of kickoff, OR already kicked off and still
+  // live (liveGames itself already excludes anything over) — a game that already has its lineup
+  // drops out of this key on its own, which is what stops it from being asked about again. Encoded
+  // as a string for the same re-subscribe reason as scoreLeaguesKey/liveOddsKey above.
   const lineupPollKey = useMemo(() => {
     if (now === null) return "";
     return liveGames
-      .filter((g) => !hasKickedOff(g.startTime, now) && new Date(g.startTime).getTime() - now <= LINEUP_LOOKAHEAD_MS)
+      .filter((g) => hasKickedOff(g.startTime, now) || new Date(g.startTime).getTime() - now <= LINEUP_LOOKAHEAD_MS)
       .filter((g) => !lineupsReady[g.id])
       .map((g) => g.id)
       .sort()
       .join(",");
   }, [liveGames, now, lineupsReady]);
 
+  // Mirrors lineupPollKey so refreshLineups (below) can read the CURRENT set of ids to ask about
+  // without depending on it directly — it needs to be callable both from its own interval and,
+  // immediately, from the tab-visibility handler further down, without either one tearing the
+  // other down.
+  const lineupPollKeyRef = useRef("");
+  useEffect(() => {
+    lineupPollKeyRef.current = lineupPollKey;
+  }, [lineupPollKey]);
+
+  const refreshLineups = useCallback(async () => {
+    const key = lineupPollKeyRef.current;
+    if (!key) return;
+    const ids = new Set(key.split(","));
+    const currentGames = (gamesRef.current ?? []).filter((g) => ids.has(g.id));
+    if (currentGames.length === 0) return;
+    try {
+      const res = await fetch("/api/games/lineups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          games: currentGames.map((g) => ({
+            id: g.id,
+            league: g.league,
+            homeTeam: g.homeTeam,
+            awayTeam: g.awayTeam,
+            startTime: g.startTime,
+          })),
+        }),
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const ready = data.ready as Record<string, boolean> | undefined;
+      if (!ready) return;
+      const newlyReady = Object.entries(ready).filter(([, v]) => v);
+      if (newlyReady.length === 0) return;
+      setLineupsReady((current) => {
+        const next = { ...current };
+        for (const [id] of newlyReady) next[id] = true;
+        return next;
+      });
+    } catch {
+      // Best-effort enrichment — cards just keep polling on the next tick.
+    }
+  }, []);
+
   useEffect(() => {
     if (!lineupPollKey) return;
-    const ids = new Set(lineupPollKey.split(","));
-
-    let cancelled = false;
-    const refreshLineups = async () => {
-      const currentGames = (gamesRef.current ?? []).filter((g) => ids.has(g.id));
-      if (currentGames.length === 0) return;
-      try {
-        const res = await fetch("/api/games/lineups", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            games: currentGames.map((g) => ({
-              id: g.id,
-              league: g.league,
-              homeTeam: g.homeTeam,
-              awayTeam: g.awayTeam,
-              startTime: g.startTime,
-            })),
-          }),
-          cache: "no-store",
-        });
-        if (!res.ok || cancelled) return;
-        const data = await res.json();
-        const ready = data.ready as Record<string, boolean> | undefined;
-        if (cancelled || !ready) return;
-        const newlyReady = Object.entries(ready).filter(([, v]) => v);
-        if (newlyReady.length === 0) return;
-        setLineupsReady((current) => {
-          const next = { ...current };
-          for (const [id] of newlyReady) next[id] = true;
-          return next;
-        });
-      } catch {
-        // Best-effort enrichment — cards just keep polling on the next tick.
-      }
-    };
-
     void refreshLineups();
     const id = setInterval(() => void refreshLineups(), LINEUP_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [lineupPollKey]);
+    return () => clearInterval(id);
+  }, [lineupPollKey, refreshLineups]);
 
   // Every team currently listed gets its crest requested — not just a curated "top club" list —
   // so the whole league, not a handful of elite names, shows real logos.
@@ -394,14 +400,20 @@ export default function Home() {
   }, [liveGames, requestLogos]);
 
   // Coming back to a tab that's been sitting open shouldn't show odds well past the 10-minute
-  // precision floor — `refresh` itself decides whether that much time has actually passed.
+  // precision floor — `refresh` itself decides whether that much time has actually passed. A
+  // backgrounded tab's timers can also be throttled or paused entirely by the browser, so
+  // returning to it re-checks lineups immediately too, rather than waiting out whatever's left of
+  // LINEUP_POLL_MS — refreshLineups itself is a no-op when there's nothing worth asking about.
   useEffect(() => {
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") void refresh();
+      if (document.visibilityState === "visible") {
+        void refresh();
+        void refreshLineups();
+      }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, [refresh]);
+  }, [refresh, refreshLineups]);
 
   const toggleLeague = useCallback((id: LeagueId) => {
     setSelectedLeagues((current) => {
