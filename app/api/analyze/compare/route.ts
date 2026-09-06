@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { compareToMarket } from "@/lib/openrouter";
+import { compareToMarket, parseLiveScoreInput } from "@/lib/openrouter";
 import { getMockComparison } from "@/lib/mockAnalysis";
 import type { IndependentPrediction, Probabilities } from "@/lib/types";
 import { resolveOpenRouterModel } from "@/lib/models";
@@ -10,7 +10,7 @@ export const maxDuration = 300;
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { homeTeam, awayTeam, leagueName, startTime, independent, market, model } = body ?? {};
+    const { homeTeam, awayTeam, leagueName, startTime, independent, market, model, liveScore } = body ?? {};
 
     if (!homeTeam || !awayTeam || !leagueName || !startTime || !independent || !market) {
       return NextResponse.json({ error: "Missing analysis details." }, { status: 400 });
@@ -30,6 +30,7 @@ export async function POST(request: Request) {
             independent: independent as IndependentPrediction,
             market: market as Probabilities,
             model: resolveOpenRouterModel(model),
+            liveScore: parseLiveScoreInput(liveScore),
           });
 
     return NextResponse.json({ comparison });

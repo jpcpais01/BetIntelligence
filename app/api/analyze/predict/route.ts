@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getIndependentPrediction, getIndependentPredictionFromDigest } from "@/lib/openrouter";
+import { getIndependentPrediction, getIndependentPredictionFromDigest, parseLiveScoreInput } from "@/lib/openrouter";
 import { getMockIndependentPrediction } from "@/lib/mockAnalysis";
 import { resolveOpenRouterModel } from "@/lib/models";
 import { isLeagueId } from "@/lib/leagues";
@@ -13,7 +13,7 @@ export const maxDuration = 300;
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { homeTeam, awayTeam, leagueName, league, startTime, model, digest } = body ?? {};
+    const { homeTeam, awayTeam, leagueName, league, startTime, model, digest, liveScore } = body ?? {};
 
     if (!homeTeam || !awayTeam || !leagueName || !startTime) {
       return NextResponse.json({ error: "Missing match details." }, { status: 400 });
@@ -21,6 +21,8 @@ export async function POST(request: Request) {
     if (!isLeagueId(league)) {
       return NextResponse.json({ error: "Unknown or missing league." }, { status: 400 });
     }
+
+    const parsedLiveScore = parseLiveScoreInput(liveScore);
 
     // A caller running more than one independent research pass over the same match (the
     // research-runs stepper) fetches the digest once up front and passes it here for every run —
@@ -37,6 +39,7 @@ export async function POST(request: Request) {
               startTime,
               digest,
               model: resolveOpenRouterModel(model),
+              liveScore: parsedLiveScore,
             })
           : await getIndependentPrediction({
               homeTeam,
@@ -45,6 +48,7 @@ export async function POST(request: Request) {
               league,
               startTime,
               model: resolveOpenRouterModel(model),
+              liveScore: parsedLiveScore,
             });
 
     return NextResponse.json({ prediction });

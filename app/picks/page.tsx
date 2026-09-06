@@ -187,7 +187,10 @@ export default function PicksPage() {
         requests.push({ key: liveKey(p.id, "away"), tokenId: p.tokenIds?.away, fallback: p.market.away });
       }
       if (requests.length === 0) return;
-      const result = await fetchLivePrices(requests);
+      // liveOddsKey only ever contains picks that have actually kicked off — the same finer
+      // "live" fidelity the odds-history chart's own LIVE tab reads, so a card's displayed number
+      // never lags noticeably behind the line the chart underneath it draws.
+      const result = await fetchLivePrices(requests, "live");
       if (cancelled) return;
       setLiveOdds((current) => {
         const next = { ...current };

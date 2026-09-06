@@ -10,6 +10,7 @@ import type {
   InjuredPlayer,
   TeamLineup,
 } from "@/lib/types";
+import type { LiveScoreEntry } from "@/lib/liveScores";
 import OutcomeBar from "./OutcomeBar";
 import ConfidenceBadge from "./ConfidenceBadge";
 import EdgeChip from "./EdgeChip";
@@ -66,6 +67,14 @@ function totalCost(a?: number, b?: number): number | undefined {
   return (a ?? 0) + (b ?? 0);
 }
 
+// The wire shape the analyze API routes actually validate (parseLiveScoreInput, lib/openrouter.ts)
+// — just the fields "Current Game Time" needs, not the whole LiveScoreEntry (league/homeTeam/
+// awayTeam would be redundant with the rest of the request).
+function toLiveScorePayload(entry: LiveScoreEntry | null | undefined) {
+  if (!entry) return null;
+  return { status: entry.status, clockLabel: entry.clockLabel, homeGoals: entry.homeGoals, awayGoals: entry.awayGoals };
+}
+
 async function postJson<T>(url: string, body: unknown, errorLabel: string): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
@@ -77,7 +86,20 @@ async function postJson<T>(url: string, body: unknown, errorLabel: string): Prom
   return data as T;
 }
 
-export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: () => void }) {
+export default function AnalysisSheet({
+  game,
+  liveScore,
+  onClose,
+}: {
+  game: Game;
+  // The real live clock/score this game's own card is showing right now (app/sports/page.tsx's
+  // scoreByGameId) — threaded into both analysis calls below as "Current Game Time" so the model
+  // reasons from the same real data on screen instead of a wall-clock guess (lib/openrouter.ts's
+  // gameTimeLine). Null/undefined for a game with no live score yet, which just falls back to
+  // that estimate, same as before this existed.
+  liveScore?: LiveScoreEntry | null;
+  onClose: () => void;
+}) {
   const [stage, setStage] = useState<Stage>("predicting");
   const [independent, setIndependent] = useState<IndependentPrediction | null>(null);
   const [runs, setRuns] = useState<IndependentPrediction[]>([]);
@@ -166,6 +188,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
                   startTime: game.startTime,
                   model,
                   digest,
+                  liveScore: toLiveScorePayload(liveScore),
                 },
                 "Analysis failed."
               ).then((d) => {
@@ -195,6 +218,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
             independent: finalIndependent,
             market: game.odds,
             model,
+            liveScore: toLiveScorePayload(liveScore),
           },
           "Comparison failed."
         ).then((d) => d.comparison);
@@ -224,6 +248,10 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
     return () => {
       cancelled = true;
     };
+    // liveScore is deliberately excluded — it's read as a one-time snapshot of what the card
+    // showed at the moment Analyze was tapped, not something that should restart runsRef/compareRef's
+    // already-cached in-flight work if a live poll happens to update it mid-analysis.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game, retryKey, plannedRuns]);
 
   const running = stage === "predicting" || stage === "comparing";

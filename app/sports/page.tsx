@@ -321,7 +321,10 @@ export default function Home() {
         requests.push({ key: liveKey(g.id, "away"), tokenId: g.tokenIds?.away, fallback: g.odds.away });
       }
       if (requests.length === 0) return;
-      const result = await fetchLivePrices(requests);
+      // liveOddsKey (and so `ids` above) only ever contains games that have actually kicked off —
+      // the same finer "live" fidelity the odds-history chart's own LIVE tab reads, so a card's
+      // displayed number never lags noticeably behind the line the chart underneath it draws.
+      const result = await fetchLivePrices(requests, "live");
       if (cancelled) return;
       setLiveOdds((current) => {
         const next = { ...current };
@@ -641,6 +644,7 @@ export default function Home() {
       {analyzeGame && (
         <AnalysisSheet
           game={analyzeGame}
+          liveScore={scoreByGameId[analyzeGame.id] ?? null}
           onClose={() => {
             setAnalyzeGame(null);
             refreshLastAnalysis();
@@ -650,6 +654,7 @@ export default function Home() {
       {batchGames && (
         <BatchAnalysisSheet
           games={batchGames}
+          liveScores={scoreByGameId}
           onClose={() => {
             setBatchGames(null);
             refreshLastAnalysis();

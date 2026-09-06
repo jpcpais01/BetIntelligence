@@ -46,11 +46,19 @@ function buildParams(requests: LivePriceRequest[], window: HistoryWindow): URLSe
 // real final score to resolve). A stale number that looks live is worse than no number.
 const CURRENT_PRICE_WINDOW: HistoryWindow = "3h";
 
-export async function fetchLivePrices(requests: LivePriceRequest[]): Promise<Record<string, number>> {
+// A caller whose requests are ALL for matches actually underway right now (the 10s live-odds poll
+// on Sports/Picks, never the general per-list seed, which mixes in plenty of not-yet-started
+// games) can ask for this instead — the exact same "live" window OddsHistoryChart's own LIVE tab
+// reads (1-minute fidelity, vs. 3h's 5-minute), so the number on a card never lags noticeably
+// behind the finer-grained line the chart underneath it is already drawing.
+export async function fetchLivePrices(
+  requests: LivePriceRequest[],
+  window: HistoryWindow = CURRENT_PRICE_WINDOW
+): Promise<Record<string, number>> {
   const result: Record<string, number> = {};
   for (const r of requests) result[r.key] = r.fallback;
 
-  const params = buildParams(requests, CURRENT_PRICE_WINDOW);
+  const params = buildParams(requests, window);
   if (!params) return result;
 
   try {

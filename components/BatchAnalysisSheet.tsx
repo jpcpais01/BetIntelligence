@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Game, IndependentPrediction, ComparisonResult } from "@/lib/types";
+import type { LiveScoreEntry } from "@/lib/liveScores";
 import Avatar from "./Avatar";
 import EdgeChip from "./EdgeChip";
 import { CloseIcon, TrendingUpIcon, BookmarkIcon } from "./icons";
@@ -38,11 +39,24 @@ async function postJson<T>(url: string, body: unknown, errorLabel: string): Prom
   return data as T;
 }
 
+// The wire shape the analyze API routes actually validate (parseLiveScoreInput, lib/openrouter.ts)
+// — just the fields "Current Game Time" needs, not the whole LiveScoreEntry.
+function toLiveScorePayload(entry: LiveScoreEntry | null | undefined) {
+  if (!entry) return null;
+  return { status: entry.status, clockLabel: entry.clockLabel, homeGoals: entry.homeGoals, awayGoals: entry.awayGoals };
+}
+
 export default function BatchAnalysisSheet({
   games,
+  liveScores,
   onClose,
 }: {
   games: Game[];
+  // Each selected game's real live clock/score, keyed by game id, exactly what its own card is
+  // showing right now (app/sports/page.tsx's scoreByGameId) — same reasoning as AnalysisSheet's
+  // own liveScore prop. Missing/undefined for a game with no live score yet, which just falls
+  // back to a wall-clock estimate, same as before this existed.
+  liveScores?: Record<string, LiveScoreEntry>;
   onClose: () => void;
 }) {
   const [results, setResults] = useState<Record<string, GameResult>>(() =>
@@ -75,6 +89,7 @@ export default function BatchAnalysisSheet({
               league: game.league,
               startTime: game.startTime,
               model,
+              liveScore: toLiveScorePayload(liveScores?.[game.id]),
             },
             "Analysis failed."
           );
@@ -90,6 +105,7 @@ export default function BatchAnalysisSheet({
               independent: prediction,
               market: game.odds,
               model,
+              liveScore: toLiveScorePayload(liveScores?.[game.id]),
             },
             "Comparison failed."
           );

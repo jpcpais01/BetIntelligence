@@ -5,6 +5,7 @@ import {
   getIndependentPredictionFromDigest,
   compareToMarket,
   gameTimeLine,
+  parseLiveScoreInput,
 } from "../lib/openrouter";
 import { __resetRateLimiterForTests } from "../lib/footballData";
 import { MATCH_OVER_AFTER_MS } from "../lib/matchClock";
@@ -767,12 +768,61 @@ function runGameTimeLineChecks(failures: string[]) {
   check("an invalid kickoff time never crashes — it reads as unknown instead", /unknown/.test(invalid), invalid);
 
   check("every branch starts with the same unmissable label", [notStarted, midway, probablyOver].every((l) => l.startsWith("Current Game Time:")));
+
+  // --- With a real live score (the same data a Sports-page card itself shows), gameTimeLine
+  // reports it directly instead of falling back to the wall-clock guess — this is the actual fix
+  // for "the analysis keeps saying started X minutes ago instead of using real live data". ---
+  const realLive = gameTimeLine(isoIn(-63 * 60_000), now, { status: "IN_PLAY", clockLabel: "63'", homeGoals: 2, awayGoals: 1 });
+  check("a real live score reports LIVE with the actual clock label, not an estimate", /LIVE/.test(realLive) && /63'/.test(realLive), realLive);
+  check("a real live score reports the actual score", /2-1/.test(realLive), realLive);
+  check("a real live score is explicitly marked as real data, not an estimate", /not an estimate/.test(realLive), realLive);
+  check("estimated language ('accounting for the half-time break') does not leak into the real-data branch", !/accounting for/.test(realLive), realLive);
+
+  const realHalftime = gameTimeLine(isoIn(-50 * 60_000), now, { status: "PAUSED", homeGoals: 0, awayGoals: 0 });
+  check("a real PAUSED status with no clockLabel falls back to HT, not 'in progress'", /HT/.test(realHalftime), realHalftime);
+
+  const realFinished = gameTimeLine(isoIn(-200 * 60_000), now, { status: "FINISHED", homeGoals: 3, awayGoals: 1 });
+  check("a real FINISHED status reports the final score directly, not a 'probably over' guess", /FINISHED/.test(realFinished) && /3-1/.test(realFinished), realFinished);
+
+  const notLiveYetButHasStatus = gameTimeLine(isoIn(45 * 60_000), now, { status: "SCHEDULED", homeGoals: null, awayGoals: null });
+  check(
+    "a real status that isn't in-play/paused/finished (SCHEDULED) falls back to the wall-clock estimate",
+    /NOT STARTED YET/.test(notLiveYetButHasStatus),
+    notLiveYetButHasStatus
+  );
+
+  const nullLive = gameTimeLine(isoIn(-63 * 60_000), now, null);
+  check("passing null for liveScore behaves exactly like passing nothing at all", nullLive === midway, nullLive);
+}
+
+// parseLiveScoreInput — validates the untrusted `liveScore` field a client can send on an
+// analyze request. Malformed or absent input must never throw, and must never be trusted as-is.
+function runParseLiveScoreInputChecks(failures: string[]) {
+  const check = (name: string, cond: boolean, detail?: string) => {
+    if (!cond) failures.push(detail ? `${name}: ${detail}` : name);
+    console.log(`  ${cond ? "ok" : "FAIL"}  ${name}`);
+  };
+
+  check("undefined resolves to null", parseLiveScoreInput(undefined) === null);
+  check("null resolves to null", parseLiveScoreInput(null) === null);
+  check("a plain string resolves to null rather than throwing", parseLiveScoreInput("IN_PLAY") === null);
+  check("an object with no status field resolves to null", parseLiveScoreInput({ clockLabel: "63'" }) === null);
+
+  const valid = parseLiveScoreInput({ status: "IN_PLAY", clockLabel: "63'", homeGoals: 2, awayGoals: 1 });
+  check("a fully-formed object round-trips exactly", JSON.stringify(valid) === JSON.stringify({ status: "IN_PLAY", clockLabel: "63'", homeGoals: 2, awayGoals: 1 }), JSON.stringify(valid));
+
+  const missingGoals = parseLiveScoreInput({ status: "SCHEDULED" });
+  check("missing goals default to null rather than undefined/NaN", missingGoals?.homeGoals === null && missingGoals?.awayGoals === null, JSON.stringify(missingGoals));
+
+  const wrongTypes = parseLiveScoreInput({ status: "IN_PLAY", clockLabel: 63, homeGoals: "2", awayGoals: 1 });
+  check("a wrongly-typed clockLabel/homeGoals is dropped rather than trusted as-is", wrongTypes?.clockLabel === undefined && wrongTypes?.homeGoals === null, JSON.stringify(wrongTypes));
 }
 
 async function run() {
   const failures: string[] = [];
 
   runGameTimeLineChecks(failures);
+  runParseLiveScoreInputChecks(failures);
   await runResilienceCases(failures);
   await runFootballPipelineChecks(failures);
   await runCostTrackingChecks(failures);

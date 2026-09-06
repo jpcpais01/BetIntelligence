@@ -358,10 +358,40 @@ export function withNow(systemPrompt: string): string {
 // football terms (which half, how much stoppage time is plausible), but it's never left to notice
 // on its own THAT a match might already be well underway or over.
 //
-// Purely a wall-clock estimate (same heuristic MATCH_OVER_AFTER_MS already is elsewhere) — it has
-// no access to the real live match clock or score, so it's phrased as "kickoff was N minutes ago",
-// never as a confirmed minute of play.
-export function gameTimeLine(startTimeIso: string, now: number = Date.now()): string {
+// The real live match clock/score, exactly what a Sports-page card itself shows ("63' 2-1") —
+// straight from ESPN (lib/liveScores.ts), threaded through from whichever card's Analyze button
+// was actually tapped. When this is available, gameTimeLine below reports it directly instead of
+// falling back to a wall-clock guess, which is what "the analysis keeps saying started X minutes
+// ago" turned out to be: an estimate standing in for data the app already had on screen but never
+// actually handed to the model.
+export interface RealGameClock {
+  status: string;
+  clockLabel?: string;
+  homeGoals: number | null;
+  awayGoals: number | null;
+}
+
+// Validates the untrusted `liveScore` field a client can include on an analyze request — the
+// same shape as (a subset of) LiveScoreEntry (lib/liveScores.ts), sent over the wire instead of
+// imported, since these API routes shouldn't need to know that type exists. Anything malformed or
+// absent just means no real live score for this call, never a thrown error.
+export function parseLiveScoreInput(value: unknown): RealGameClock | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.status !== "string") return null;
+  return {
+    status: v.status,
+    clockLabel: typeof v.clockLabel === "string" ? v.clockLabel : undefined,
+    homeGoals: typeof v.homeGoals === "number" ? v.homeGoals : null,
+    awayGoals: typeof v.awayGoals === "number" ? v.awayGoals : null,
+  };
+}
+
+// Purely a wall-clock estimate (same heuristic MATCH_OVER_AFTER_MS already is elsewhere) — used
+// only when no real live score was available for this match (not yet a live candidate, or this
+// league/provider gap), so it's phrased as "kickoff was N minutes ago", never as a confirmed
+// minute of play.
+function estimatedGameTimeLine(startTimeIso: string, now: number): string {
   const kickoff = new Date(startTimeIso).getTime();
   if (!Number.isFinite(kickoff)) return "Current Game Time: unknown (invalid kickoff time provided).";
 
@@ -373,7 +403,24 @@ export function gameTimeLine(startTimeIso: string, now: number = Date.now()): st
   if (elapsedMin * 60_000 >= MATCH_OVER_AFTER_MS) {
     return `Current Game Time: PROBABLY OVER — kickoff was ${elapsedMin} minutes ago (${new Date(startTimeIso).toUTCString()}), well past a normal 90 minutes plus stoppage time.`;
   }
-  return `Current Game Time: LIVE / IN PROGRESS — kickoff was ${elapsedMin} minute${elapsedMin === 1 ? "" : "s"} ago (${new Date(startTimeIso).toUTCString()}). Work out the likely match minute yourself from this (accounting for the half-time break and possible stoppage time) rather than assuming it's still early.`;
+  return `Current Game Time: LIVE / IN PROGRESS (estimated) — kickoff was ${elapsedMin} minute${elapsedMin === 1 ? "" : "s"} ago (${new Date(startTimeIso).toUTCString()}). No real live clock was available for this match, so work out the likely match minute yourself from this (accounting for the half-time break and possible stoppage time) rather than assuming it's still early.`;
+}
+
+export function gameTimeLine(startTimeIso: string, now: number = Date.now(), liveScore?: RealGameClock | null): string {
+  if (liveScore) {
+    const score = `${liveScore.homeGoals ?? "?"}-${liveScore.awayGoals ?? "?"}`;
+    if (liveScore.status === "FINISHED") {
+      return `Current Game Time: FINISHED — final score ${score} (real live data, not an estimate).`;
+    }
+    if (liveScore.status === "IN_PLAY" || liveScore.status === "PAUSED") {
+      const clock = liveScore.clockLabel ?? (liveScore.status === "PAUSED" ? "HT" : "in progress");
+      return `Current Game Time: LIVE — ${clock}, current score ${score} (real live data, not an estimate — this is the same clock and score shown on the match's own card).`;
+    }
+    // A real status that isn't in-play/paused/finished (SCHEDULED, POSTPONED, ...) carries no
+    // clock or score worth reporting — fall through to the wall-clock estimate, same as having no
+    // live score at all.
+  }
+  return estimatedGameTimeLine(startTimeIso, now);
 }
 
 export function clampConfidence(value: unknown): Confidence {
@@ -505,11 +552,12 @@ export async function getIndependentPredictionFromDigest(input: {
   startTime: string;
   digest: string;
   model?: string;
+  liveScore?: RealGameClock | null;
 }): Promise<IndependentPrediction> {
   const matchDate = new Date(input.startTime).toUTCString();
 
   const predictPrompt = `${nowLine()}
-${gameTimeLine(input.startTime)}
+${gameTimeLine(input.startTime, Date.now(), input.liveScore)}
 
 Match: ${input.homeTeam} (home) vs ${input.awayTeam} (away), ${input.leagueName}, kicking off ${matchDate}.
 
@@ -565,6 +613,7 @@ export async function getIndependentPrediction(input: {
   league: LeagueId;
   startTime: string;
   model?: string;
+  liveScore?: RealGameClock | null;
 }): Promise<IndependentPrediction> {
   const digest = await buildFootballAnalysisDigest(input);
   return getIndependentPredictionFromDigest({
@@ -574,6 +623,7 @@ export async function getIndependentPrediction(input: {
     startTime: input.startTime,
     digest: digest.text,
     model: input.model,
+    liveScore: input.liveScore,
   });
 }
 
@@ -602,6 +652,7 @@ export async function compareToMarket(input: {
   independent: IndependentPrediction;
   market: Probabilities;
   model?: string;
+  liveScore?: RealGameClock | null;
 }): Promise<ComparisonResult> {
   // gameTimeLine below is what actually lets the model reason "has this kicked off yet, and how
   // far in" reliably — it used to be left to compute that itself from nowLine() plus the kickoff
@@ -614,7 +665,7 @@ export async function compareToMarket(input: {
   const matchDate = new Date(input.startTime).toUTCString();
 
   const userPrompt = `${nowLine()}
-${gameTimeLine(input.startTime)}
+${gameTimeLine(input.startTime, Date.now(), input.liveScore)}
 
 Match: ${input.homeTeam} vs ${input.awayTeam} (${input.leagueName}), kicking off ${matchDate}.
 

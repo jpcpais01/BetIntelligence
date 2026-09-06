@@ -112,20 +112,22 @@ times and would otherwise risk picking up an unrelated real match between two sa
 ### The displayed odds always match CLOB's real current price
 
 A card's home/draw/away percentages, and the odds-history panel's own chart underneath it, both come
-from CLOB (`clob.polymarket.com`) — the same source, at the same 5-minute-fidelity 3-hour window
-(`lib/livePrices.ts`, reused from the exact mechanism Lab and Home's portfolio already relied on).
-`game.odds` — Polymarket's Gamma events feed, refreshed at most every 10 minutes by the general
-sweep below — is only ever the seed and the fallback for a token CLOB has no recent trade for, never
-the number actually shown. Before this, the bars read `game.odds` directly (or, once a match kicked
-off, a similarly Gamma-sourced 10-second poll) — a different provider than the chart's own data, so
-the two could disagree even though they were describing "the same" market at "the same" moment.
+from CLOB (`clob.polymarket.com`), reusing the exact mechanism Lab and Home's portfolio already
+relied on (`lib/livePrices.ts`). `game.odds` — Polymarket's Gamma events feed, refreshed at most
+every 10 minutes by the general sweep below — is only ever the seed and the fallback for a token
+CLOB has no recent trade for, never the number actually shown. Before this, the bars read `game.odds`
+directly (or, once a match kicked off, a similarly Gamma-sourced 10-second poll) — a different
+provider than the chart's own data, so the two could disagree even though they were describing "the
+same" market at "the same" moment.
 
-Every listed game's price is fetched from CLOB the moment the games list itself changes (initial
-load, a manual refresh, a live game rejoining after a merge) — not on its own timer, since that
-already matches the general sweep's own cadence. For any game that has actually kicked off, that
-same CLOB read repeats every 10 seconds, since odds move fast once a match is underway and Polymarket
-has no comparable rate limit to worry about there. A game not returned by CLOB (nothing traded
-recently enough) just keeps showing `game.odds` unchanged.
+Every listed game's price is fetched from CLOB at the same 5-minute-fidelity 3-hour window the
+moment the games list itself changes (initial load, a manual refresh, a live game rejoining after a
+merge) — not on its own timer, since that already matches the general sweep's own cadence. For any
+game that has actually kicked off, that same CLOB read repeats every 10 seconds, at the finer
+1-minute fidelity the odds-history chart's own LIVE tab reads (`fetchLivePrices(requests, "live")`)
+— so a live card's number never noticeably lags the line the chart underneath it is drawing, the
+same way it briefly could back when both polls shared the coarser 5-minute window. A game not
+returned by CLOB (nothing traded recently enough) just keeps showing `game.odds` unchanged.
 
 **A live game's odds belong exclusively to this poll — a general refresh can never touch them.**
 `mergeGames` (`lib/gamesCache.ts`) takes the current set of live game ids and, for any of them,
@@ -562,7 +564,13 @@ Tapping **AI Analyze** runs against [`deepseek/deepseek-v4-flash-0731`](https://
    themselves from the kickoff time and `nowLine()`'s current date/time separately, which is exactly what the model
    kept getting wrong. Without it, a live match's already-moved market odds could read as the market simply
    disagreeing with the pre-match independent view, instead of what it actually is: the market pricing in a match
-   that's already underway.
+   that's already underway. When a real live score is available for the match being analyzed — the exact clock and
+   score its own Sports-page card is showing right now (ESPN, `lib/liveScores.ts`) — that gets reported directly
+   instead ("LIVE — 63', current score 2-1"), explicitly marked as real data rather than an estimate; the wall-clock
+   guess above is only the fallback for whenever no live score has come in yet. `GameCard`'s Analyze button and the
+   batch-analysis flow both carry that same live score into the analysis sheet, threaded through to both this step
+   and the independent-read step as a `liveScore` field on the request (validated server-side by
+   `parseLiveScoreInput`).
 
 The research step also folds in a **Starting Lineups** section (`lib/lineups.ts`) once each side's confirmed XI has
 been posted — from the same ESPN site API that already powers live scores, no separate key. ESPN announces a
