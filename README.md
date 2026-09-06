@@ -47,9 +47,11 @@ rather than sitting there for the rest of the day showing odds nobody can bet in
   fixtures it didn't return, and the case where it simply stops updating: without it, an abandoned
   match would stay "in play" on screen forever.
 
-That single definition also decides when a saved pick is pruned (`pruneFinishedPicks`), how long
-`mergeGames` keeps carrying a game the upstream feed has dropped, and when live-score polling
-stops. [Settlement](#settling-football-bets-against-the-real-result) doesn't consult this module at
+That single definition also decides how long `mergeGames` keeps carrying a game the upstream feed
+has dropped, and when live-score polling stops. A saved pick (`pruneFinishedPicks`,
+[Picks and Lab](#picks-and-lab-one-shared-view-across-both)) uses a related but deliberately later
+threshold — the match being "over" plus a further day's grace — rather than this exact moment.
+[Settlement](#settling-football-bets-against-the-real-result) doesn't consult this module at
 all — it settles from the real score directly, not from a clock-based guess about whether one
 exists yet.
 
@@ -187,23 +189,30 @@ Football** filter, since there's nothing else to filter between:
 Any market pick saved from Discover before it was deactivated stays in `lib/marketPicks.ts`
 untouched — it's just not read or shown by either page while Discover is off.
 
-A saved football pick is pruned automatically once its match has finished — there's nothing left
-to bet on, so keeping the analysis around is just clutter, unlike a placed bet (which stays as a
-permanent record even after settling). `pruneFinishedPicks` (`lib/picks.ts`) is called in place of
-a plain load by both Picks and Lab, so a stale entry is actually removed from storage (not just
-hidden) the moment either page next opens. Whether a match has finished is a plain kickoff-time
-heuristic (3+ hours past kickoff, comfortably longer than any real match takes) rather than a real
-status check — unlike settlement, getting this wrong costs nothing worse than a free re-analysis,
-so it isn't worth an extra network round-trip on every page load for the rare edge case (a
-postponed match) it could get wrong.
+A saved pick's own card (`PickCard`) changes look across the same three phases a Sports game card
+does — **upcoming** (the default treatment), **live** (a thicker, red-tinted border and a more
+transparent/glassy interior, with the real score, match clock, and CLOB's live current price all
+shown right in it, refreshed the same way Sports' own live polling works — `app/picks/page.tsx`
+runs the identical score/odds polls, just scoped to whichever saved picks are actually in play),
+and **finished** (muted, flattened — no longer actionable, but the final score is still worth a
+glance). A pick isn't removed the instant its match ends, either — it stays for a full day
+afterward, long enough that "what actually happened" (and whether the original read was right) is
+still visible well after the match itself stopped mattering. `pruneFinishedPicks` (`lib/picks.ts`)
+is called in place of a plain load by both Picks and Lab, so an entry actually past that window is
+removed from storage (not just hidden) the moment either page next opens — the retention window
+itself (`isPastRetentionWindow`, `lib/matchClock.ts`) is a plain kickoff-time heuristic (3+ hours
+past kickoff to call a match over, plus a further 24h grace) rather than a real status check;
+unlike settlement, getting this wrong costs nothing worse than a pick sticking around a little
+longer than strictly necessary, so it isn't worth an extra network round-trip on every page load
+for the rare edge case (a postponed match) it could get wrong.
 
 Lab goes a step further for its own **Build** tab: a match that's merely *started* (kickoff has
 passed at all, `hasKickedOff`) is filtered out of the buildable list the moment Lab loads, well
-before pruneFinishedPicks' 3-hour mark ever deletes it — Lab is a "build a new bet" tool, so a
-game already underway isn't something you can act on anymore, even though Picks still shows it as
-recent analysis history in the meantime. Any leg already sitting in the draft slip for a match that
-has since kicked off is removed the same way, so the slip never carries something no longer
-placeable.
+before a pick's own much longer retention window ever deletes it — Lab is a "build a new bet" tool,
+so a game already underway isn't something you can act on anymore, even though Picks still shows it
+as recent (and, for a while, live) analysis history in the meantime. Any leg already sitting in the
+draft slip for a match that has since kicked off is removed the same way, so the slip never carries
+something no longer placeable.
 
 ### Lab: a sportsbook-style slip
 

@@ -46,6 +46,19 @@ export function isMatchOver(
   return isOverByClock(startTime, now);
 }
 
+// How long a saved pick (Picks tab) stays around after its match is over, before actually being
+// removed — measured from KICKOFF, same as MATCH_OVER_AFTER_MS itself, since there's no real
+// "confirmed finished at" timestamp tracked anywhere for a match settled via the clock backstop
+// rather than a real status. A finished match is still worth a glance (the final score, the
+// pre-match read that turned out right or wrong) for a full day afterward, not gone the instant
+// its market closes.
+export const MATCH_REMOVED_AFTER_MS = MATCH_OVER_AFTER_MS + 24 * 60 * 60 * 1000;
+
+export function isPastRetentionWindow(startTime: string | undefined, now: number = Date.now()): boolean {
+  const t = kickoffMs(startTime);
+  return t !== null && now - t >= MATCH_REMOVED_AFTER_MS;
+}
+
 // Worth asking a live-score provider about: from shortly before kickoff until the match is over.
 // Note this deliberately takes the same `status` as isMatchOver, so a match stops being polled the
 // moment it's confirmed finished rather than being re-requested pointlessly until the clock

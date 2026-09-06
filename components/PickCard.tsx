@@ -1,5 +1,7 @@
-import type { SavedPick } from "@/lib/types";
+import type { SavedPick, Probabilities } from "@/lib/types";
+import type { LiveScoreEntry } from "@/lib/liveScores";
 import { formatKickoff, toSignedPercent } from "@/lib/format";
+import { hasKickedOff, isMatchOver } from "@/lib/matchClock";
 import Avatar from "./Avatar";
 import { TrendingUpIcon, ScaleIcon, CloseIcon, ChevronRightIcon } from "./icons";
 
@@ -7,12 +9,40 @@ export default function PickCard({
   pick,
   onRemove,
   onOpen,
+  liveScore,
+  liveOdds,
 }: {
   pick: SavedPick;
   onRemove: (id: string) => void;
   onOpen: (pick: SavedPick) => void;
+  liveScore?: LiveScoreEntry | null;
+  // CLOB's real current price once this pick's match has kicked off (app/picks/page.tsx) — the
+  // same live-odds mechanism GameCard uses on Sports. Falls back to the plain snapshot the pick
+  // was saved with for anything not yet live.
+  liveOdds?: Probabilities | null;
 }) {
   const { label: kickoffLabel } = formatKickoff(pick.startTime);
+  const started = hasKickedOff(pick.startTime);
+  const effectiveOdds = liveOdds ?? pick.market;
+
+  const scoreLabel = liveScore
+    ? `${liveScore.clockLabel ?? (liveScore.status === "FINISHED" ? "FT" : "LIVE")} ${liveScore.homeGoals ?? "-"}-${liveScore.awayGoals ?? "-"}`
+    : null;
+  const isLive = liveScore ? liveScore.status === "IN_PLAY" || liveScore.status === "PAUSED" : false;
+
+  // The card's own look changes across the same three phases GameCard uses on Sports — upcoming
+  // (the default treatment), live (a thicker, more saturated border + a more transparent/glassy
+  // interior), and finished (muted/flattened, still worth a glance for the final score). A saved
+  // pick stays on this list through all three, only actually pruned a full day after its match
+  // ends (lib/picks.ts's pruneFinishedPicks, lib/matchClock.ts's retention window).
+  const over = isMatchOver(pick.startTime, liveScore?.status);
+  const phase: "upcoming" | "live" | "finished" = over ? "finished" : started ? "live" : "upcoming";
+  const cardClassName =
+    phase === "live"
+      ? "border-2 border-accent-3/30 bg-surface/40 backdrop-blur-md"
+      : phase === "finished"
+        ? "border border-border-soft/60 bg-surface-2/40 opacity-75"
+        : "border border-border-soft bg-surface";
 
   const bestEdgeLabel =
     pick.comparison.bestValue === "none"
@@ -29,14 +59,12 @@ export default function PickCard({
   return (
     <div
       onClick={() => onOpen(pick)}
-      className="press rise-in cursor-pointer rounded-2xl border border-border-soft bg-surface p-4"
+      className={`press rise-in cursor-pointer rounded-2xl p-4 transition-colors ${cardClassName}`}
     >
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2 text-[11px] text-text-faint">
           <span className="text-xs leading-none">{pick.leagueFlag}</span>
           <span className="truncate">{pick.leagueName}</span>
-          <span className="opacity-50">&middot;</span>
-          <span className="shrink-0">{kickoffLabel}</span>
           {pick.research && pick.research.runCount > 1 && (
             <>
               <span className="opacity-50">&middot;</span>
@@ -44,7 +72,11 @@ export default function PickCard({
             </>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span className={`text-[11px] tabular-nums ${isLive ? "font-medium text-accent-3" : "text-text-faint"}`}>
+            {isLive && <span className="pulse-dot mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-accent-3 align-middle" />}
+            {scoreLabel ?? kickoffLabel}
+          </span>
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -68,9 +100,9 @@ export default function PickCard({
       </div>
 
       <div className="mb-3 grid grid-cols-3 gap-1.5">
-        <MiniStat label={pick.homeTeam.split(" ")[0]} ai={pick.independent.home} market={pick.market.home} />
-        <MiniStat label="Draw" ai={pick.independent.draw} market={pick.market.draw} />
-        <MiniStat label={pick.awayTeam.split(" ")[0]} ai={pick.independent.away} market={pick.market.away} />
+        <MiniStat label={pick.homeTeam.split(" ")[0]} ai={pick.independent.home} market={effectiveOdds.home} />
+        <MiniStat label="Draw" ai={pick.independent.draw} market={effectiveOdds.draw} />
+        <MiniStat label={pick.awayTeam.split(" ")[0]} ai={pick.independent.away} market={effectiveOdds.away} />
       </div>
 
       {bestEdgeLabel ? (

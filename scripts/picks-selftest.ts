@@ -17,6 +17,7 @@ class MemoryStorage {
 };
 
 import { loadPicks, savePick, pruneFinishedPicks } from "../lib/picks";
+import { MATCH_REMOVED_AFTER_MS } from "../lib/matchClock";
 import type { SavedPick } from "../lib/types";
 
 function fakePick(id: string, startTime: string): SavedPick {
@@ -65,19 +66,28 @@ function run() {
     console.log(`  ${cond ? "ok" : "FAIL"}  ${name}`);
   };
 
-  // The exact reported request: a game that finished a while ago is deleted, not just hidden.
-  savePick(fakePick("finished", isoAgo(6 * HOUR)));
+  // A pick stays around through its match's whole lifecycle plus a full day after it ends —
+  // only a match well past THAT retention window is actually deleted, not just hidden.
+  savePick(fakePick("long-gone", isoAgo(MATCH_REMOVED_AFTER_MS + HOUR)));
+  savePick(fakePick("finished-recently", isoAgo(6 * HOUR)));
   savePick(fakePick("upcoming", isoFromNow(2 * HOUR)));
   savePick(fakePick("just-started", isoAgo(HOUR)));
 
   const pruned = pruneFinishedPicks();
-  check("a match that finished hours ago is pruned", !pruned.some((p) => p.id === "finished"));
+  check("a match past its full retention window is pruned", !pruned.some((p) => p.id === "long-gone"));
+  check(
+    "a match that finished a few hours ago is still within its retention window and survives",
+    pruned.some((p) => p.id === "finished-recently")
+  );
   check("an upcoming match survives", pruned.some((p) => p.id === "upcoming"));
   check("a match still plausibly in progress (1h in) survives", pruned.some((p) => p.id === "just-started"));
-  check("exactly one entry was removed", pruned.length === 2);
+  check("exactly one entry was removed", pruned.length === 3);
 
   const reloaded = loadPicks();
-  check("the removal is actually persisted, not just filtered in memory", reloaded.length === 2 && !reloaded.some((p) => p.id === "finished"));
+  check(
+    "the removal is actually persisted, not just filtered in memory",
+    reloaded.length === 3 && !reloaded.some((p) => p.id === "long-gone")
+  );
 
   // A store with nothing finished doesn't rewrite storage or drop anything.
   const before = loadPicks();

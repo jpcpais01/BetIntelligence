@@ -1,5 +1,5 @@
 import type { SavedPick } from "./types";
-import { isOverByClock } from "./matchClock";
+import { isPastRetentionWindow } from "./matchClock";
 
 const STORAGE_KEY = "betintelligence.picks.v1";
 
@@ -28,11 +28,11 @@ export function removePick(id: string): SavedPick[] {
   return next;
 }
 
-// Once a game is over there's nothing left to bet on, so keeping its analysis around is just
-// clutter — unlike a placed bet, which stays as a permanent paper-trade record even after
-// settling. Called in place of loadPicks() by every page that lists saved picks, so a finished
-// match's pick is pruned (and the removal persisted) the moment any of them next loads, rather
-// than needing a manual delete per stale entry.
+// A pick stays around through its match's entire lifecycle — upcoming, live, and for a full day
+// after it finishes (its own distinct look on the Picks tab, PickCard's `phase`) — only actually
+// pruned once that retention window passes (lib/matchClock.ts). Called in place of loadPicks() by
+// every page that lists saved picks, so an expired pick is pruned (and the removal persisted) the
+// moment any of them next loads, rather than needing a manual delete per stale entry.
 //
 // Uses the plain kickoff-time reading of "over" (lib/matchClock.ts) rather than checking a real
 // match status: unlike settlement, where getting it wrong means a wrong payout, pruning a saved
@@ -40,7 +40,7 @@ export function removePick(id: string): SavedPick[] {
 // round-trip on every Picks/Lab load for the rare edge case (a postponed match) it could get wrong.
 export function pruneFinishedPicks(): SavedPick[] {
   const all = loadPicks();
-  const next = all.filter((p) => !isOverByClock(p.startTime));
+  const next = all.filter((p) => !isPastRetentionWindow(p.startTime));
   if (next.length !== all.length && typeof window !== "undefined") {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   }
