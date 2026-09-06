@@ -99,6 +99,7 @@ export default function BatchAnalysisSheet({
             independent: prediction,
             comparison,
             totalCostUsd: totalCost(prediction.costUsd, comparison.costUsd),
+            startTime: game.startTime,
           });
         } catch (err) {
           setResults((r) => ({

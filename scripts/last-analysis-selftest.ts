@@ -17,7 +17,8 @@ class MemoryStorage {
   localStorage: new MemoryStorage(),
 };
 
-import { loadLastAnalyses, getLastAnalysis, saveLastAnalysis } from "../lib/lastAnalysis";
+import { loadLastAnalyses, getLastAnalysis, saveLastAnalysis, pruneExpiredAnalyses } from "../lib/lastAnalysis";
+import { MATCH_REMOVED_AFTER_MS } from "../lib/matchClock";
 import { loadLastMarketAnalyses, getLastMarketAnalysis, saveLastMarketAnalysis } from "../lib/lastMarketAnalysis";
 import type { IndependentPrediction, ComparisonResult, MarketPrediction, MarketComparison } from "../lib/types";
 
@@ -136,6 +137,36 @@ async function run() {
   check("market: store is capped at 150 entries", Object.keys(mStore).length === 150, `got ${Object.keys(mStore).length}`);
   check("market: newest bulk entry survived", getLastMarketAnalysis("mkt-159") !== null);
   check("market: oldest bulk entry was evicted", getLastMarketAnalysis("mkt-0") === null);
+
+  // 5. pruneExpiredAnalyses: a match well past its retention window (kickoff + over-threshold +
+  //    24h) is removed; one still within it, or with no startTime at all (an entry saved before
+  //    the field existed), is left alone.
+  const isoAgo = (ms: number) => new Date(Date.now() - ms).toISOString();
+  saveLastAnalysis("expired-game", {
+    analyzedAt: new Date().toISOString(),
+    market: { home: 0.4, draw: 0.3, away: 0.3 },
+    independent,
+    comparison,
+    startTime: isoAgo(MATCH_REMOVED_AFTER_MS + 60_000),
+  });
+  saveLastAnalysis("fresh-game", {
+    analyzedAt: new Date().toISOString(),
+    market: { home: 0.4, draw: 0.3, away: 0.3 },
+    independent,
+    comparison,
+    startTime: isoAgo(60_000),
+  });
+  saveLastAnalysis("no-starttime-game", {
+    analyzedAt: new Date().toISOString(),
+    market: { home: 0.4, draw: 0.3, away: 0.3 },
+    independent,
+    comparison,
+  });
+  const pruned = pruneExpiredAnalyses();
+  check("a match past its retention window is pruned", pruned["expired-game"] === undefined);
+  check("a match still within its retention window survives", pruned["fresh-game"] !== undefined);
+  check("an entry with no startTime at all is left alone, not guessed at", pruned["no-starttime-game"] !== undefined);
+  check("the pruned removal is actually persisted, not just filtered in memory", getLastAnalysis("expired-game") === null);
 
   if (failures.length > 0) {
     console.log("\nFAILURES:");

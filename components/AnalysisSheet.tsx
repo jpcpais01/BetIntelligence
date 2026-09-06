@@ -202,6 +202,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
           comparison: result,
           research: toFootballResearchSummary(collected),
           totalCostUsd: totalCost(finalIndependent.costUsd, result.costUsd),
+          startTime: game.startTime,
         });
       } catch (err) {
         if (cancelled) return;

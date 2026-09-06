@@ -3,7 +3,9 @@ import {
   isOverByClock,
   isMatchOver,
   isLiveCandidate,
+  isPastRetentionWindow,
   MATCH_OVER_AFTER_MS,
+  MATCH_REMOVED_AFTER_MS,
 } from "../lib/matchClock";
 
 const MINUTE = 60 * 1000;
@@ -77,6 +79,27 @@ function run() {
       !isLiveCandidate(startTime, status) || !isMatchOver(startTime, status)
     );
   }
+
+  // --- isPastRetentionWindow: how long a match stays on screen (and keeps its own last-analysis)
+  // after it's over — a full day later than isMatchOver/isOverByClock, not the same moment. ---
+  check(
+    "a match that just became over by the clock is not yet past the retention window",
+    !isPastRetentionWindow(isoAgo(MATCH_OVER_AFTER_MS + MINUTE))
+  );
+  check(
+    "a match 12h past the over threshold is still within the retention window",
+    !isPastRetentionWindow(isoAgo(MATCH_OVER_AFTER_MS + 12 * HOUR))
+  );
+  check(
+    "a match past the full retention window is finally removed",
+    isPastRetentionWindow(isoAgo(MATCH_REMOVED_AFTER_MS + MINUTE))
+  );
+  check(
+    "the retention window is exactly 24h later than the over threshold",
+    MATCH_REMOVED_AFTER_MS === MATCH_OVER_AFTER_MS + 24 * HOUR
+  );
+  check("an upcoming match is never past the retention window", !isPastRetentionWindow(isoFromNow(2 * HOUR)));
+  check("a missing kickoff time is never past the retention window", !isPastRetentionWindow(undefined));
 
   if (failures.length > 0) {
     console.log("\nFAILURES:");

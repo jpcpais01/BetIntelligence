@@ -13,9 +13,9 @@ import { isTopGame } from "@/lib/topTeams";
 import { useRequestLogos } from "@/components/ClubLogosProvider";
 import { formatRelativeTime } from "@/lib/format";
 import { loadCachedGames, saveCachedGames, isStale, mergeGames } from "@/lib/gamesCache";
-import { hasKickedOff, isLiveCandidate, isMatchOver } from "@/lib/matchClock";
+import { hasKickedOff, isLiveCandidate, isPastRetentionWindow } from "@/lib/matchClock";
 import { loadSelectedLeagues, saveSelectedLeagues } from "@/lib/leaguePrefs";
-import { loadLastAnalyses, type LastAnalysisEntry } from "@/lib/lastAnalysis";
+import { pruneExpiredAnalyses, type LastAnalysisEntry } from "@/lib/lastAnalysis";
 import type { LiveScoreEntry } from "@/lib/liveScores";
 import { anyTeamNameMatches } from "@/lib/teamNameMatching";
 import { liveKey, fetchLivePrices, type LivePriceRequest } from "@/lib/livePrices";
@@ -76,7 +76,7 @@ export default function Home() {
   // Re-read whenever an analysis sheet closes — analyses are cached automatically as soon as
   // they finish (lib/lastAnalysis.ts), whether or not the user tapped Save, so this is how a
   // card picks up "what the AI last said" right after you close the sheet.
-  const refreshLastAnalysis = useCallback(() => setLastAnalysisMap(loadLastAnalyses()), []);
+  const refreshLastAnalysis = useCallback(() => setLastAnalysisMap(pruneExpiredAnalyses()), []);
 
   // The general odds sweep is click-triggered (plus the initial load, and returning to a
   // long-stale tab), never an automatic timer — but throttled so it's never asked to repeat itself
@@ -118,7 +118,7 @@ export default function Home() {
       fetchedAtRef.current = cached.fetchedAt;
     }
     setSelectedLeagues(loadSelectedLeagues());
-    setLastAnalysisMap(loadLastAnalyses());
+    setLastAnalysisMap(pruneExpiredAnalyses());
     /* eslint-enable react-hooks/set-state-in-effect */
     void refresh();
   }, [refresh]);
@@ -186,16 +186,19 @@ export default function Home() {
     return map;
   }, [games, scoresByMatch]);
 
-  // A match that's over is done being a market — it drops off the list entirely rather than
-  // lingering with odds nobody can act on. Its real FINISHED status decides that where the
-  // provider covers the league; the kickoff clock is the backstop everywhere else.
+  // A match stays on the list through its own live play AND for a full day after it ends — long
+  // enough that the final score is still worth glancing at — only actually dropping off (and
+  // taking its own last-analysis panel with it, lib/lastAnalysis.ts's matching prune) 24 hours
+  // past that. There's no live market left to act on once it's over, but GameCard still shows it
+  // in its own distinct "finished" look rather than pretending nothing happened here.
   const liveGames = useMemo(() => {
     if (!games) return [];
     // Before the clock has been read (the very first render), show everything rather than nothing:
-    // briefly listing a match that's already over is a far smaller glitch than blanking the list.
+    // briefly listing a match well past its retention window is a far smaller glitch than
+    // blanking the list.
     if (now === null) return games;
-    return games.filter((g) => !isMatchOver(g.startTime, scoreByGameId[g.id]?.status, now));
-  }, [games, scoreByGameId, now]);
+    return games.filter((g) => !isPastRetentionWindow(g.startTime, now));
+  }, [games, now]);
 
   // Only ask about leagues that actually have a game in play right now: checking every covered
   // league on every poll was most of football-data.org's whole request budget by itself. Both
