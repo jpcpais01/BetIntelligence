@@ -202,6 +202,15 @@ export default function PicksPage() {
 
   const valueCount = sportsPicks?.filter((p) => p.comparison.bestValue !== "none").length ?? 0;
 
+  // Ordered by kickoff — the earliest match first, whether it's still upcoming, already live, or
+  // finished a while ago — rather than by whenever each one happened to be saved. A schedule read
+  // top-to-bottom is what this list is for; save order doesn't mean anything once you have more
+  // than a couple of picks.
+  const orderedPicks = useMemo(
+    () => (sportsPicks ? [...sportsPicks].sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()) : null),
+    [sportsPicks]
+  );
+
   return (
     <div className="mx-auto max-w-md">
       <div className="safe-top" />
@@ -229,9 +238,9 @@ export default function PicksPage() {
           </div>
         )}
 
-        {sportsPicks !== null && sportsPicks.length > 0 && (
+        {orderedPicks !== null && orderedPicks.length > 0 && (
           <div className="space-y-3">
-            {sportsPicks.map((pick) => (
+            {orderedPicks.map((pick) => (
               <PickCard
                 key={pick.id}
                 pick={pick}
