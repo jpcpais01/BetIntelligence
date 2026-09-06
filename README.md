@@ -33,43 +33,29 @@ git history.
 The **Sports** tab (`app/sports/page.tsx`) is the original football-only experience — see below
 for how its AI analysis, filtering, and caching work.
 
-### A match's lifecycle: upcoming, live, finished, gone
+### A match's lifecycle: upcoming, live, gone
 
-Sports keeps a match on screen through three visually distinct phases, each in its own look
-(`GameCard`'s `phase`) — **upcoming** (the default card treatment), **live** (a thicker, more
-saturated red-tinted border and a more transparent/glassy interior — the busiest, most
-"happening right now" state, with the real score, match clock, and CLOB's live odds all shown
-right in it), and **finished** (muted, flattened — no longer an actionable market, but the final
-score is still worth a glance). Only once a match is a full day past finishing does it actually
-**drop off the list entirely** — long enough that "what happened" stays visible well after "can I
-still bet this" has stopped mattering.
+Sports lists matches you can still act on. Once a match is **over it drops off the list entirely**,
+rather than sitting there for the rest of the day showing odds nobody can bet into.
 
-Two questions, each answered in exactly one place (`lib/matchClock.ts`), and everything else defers
-to them:
+"Over" is answered in exactly one place, `lib/matchClock.ts`, and everything else defers to it:
 
-- **Is it over at all?** (`isMatchOver`) The real provider status wins when there is one — a match
-  reported as `FINISHED` is over the moment it says so, however recently it kicked off. The kickoff
-  clock is the backstop everywhere else (`MATCH_OVER_AFTER_MS`, 3h — 90 minutes plus half time,
-  stoppage and any realistic delay, rounded up), covering leagues the provider doesn't, fixtures it
-  didn't return, and the case where it simply stops updating: without it, an abandoned match would
-  stay "in play" on screen forever.
-- **Has it been over long enough to remove?** (`isPastRetentionWindow`) A full day (`MATCH_REMOVED_AFTER_MS`,
-  `MATCH_OVER_AFTER_MS` + 24h) later than the above, measured from kickoff either way — there's no
-  real "confirmed finished at" timestamp tracked anywhere to measure 24h forward from instead, so
-  this reuses the one timestamp every match definitely has. This is what actually decides whether a
-  match is still on the Sports list at all, and whether its own [last-analysis panel](#every-card-remembers-its-last-analysis)
-  still shows.
+- The real provider status wins when there is one — a match reported as `FINISHED` is over the
+  moment it says so, however recently it kicked off.
+- The kickoff clock is the backstop everywhere else (`MATCH_OVER_AFTER_MS`, 3h — 90 minutes plus
+  half time, stoppage and any realistic delay, rounded up). It covers leagues the provider doesn't,
+  fixtures it didn't return, and the case where it simply stops updating: without it, an abandoned
+  match would stay "in play" on screen forever.
 
-`pruneFinishedPicks` (the **Picks** tab's permanent saved-analysis list) is a deliberately different,
-shorter retention rule: a saved pick is pruned the moment its match is simply over, no extra day —
-unlike Sports' live card, Picks has no "still worth a glance right after the final whistle" look to
-offer, so there's no reason to keep it around once there's genuinely nothing left to act on.
-[Settlement](#settling-football-bets-against-the-real-result) doesn't consult this module at all —
-it settles from the real score directly, not from a clock-based guess about whether one exists yet.
+That single definition also decides when a saved pick is pruned (`pruneFinishedPicks`), how long
+`mergeGames` keeps carrying a game the upstream feed has dropped, and when live-score polling
+stops. [Settlement](#settling-football-bets-against-the-real-result) doesn't consult this module at
+all — it settles from the real score directly, not from a clock-based guess about whether one
+exists yet.
 
 Because kickoff and full time are moments that pass with no data arriving to announce them, the
-page keeps its own 30-second clock tick, so a match changes phase and eventually disappears on time
-rather than whenever some unrelated fetch happens to land.
+page keeps its own 30-second clock tick, so a match appears and disappears on time rather than
+whenever some unrelated fetch happens to land.
 
 ### Live scores and match clock, from ESPN
 
@@ -174,19 +160,16 @@ kickoff time has to be recovered from a question's date text it has no time of d
 00:00 UTC, so a tight server-side window would drop real fixtures. The client, which has the real
 status, does the precise filtering.
 
-### An analysis stays on the card through kickoff and beyond
+### Stale analysis disappears at kickoff
 
-The "AI last said" panel a card shows (see below) reflects whatever the match looked like at the
-moment it was analyzed — it used to disappear the instant kickoff passed, on the theory that a
-pre-match read is stale once there's a live score to account for. That hid a genuinely useful
-record (what was actually said beforehand) for no real benefit, so the panel now stays put through
-the match's entire lifecycle — live, and for the same 24-hour-past-finished window the card itself
-sticks around for (see [A match's lifecycle](#a-matchs-lifecycle-upcoming-live-finished-gone)) —
-rather than only ever showing a pre-match take. Re-running Analyze at any point produces a fresh
-read that simply replaces it. The entry is only ever actually deleted from storage
-(`pruneExpiredAnalyses`, `lib/lastAnalysis.ts`) once its match passes that same retention window —
-an entry saved before this field existed at all (no stored kickoff time to check) is left alone
-rather than guessed at.
+The "AI last said" panel a card shows (see below) reflects whatever the match looked like *before*
+kickoff — once the game actually starts, that read no longer accounts for the live score or a
+possibly different squad, so the card stops showing it rather than presenting a stale pre-match take
+as if it were still current. Re-running Analyze after kickoff produces a fresh read — one whose
+research digest already reflects the live match status and score (see
+[How the AI analysis works](#how-the-ai-analysis-works)) — which then shows normally on the card
+until the *next* time this match starts (i.e., never again, for a finished one-off fixture). Nothing
+is deleted from storage; the panel just isn't rendered once `game.startTime` has passed.
 
 ## Picks and Lab: one shared view across both
 
@@ -669,9 +652,8 @@ finishes — whether or not you ever tap **Save**. The card shows a one-line sum
 market for every outcome, confidence, the verdict, and the multi-run agreement breakdown if it was
 researched more than once. Re-analyzing overwrites the cached entry; each cache is capped at the
 150 most recently analyzed matches/markets to keep it from growing unbounded. For Sports
-specifically, this summary stays on the card through kickoff and for a full day past the match
-ending, only actually being deleted once its match passes that same retention window — see
-[An analysis stays on the card through kickoff and beyond](#an-analysis-stays-on-the-card-through-kickoff-and-beyond).
+specifically, this summary stops showing on a card the moment that match's kickoff passes — see
+[Stale analysis disappears at kickoff](#stale-analysis-disappears-at-kickoff).
 
 ### Cost tracking
 

@@ -6,7 +6,7 @@ import type { LastAnalysisEntry } from "@/lib/lastAnalysis";
 import type { LiveScoreEntry } from "@/lib/liveScores";
 import { formatCompactNumber, formatKickoff, formatRelativeTime, toPercent, toSignedPercent, formatCostUsd } from "@/lib/format";
 import { isTopGame } from "@/lib/topTeams";
-import { hasKickedOff, isMatchOver } from "@/lib/matchClock";
+import { hasKickedOff } from "@/lib/matchClock";
 import { agreementLabel, agreementTone } from "@/lib/aggregate";
 import { riskLevelFor, riskLevelLabel, riskLevelColor } from "@/lib/riskLevel";
 import Avatar from "./Avatar";
@@ -61,21 +61,6 @@ export default function GameCard({
     : null;
   const isLive = liveScore ? liveScore.status === "IN_PLAY" || liveScore.status === "PAUSED" : heuristicLive;
 
-  // The card's own look changes across three phases — upcoming (the default treatment), live
-  // (darker, more saturated border + a more transparent/glassy interior — the busiest, most
-  // "happening right now" state), and finished (muted/flattened — still worth a glance for the
-  // final score, but visibly no longer an actionable market). A match stays on the Sports page for
-  // a full day after finishing (see app/sports/page.tsx's retention window), so "finished" is a
-  // real, long-lived state here, not just a brief transition before the card disappears.
-  const over = isMatchOver(game.startTime, liveScore?.status);
-  const phase: "upcoming" | "live" | "finished" = over ? "finished" : started ? "live" : "upcoming";
-  const cardClassName =
-    phase === "live"
-      ? "border-2 border-accent-3/30 bg-surface/40 backdrop-blur-md"
-      : phase === "finished"
-        ? "border border-border-soft/60 bg-surface-2/40 opacity-75"
-        : "surface-lift border border-border-soft";
-
   // A one-word read on how risky the AI's actual recommendation is, from the market's own
   // probability of that specific outcome — not shown at all when there's no recommendation to
   // rate (bestValue "none", or never analyzed). Uses the market probability AT ANALYSIS TIME
@@ -87,8 +72,10 @@ export default function GameCard({
   return (
     <div
       onClick={selectMode ? () => onToggleSelect?.(game) : undefined}
-      className={`rise-in rounded-3xl p-4 transition-colors ${
-        selectMode ? `cursor-pointer press ${selected ? "border border-accent/40 bg-accent/6" : cardClassName}` : cardClassName
+      className={`rise-in rounded-3xl border p-4 ${
+        selectMode
+          ? `cursor-pointer press ${selected ? "border-accent/40 bg-accent/6" : "surface-lift border-border-soft"}`
+          : "surface-lift border-border-soft"
       }`}
       style={style}
     >
@@ -154,12 +141,11 @@ export default function GameCard({
 
       {!selectMode && <PriceHistoryPanel game={game} odds={effectiveOdds} />}
 
-      {/* Stays visible through kickoff and well past full time now (the retention window this
-          card itself lives in, app/sports/page.tsx) — it's the same analysis regardless of
-          whether the match has started, useful as a record of what was actually said beforehand
-          even once live/finished. Re-tapping Analyze produces a fresh one, which simply replaces
-          it as this same panel. */}
-      {!selectMode && lastAnalysis && <LastAnalysisPanel game={game} entry={lastAnalysis} />}
+      {/* Once the match has kicked off, a pre-match analysis is stale — hiding it here means the
+          card only ever shows a "last analysis" that was actually formed live (form, live score,
+          injuries) rather than a snapshot from before the game started. Re-tapping Analyze after
+          kickoff produces a fresh one, which then shows normally until the NEXT match starts. */}
+      {!selectMode && !started && lastAnalysis && <LastAnalysisPanel game={game} entry={lastAnalysis} />}
 
       <div className="flex items-center justify-between gap-3 border-t border-border-soft pt-3">
         <span className="text-[11px] tabular-nums text-text-faint">

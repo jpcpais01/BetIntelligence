@@ -46,24 +46,6 @@ export function isMatchOver(
   return isOverByClock(startTime, now);
 }
 
-// How long a finished match stays visible (Sports list, its own last-analysis panel) after it's
-// over, before actually being removed — measured from KICKOFF, same as MATCH_OVER_AFTER_MS itself,
-// since there's no real "confirmed finished at" timestamp tracked anywhere for a match settled via
-// the clock backstop rather than a real status. This intentionally doesn't restart from whenever a
-// real FINISHED status happened to arrive: a status is only ever read at the moment a caller checks
-// it, never persisted as "true as of this timestamp", so there's nothing to measure 24h forward
-// from except the one timestamp every match definitely has — its own kickoff.
-export const MATCH_REMOVED_AFTER_MS = MATCH_OVER_AFTER_MS + 24 * 60 * 60 * 1000;
-
-// "This match is done being shown at all" — the actual removal threshold a match's card, and its
-// own saved last-analysis, disappears at. Deliberately later than isMatchOver: a match that just
-// finished still has real value on screen (the final score, a live-analysis reference) for a full
-// day afterward, not the moment its market closes.
-export function isPastRetentionWindow(startTime: string | undefined, now: number = Date.now()): boolean {
-  const t = kickoffMs(startTime);
-  return t !== null && now - t >= MATCH_REMOVED_AFTER_MS;
-}
-
 // Worth asking a live-score provider about: from shortly before kickoff until the match is over.
 // Note this deliberately takes the same `status` as isMatchOver, so a match stops being polled the
 // moment it's confirmed finished rather than being re-requested pointlessly until the clock

@@ -1,5 +1,4 @@
 import type { ComparisonResult, IndependentPrediction, Probabilities, ResearchSummary } from "./types";
-import { isPastRetentionWindow } from "./matchClock";
 
 // The most recent analysis for a match, keyed by game id — written automatically whenever an
 // analysis completes, whether or not the user taps "Save". This is deliberately separate from
@@ -13,11 +12,6 @@ export interface LastAnalysisEntry {
   comparison: ComparisonResult;
   research?: ResearchSummary<Probabilities>;
   totalCostUsd?: number;
-  // The match's own kickoff — what pruneExpiredAnalyses uses to decide "this match, and its
-  // analysis, are done being shown at all" (lib/matchClock.ts's retention window: through the
-  // match's own live play, plus a full day after). Undefined for an entry saved before this field
-  // existed; pruneExpiredAnalyses leaves those alone rather than guessing at their match's age.
-  startTime?: string;
 }
 
 const STORAGE_KEY = "betintelligence.lastAnalysis.v1";
@@ -41,31 +35,6 @@ export function loadLastAnalyses(): Store {
 
 export function getLastAnalysis(gameId: string): LastAnalysisEntry | null {
   return loadLastAnalyses()[gameId] ?? null;
-}
-
-// A match past its retention window (lib/matchClock.ts: through its own live play, plus a full
-// day after) is done being shown anywhere, including its own last-analysis panel — call in place
-// of loadLastAnalyses() wherever a page is about to read this store, so an expired entry is
-// pruned (and the removal persisted) the moment any of them next loads, the same pattern
-// lib/picks.ts's pruneFinishedPicks already established for saved picks. An entry with no
-// startTime at all (saved before this field existed) is left alone rather than guessed at.
-export function pruneExpiredAnalyses(): Store {
-  const store = loadLastAnalyses();
-  let changed = false;
-  for (const [id, entry] of Object.entries(store)) {
-    if (entry.startTime && isPastRetentionWindow(entry.startTime)) {
-      delete store[id];
-      changed = true;
-    }
-  }
-  if (changed && typeof window !== "undefined") {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-    } catch {
-      // Best effort only — the in-memory result below is still correct for this call either way.
-    }
-  }
-  return store;
 }
 
 export function saveLastAnalysis(gameId: string, entry: LastAnalysisEntry): void {
