@@ -36,14 +36,28 @@ export function computeEdgeScore(outcomes: ResolvedLegOutcome[]): number | null 
 // show one leg won or lost while the parlay's other legs are still pending, or even already
 // lost). Market/Discover legs never resolve at all here (settlement only ever confirms football
 // legs, lib/settlement.ts), so they're excluded rather than treated as perpetually pending.
+//
+// Deduplicated by (pickId, outcomeLabel) — the same real-world game+side backed across more than
+// one bet (a single bet on "Arsenal", and Arsenal also picked as one leg of an unrelated parlay)
+// is one genuine prediction, not two: without this, the Edge Score multiplied it into the product
+// once per bet it happened to appear in, inflating or deflating the score purely by how many
+// slips you'd reused that same pick in, not by how many independent calls you'd actually made.
+// `marketProb` is a frozen snapshot from the underlying SavedPick at the moment each leg was
+// added, so every duplicate is guaranteed to agree on it — keeping the first occurrence is
+// exactly as correct as any other. A different outcomeLabel on the same pick (e.g. "Arsenal" vs
+// "1X") is a genuinely different bet on the same game and is deliberately NOT merged.
 export function resolvedLegOutcomes(bets: PlacedBet[]): (ResolvedLegOutcome & { riskLevel: RiskLevel })[] {
   const outcomes: (ResolvedLegOutcome & { riskLevel: RiskLevel })[] = [];
+  const seen = new Set<string>();
   for (const bet of bets) {
     if (!bet.legResults) continue;
     bet.legs.forEach((leg, i) => {
       if (leg.kind !== "sports") return;
       const result = bet.legResults?.[i];
       if (result !== "won" && result !== "lost") return;
+      const dedupeKey = `${leg.pickId}:${leg.outcomeLabel}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
       outcomes.push({
         probability: leg.marketProb,
         won: result === "won",

@@ -8,7 +8,7 @@ import {
 import type { PlacedBet } from "../lib/placedBets";
 import type { SlipLeg } from "../lib/betslip";
 
-function leg(marketProb: number, kind: SlipLeg["kind"] = "sports"): SlipLeg {
+function leg(marketProb: number, kind: SlipLeg["kind"] = "sports", overrides: Partial<SlipLeg> = {}): SlipLeg {
   return {
     pickId: `p-${marketProb}-${kind}`,
     kind,
@@ -17,6 +17,7 @@ function leg(marketProb: number, kind: SlipLeg["kind"] = "sports"): SlipLeg {
     outcomeLabel: "Home",
     marketProb,
     aiProb: marketProb,
+    ...overrides,
   };
 }
 
@@ -91,6 +92,44 @@ function run() {
       "a still-pending leg inside an otherwise-resolved bet is excluded, its sibling leg still counted",
       outcomes.some((o) => o.probability === 0.4 && o.won) && !outcomes.some((o) => o.probability === 0.9),
       JSON.stringify(outcomes)
+    );
+  }
+
+  // --- The actual bug report: the same game+outcome bet across two different slips (a single
+  // bet, and the same pick reused as one leg of an unrelated parlay) must only count once toward
+  // the Edge Score, not be multiplied in twice just because it was staked on twice. ---
+  {
+    const arsenalWin = leg(0.6, "sports", { pickId: "arsenal-v-chelsea", outcomeLabel: "Arsenal" });
+    const bets: PlacedBet[] = [
+      bet([arsenalWin], ["won"]), // a standalone single bet on Arsenal to win
+      bet([{ ...arsenalWin }, leg(0.5, "sports", { pickId: "other-game" })], ["won", "won"]), // Arsenal reused as one leg of a different parlay
+    ];
+    const outcomes = resolvedLegOutcomes(bets);
+    check(
+      "the same (pickId, outcomeLabel) across two different bets counts only once",
+      outcomes.filter((o) => o.probability === 0.6).length === 1,
+      JSON.stringify(outcomes)
+    );
+    check(
+      "the unrelated leg from the second bet still counts on its own",
+      outcomes.some((o) => o.probability === 0.5),
+      JSON.stringify(outcomes)
+    );
+    const expected = (1 / 0.6) * (1 / 0.5); // Arsenal counted ONCE, not twice
+    check(
+      "overallEdgeScore reflects the deduplicated count, not one multiplication per bet",
+      close(overallEdgeScore(bets)!, expected),
+      `${overallEdgeScore(bets)} vs expected ${expected}`
+    );
+
+    // Same game, but a genuinely different outcome type on it (a double-chance leg alongside the
+    // straight one) — that's a different bet on the same match and must NOT be merged away.
+    const doubleChanceOnSameGame = leg(0.85, "sports", { pickId: "arsenal-v-chelsea", outcomeLabel: "1X" });
+    const withDoubleChance = resolvedLegOutcomes([bet([arsenalWin, doubleChanceOnSameGame], ["won", "won"])]);
+    check(
+      "a different outcomeLabel on the same game (1X vs Arsenal) is kept as a separate entry, not merged",
+      withDoubleChance.length === 2,
+      JSON.stringify(withDoubleChance)
     );
   }
 
