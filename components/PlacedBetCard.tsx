@@ -1,31 +1,24 @@
 import type { PlacedBet } from "@/lib/placedBets";
-import { combineSlip } from "@/lib/betslip";
-import { liveKey } from "@/lib/livePrices";
-import { toSignedPercent, toDecimalOdds, toPercent, toSignedReturnPercent, formatEur, formatRelativeTime } from "@/lib/format";
+import { toDecimalOdds, toPercent, toSignedReturnPercent, formatEur, formatRelativeTime } from "@/lib/format";
 import { TicketIcon, CloseIcon } from "./icons";
 
 // A placed bet is a paper-trade record. Once football-data.org confirms every football leg's
 // match finished (lib/settlement.ts), it shows a real Won/Lost outcome and payout instead of
 // "Pending" — a bet with any Discover/market leg has no resolution source and just stays Pending
-// forever, same as before settlement existed. Odds/edge for a still-open bet are repriced against
-// the current market (same livePrices map Lab's build view uses). Styled like a ticket stub: a
-// dashed divider separates "what you bought" from the live snapshot/outcome, same visual language
+// forever, same as before settlement existed. Every odd/edge shown here is frozen at the moment
+// the bet was placed (leg.marketProb/leg.aiProb, bet.combined) — this used to reprice a still-open
+// bet's odds against the live market instead, which read as confusing (an odd that keeps moving
+// isn't "the odds you got"; it's just wherever the market happens to be right now). Styled like a
+// ticket stub: a dashed divider separates "what you bought" from the outcome, same visual language
 // real sportsbook confirmations use.
 export default function PlacedBetCard({
   bet,
-  livePrices,
   onRemove,
 }: {
   bet: PlacedBet;
-  livePrices: Record<string, number>;
   onRemove: (id: string) => void;
 }) {
   const { legs, settlement, legResults } = bet;
-  const liveLegs = legs.map((leg) => ({
-    ...leg,
-    marketProb: livePrices[liveKey(leg.pickId, leg.outcomeLabel)] ?? leg.marketProb,
-  }));
-  const live = combineSlip(liveLegs);
   const pnl = settlement ? settlement.payout - bet.stake : 0;
   const pnlPct = bet.stake > 0 ? pnl / bet.stake : 0;
 
@@ -60,9 +53,12 @@ export default function PlacedBetCard({
                 </span>{" "}
                 &middot; {leg.title}
               </span>
-              <span className="shrink-0 tabular-nums text-text-faint">
-                {toDecimalOdds(liveLegs[i].marketProb)}x{" "}
-                <span className="text-[10px]">({toPercent(liveLegs[i].marketProb)})</span>
+              <span className="shrink-0 text-right text-[10px] tabular-nums text-text-faint">
+                <span style={{ color: "var(--lab-gold)" }}>
+                  Mkt {toDecimalOdds(leg.marketProb)}x ({toPercent(leg.marketProb)})
+                </span>
+                <br />
+                AI {toDecimalOdds(leg.aiProb)}x ({toPercent(leg.aiProb)})
               </span>
             </div>
           );
@@ -108,21 +104,21 @@ export default function PlacedBetCard({
         ) : (
           <div className="flex items-center gap-3 text-right">
             <div>
-              <p className="text-[9px] text-text-faint">Odds now</p>
+              <p className="text-[9px] text-text-faint">Market</p>
               <p className="flex items-baseline justify-end gap-1">
                 <span className="font-display text-[13px] font-bold tabular-nums" style={{ color: "var(--lab-gold)" }}>
-                  {toDecimalOdds(live.marketProb)}x
+                  {toDecimalOdds(bet.combined.marketProb)}x
                 </span>
-                <span className="text-[9px] font-medium tabular-nums text-text-faint">{toPercent(live.marketProb)}</span>
+                <span className="text-[9px] font-medium tabular-nums text-text-faint">{toPercent(bet.combined.marketProb)}</span>
               </p>
             </div>
             <div>
-              <p className="text-[9px] text-text-faint">Edge now</p>
-              <p
-                className="font-display text-[13px] font-bold tabular-nums"
-                style={{ color: live.edge > 0.005 ? "var(--lab-green)" : live.edge < -0.005 ? "var(--lab-red)" : "var(--text)" }}
-              >
-                {toSignedPercent(live.edge)}
+              <p className="text-[9px] text-text-faint">Analysis</p>
+              <p className="flex items-baseline justify-end gap-1">
+                <span className="font-display text-[13px] font-bold tabular-nums text-text">
+                  {toDecimalOdds(bet.combined.aiProb)}x
+                </span>
+                <span className="text-[9px] font-medium tabular-nums text-text-faint">{toPercent(bet.combined.aiProb)}</span>
               </p>
             </div>
           </div>

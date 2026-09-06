@@ -99,9 +99,11 @@ export default function LabPage() {
   const picks = sportsPicks;
 
   // Every picked outcome's live current price, keyed the same way a SlipLeg identifies itself
-  // (liveKey) — one fetch serves the browsing rows below, the slip bar, and My Bets alike, all
-  // reading from this same map. Missing keys (an old pick with no tokenId, or a fetch that hasn't
-  // landed yet) fall back to that pick's own stored snapshot at each call site.
+  // (liveKey) — one fetch serves the browsing rows below and the slip bar, both reading from this
+  // same map. Missing keys (an old pick with no tokenId, or a fetch that hasn't landed yet) fall
+  // back to that pick's own stored snapshot at each call site. My Bets (PlacedBetCard) doesn't use
+  // this at all — every odd it shows is frozen at placement, never repriced against the live
+  // market, which used to read as confusing for a still-open bet.
   useEffect(() => {
     if (!picks || picks.length === 0) return;
     const requests: LivePriceRequest[] = [];
@@ -290,7 +292,6 @@ export default function LabPage() {
                   <PlacedBetCard
                     key={bet.id}
                     bet={bet}
-                    livePrices={livePrices}
                     onRemove={(id) => setPlacedBets(removePlacedBet(id))}
                   />
                 ))}
