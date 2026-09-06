@@ -91,17 +91,23 @@ export function applySettlements(updates: Record<string, { status: "won" | "lost
   return next;
 }
 
-// Merges freshly-computed per-leg results into storage — unlike settlement above, this can be
-// (and is meant to be) overwritten on every check up until the bet itself settles, since a leg
-// resolving doesn't necessarily mean the whole bet has yet. Frozen the same way once
-// bet.settlement is set: nothing recomputes a leg's display after the bet's fate is sealed.
+// Merges freshly-computed per-leg results into storage — unlike settlement above, this is meant to
+// be overwritten on every check, since a leg resolving doesn't necessarily mean the whole bet has.
+// It keeps updating even after bet.settlement is set, which is the point: a parlay settles LOST the
+// instant one leg loses, while its other legs may not even have kicked off yet. Freezing them at
+// that moment left a leg that went on to win stuck as "pending" for good — never green on the bet,
+// never counted by the Edge Score. An individual leg's own won/lost result is still final once
+// known; lib/settlement.ts's computeLegResults carries it forward rather than recomputing it.
 export function applyLegResults(updates: Record<string, ("won" | "lost" | "pending")[]>): PlacedBet[] {
   const bets = loadPlacedBets();
   let changed = false;
   const next = bets.map((bet) => {
-    if (bet.settlement) return bet;
     const results = updates[bet.id];
     if (!results) return bet;
+    // Nothing to write when this check learned nothing new — avoids a pointless localStorage
+    // write (and a new array identity) on every one of these that comes back unchanged.
+    const current = bet.legResults;
+    if (current && current.length === results.length && current.every((r, i) => r === results[i])) return bet;
     changed = true;
     return { ...bet, legResults: results };
   });

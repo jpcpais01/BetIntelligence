@@ -72,13 +72,18 @@ export default function GameCard({
   const bestValue = lastAnalysis?.comparison.bestValue;
   const riskLevel = lastAnalysis && bestValue && bestValue !== "none" ? riskLevelFor(lastAnalysis.market[bestValue]) : null;
 
+  // A Champions League fixture gets the competition's own blue wash instead of the neutral surface
+  // every other card uses (.ucl-card, app/globals.css) — background only, so nothing on the card
+  // reads any differently, it's just instantly recognisable as a European night while scrolling.
+  const surfaceClassName = game.league === "champions-league" ? "ucl-card" : "surface-lift border-border-soft";
+
   return (
     <div
       onClick={selectMode ? () => onToggleSelect?.(game) : undefined}
       className={`rise-in rounded-3xl border p-4 ${
         selectMode
-          ? `cursor-pointer press ${selected ? "border-accent/40 bg-accent/6" : "surface-lift border-border-soft"}`
-          : "surface-lift border-border-soft"
+          ? `cursor-pointer press ${selected ? "border-accent/40 bg-accent/6" : surfaceClassName}`
+          : surfaceClassName
       }`}
       style={style}
     >

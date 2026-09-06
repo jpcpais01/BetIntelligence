@@ -209,7 +209,7 @@ export async function getLiveScores(leagues: LeagueId[]): Promise<LiveScoreEntry
 // ESPN's scoreboard accepts a wide dates range for historical results the same way it does for
 // upcoming fixtures, so this reuses the exact same request shape as getLiveScores — just a wider
 // window, bounded by how far back the oldest still-unsettled bet in that league needs.
-const MAX_SETTLEMENT_LOOKBACK_MS = 10 * 24 * 60 * 60 * 1000;
+export const MAX_SETTLEMENT_LOOKBACK_MS = 10 * 24 * 60 * 60 * 1000;
 
 export async function getMatchResultsSince(
   refs: { league: LeagueId; earliestKickoff: string }[]

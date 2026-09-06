@@ -20,6 +20,12 @@
   --draw: #f2b44c;
   --away: #7c6bff;
 
+  /* Champions League nights (see .ucl-card) — the competition's own electric blue over a deep
+     navy, the two colors it's actually recognisable by. */
+  --ucl: #3d7bff;
+  --ucl-rgb: 61, 123, 255;
+  --ucl-deep-rgb: 18, 36, 104;
+
   /* Risk tiers (lib/riskLevel.ts) — one shared five-stop scale, safe to longshot, reused by any
      card's tiny category badge and by Home's per-category tracker so the two always agree. */
   --risk-calm: #2fd98f;
@@ -673,6 +679,23 @@ body {
   box-shadow:
     0 1px 0 0 rgba(255, 255, 255, 0.05) inset,
     0 20px 44px -22px rgba(var(--lift-rgb, var(--accent-rgb)), 0.28);
+}
+
+/* The same lift again, but washed in the Champions League's own blue instead of the neutral
+   surface — a glow off the top-left corner, a deeper navy pooling in from the right, and a faintly
+   blue border, so a UCL fixture is recognisable at a glance while scrolling. Deliberately
+   background-only: no recolored text, odds bars, or badges, so every number on the card stays
+   exactly as legible as it is on any other card. */
+.ucl-card {
+  background:
+    radial-gradient(115% 85% at 6% 0%, rgba(var(--ucl-rgb), 0.2), transparent 58%),
+    radial-gradient(105% 80% at 100% 6%, rgba(var(--ucl-deep-rgb), 0.35), transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 42%),
+    var(--surface);
+  border-color: rgba(var(--ucl-rgb), 0.2);
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.05) inset,
+    0 18px 42px -24px rgba(var(--ucl-rgb), 0.4);
 }
 
 .glow-num {

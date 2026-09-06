@@ -18,7 +18,6 @@ interface GameResult {
   independent?: IndependentPrediction;
   comparison?: ComparisonResult;
   error?: string;
-  saved?: boolean;
 }
 
 // Both sides can be missing (mock mode, or a provider that doesn't report cost) — only treat the
@@ -117,6 +116,23 @@ export default function BatchAnalysisSheet({
             comparison,
             totalCostUsd: totalCost(prediction.costUsd, comparison.costUsd),
           });
+          // Straight into Picks the moment it's done, same as a single analysis — no per-card or
+          // "save all" tap to remember. Keyed by game id, so re-analyzing replaces that pick
+          // rather than adding a second copy of the same match.
+          savePick({
+            id: game.id,
+            savedAt: new Date().toISOString(),
+            homeTeam: game.homeTeam,
+            awayTeam: game.awayTeam,
+            leagueName: game.leagueName,
+            leagueFlag: game.leagueFlag,
+            startTime: game.startTime,
+            market: game.odds,
+            independent: prediction,
+            comparison,
+            totalCostUsd: totalCost(prediction.costUsd, comparison.costUsd),
+            tokenIds: game.tokenIds,
+          });
         } catch (err) {
           setResults((r) => ({
             ...r,
@@ -131,33 +147,6 @@ export default function BatchAnalysisSheet({
 
   const doneCount = Object.values(results).filter((r) => r.stage === "done" || r.stage === "error").length;
   const allDone = doneCount === games.length;
-
-  const handleSave = (game: Game) => {
-    const r = results[game.id];
-    if (!r?.independent || !r?.comparison) return;
-    savePick({
-      id: game.id,
-      savedAt: new Date().toISOString(),
-      homeTeam: game.homeTeam,
-      awayTeam: game.awayTeam,
-      leagueName: game.leagueName,
-      leagueFlag: game.leagueFlag,
-      startTime: game.startTime,
-      market: game.odds,
-      independent: r.independent,
-      comparison: r.comparison,
-      totalCostUsd: totalCost(r.independent.costUsd, r.comparison.costUsd),
-      tokenIds: game.tokenIds,
-    });
-    setResults((cur) => ({ ...cur, [game.id]: { ...cur[game.id], saved: true } }));
-  };
-
-  const handleSaveAll = () => {
-    for (const game of games) {
-      const r = results[game.id];
-      if (r?.stage === "done" && !r.saved) handleSave(game);
-    }
-  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center">
@@ -194,17 +183,14 @@ export default function BatchAnalysisSheet({
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
           {games.map((game) => {
             const r = results[game.id] ?? { stage: "pending" as GameStage };
-            return <BatchResultCard key={game.id} game={game} result={r} onSave={() => handleSave(game)} />;
+            return <BatchResultCard key={game.id} game={game} result={r} />;
           })}
 
           {allDone && (
-            <button
-              onClick={handleSaveAll}
-              className="press flex w-full items-center justify-center gap-2 rounded-2xl border border-border-soft bg-surface py-3.5 text-[13px] font-semibold text-text"
-            >
-              <BookmarkIcon className="h-4 w-4" />
-              Save all to Picks
-            </button>
+            <p className="flex items-center justify-center gap-1.5 py-1 text-center text-[11px] text-text-faint">
+              <BookmarkIcon className="h-3.5 w-3.5" filled />
+              All saved to Picks
+            </p>
           )}
         </div>
       </div>
@@ -212,15 +198,7 @@ export default function BatchAnalysisSheet({
   );
 }
 
-function BatchResultCard({
-  game,
-  result,
-  onSave,
-}: {
-  game: Game;
-  result: GameResult;
-  onSave: () => void;
-}) {
+function BatchResultCard({ game, result }: { game: Game; result: GameResult }) {
   const { label: kickoffLabel } = formatKickoff(game.startTime);
 
   return (
@@ -288,14 +266,6 @@ function BatchResultCard({
               Cost: {formatCostUsd(totalCost(result.independent.costUsd, result.comparison.costUsd))}
             </p>
           )}
-          <button
-            onClick={onSave}
-            disabled={result.saved}
-            className="press flex w-full items-center justify-center gap-1.5 rounded-xl border border-border-soft bg-surface-2 py-2 text-xs font-semibold text-text disabled:opacity-60"
-          >
-            <BookmarkIcon className="h-3.5 w-3.5" filled={!!result.saved} />
-            {result.saved ? "Saved" : "Save pick"}
-          </button>
         </div>
       )}
     </div>

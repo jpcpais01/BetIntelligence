@@ -108,7 +108,6 @@ export default function AnalysisSheet({
   const [stepIdx, setStepIdx] = useState(0);
   const [completedRuns, setCompletedRuns] = useState(0);
   const [elapsed, setElapsed] = useState(0);
-  const [saved, setSaved] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const [homeStanding, setHomeStanding] = useState<TeamStanding | null>(null);
   const [awayStanding, setAwayStanding] = useState<TeamStanding | null>(null);
@@ -292,8 +291,16 @@ export default function AnalysisSheet({
 
   const research = runs.length > 1 ? aggregateFootballRuns(runs) : null;
 
-  const handleSave = () => {
-    if (!independent || !comparison) return;
+  // Every finished analysis lands in Picks on its own — there's no Save button to forget to tap,
+  // and no such thing as an analysis you paid for and then lost by closing the sheet. Deliberately
+  // its own effect rather than inline where the comparison resolves: the digest extras
+  // (standings/injuries/lineups) live in state, and the closure that fetched them still holds the
+  // nulls they started as. By the time `stage` flips to "compared" they've all rendered.
+  // savePick replaces any earlier entry with the same id (lib/picks.ts), so re-analyzing a match
+  // updates that one pick in place instead of stacking duplicates — which also makes running this
+  // more than once (React's dev-mode double effect) harmless.
+  useEffect(() => {
+    if (stage !== "compared" || !independent || !comparison) return;
     savePick({
       id: game.id,
       savedAt: new Date().toISOString(),
@@ -315,8 +322,19 @@ export default function AnalysisSheet({
       homeLineup,
       awayLineup,
     });
-    setSaved(true);
-  };
+  }, [
+    stage,
+    independent,
+    comparison,
+    runs,
+    game,
+    homeStanding,
+    awayStanding,
+    homeInjuries,
+    awayInjuries,
+    homeLineup,
+    awayLineup,
+  ]);
 
   const { label: kickoffLabel } = formatKickoff(game.startTime);
   const steps = stage === "comparing" ? COMPARE_STEPS : RESEARCH_STEPS;
@@ -555,14 +573,10 @@ export default function AnalysisSheet({
                 </p>
               )}
 
-              <button
-                onClick={handleSave}
-                disabled={saved}
-                className="press flex w-full items-center justify-center gap-2 rounded-2xl border border-border-soft bg-surface py-3.5 text-[13px] font-semibold text-text disabled:opacity-60"
-              >
-                <BookmarkIcon className="h-4 w-4" filled={saved} />
-                {saved ? "Saved to Picks" : "Save paper pick"}
-              </button>
+              <p className="flex items-center justify-center gap-1.5 text-center text-[11px] text-text-faint">
+                <BookmarkIcon className="h-3.5 w-3.5" filled />
+                Saved to Picks
+              </p>
             </div>
           )}
         </div>

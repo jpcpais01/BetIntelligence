@@ -1,8 +1,15 @@
 import type { PlacedBet } from "@/lib/placedBets";
 import type { HistoryPoint } from "@/lib/oddsHistory";
 import { computeBetValue } from "@/lib/portfolioHistory";
-import { formatEur, formatRelativeTime, toSignedReturnPercent, toDecimalOdds, toPercent } from "@/lib/format";
-import { TicketIcon } from "./icons";
+import { formatEur, formatRelativeTime, toSignedReturnPercent, toDecimalOdds } from "@/lib/format";
+
+// Won green, lost red, still open neutral — the one scale every result-colored thing in this row
+// shares, so the odds and each individual leg are read the same way without a legend.
+function resultColor(result: "won" | "lost" | "pending" | undefined): string {
+  if (result === "won") return "var(--accent)";
+  if (result === "lost") return "var(--accent-3)";
+  return "var(--text-dim)";
+}
 
 export default function PortfolioBetRow({
   bet,
@@ -18,32 +25,41 @@ export default function PortfolioBetRow({
   const pnlPct = bet.stake > 0 ? pnl / bet.stake : 0;
   const positive = pnl > 0.005;
   const negative = pnl < -0.005;
-  const choice = bet.legs.map((l) => l.outcomeLabel).join(" + ");
-  const { settlement } = bet;
+  const { settlement, legResults } = bet;
+
+  // The odds the bet was actually taken at, standing in for what used to be a generic ticket icon:
+  // the single number that says what this bet was worth doing, colored by how it turned out. Each
+  // leg's own label is colored by ITS own result rather than the bet's, so a parlay that's already
+  // lost still shows which of its legs came in — the whole point of tracking legs separately
+  // (lib/settlement.ts's per-leg results).
+  const oddsColor = resultColor(settlement?.status);
 
   return (
     <div className="flex items-center gap-3 rounded-2xl bg-surface p-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2">
-        <TicketIcon className="h-4 w-4 text-text-faint" />
+      <div
+        className="flex h-8 shrink-0 items-center justify-center rounded-full px-2.5"
+        style={{
+          background: settlement ? `color-mix(in srgb, ${oddsColor} 12%, transparent)` : "var(--surface-2)",
+          color: oddsColor,
+        }}
+      >
+        <span className="font-display text-[12px] font-bold tabular-nums">
+          {toDecimalOdds(bet.combined.marketProb)}x
+        </span>
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[12px] font-medium text-text">
-          {choice}
-          {settlement && (
-            <span
-              className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
-                settlement.status === "won" ? "bg-accent/12 text-accent" : "bg-accent-3/12 text-accent-3"
-              }`}
-            >
-              {settlement.status}
+        <p className="truncate text-[12px] font-medium">
+          {bet.legs.map((leg, i) => (
+            <span key={`${leg.pickId}-${leg.outcomeLabel}`}>
+              {i > 0 && <span className="text-text-faint"> + </span>}
+              <span style={{ color: resultColor(legResults?.[i]) }}>{leg.outcomeLabel}</span>
             </span>
-          )}
+          ))}
         </p>
         <p className="truncate text-[10px] text-text-faint">
           {bet.legs.length > 1 ? `${bet.legs.length}-leg parlay` : bet.legs[0]?.title}
           {" · "}
-          {toDecimalOdds(bet.combined.marketProb)}x ({toPercent(bet.combined.marketProb)}) &middot; {formatEur(bet.stake)}{" "}
-          &middot; {formatRelativeTime(bet.placedAt)}
+          {formatEur(bet.stake)} &middot; {formatRelativeTime(bet.placedAt)}
         </p>
       </div>
       <div className="shrink-0 text-right">

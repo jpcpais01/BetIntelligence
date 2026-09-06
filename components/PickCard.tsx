@@ -72,12 +72,6 @@ export default function PickCard({
           <span className="truncate">{pick.leagueName}</span>
           <span className="opacity-50">&middot;</span>
           <span className="shrink-0">{formatRelativeTime(pick.savedAt)}</span>
-          {pick.research && pick.research.runCount > 1 && (
-            <>
-              <span className="opacity-50">&middot;</span>
-              <span className="shrink-0 text-accent">{pick.research.runCount}&times; researched</span>
-            </>
-          )}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <span className={`text-[11px] tabular-nums ${isLive ? "font-medium text-accent-3" : "text-text-faint"}`}>

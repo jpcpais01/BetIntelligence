@@ -1,7 +1,7 @@
 import type { SlipLeg } from "./betslip";
 import type { PlacedBet } from "./placedBets";
 import { applySettlements, applyLegResults } from "./placedBets";
-import type { LiveScoreEntry } from "./liveScores";
+import { MAX_SETTLEMENT_LOOKBACK_MS, type LiveScoreEntry } from "./liveScores";
 import type { LeagueId } from "./types";
 import { teamNamesMatch, anyTeamNameMatches } from "./teamNameMatching";
 import { leagueIdByName } from "./leagues";
@@ -133,16 +133,30 @@ export function wonTeamName(leg: SlipLeg): string | null {
 // genuinely pending. A leg already cached won/lost (see computeLegResults) needs nothing further,
 // so a parlay waiting on one last match never asks about the others it already knows the answer
 // for, however many bets or leagues they originally spanned.
-function settlementRefs(bets: PlacedBet[]): { league: LeagueId; earliestKickoff: string }[] {
+//
+// A bet whose own fate is already sealed still counts here, as long as some leg of it hasn't
+// resolved yet. A parlay settles LOST the moment ANY leg loses — its other legs can easily still
+// be hours from kicking off at that point, and freezing them there meant a leg that went on to win
+// stayed "pending" forever: never shown green on the bet (components/PlacedBetCard.tsx,
+// components/PortfolioBetRow.tsx) and never counted by the Edge Score (lib/edgeScore.ts), which
+// only ever reads legs that actually resolved. The bet's own settlement never changes — see
+// resolvePendingSettlements below — only what's known about each leg individually.
+//
+// Legs whose kickoff is older than the server's own lookback are dropped rather than chased
+// forever: /api/bets/settlement-scores can't return a result from further back than that
+// (MAX_SETTLEMENT_LOOKBACK_MS, lib/liveScores.ts), so a leg that never got matched to a real
+// fixture would otherwise keep a league in this list for the life of the browser profile.
+function settlementRefs(bets: PlacedBet[], now: number): { league: LeagueId; earliestKickoff: string }[] {
   const earliestByLeague = new Map<LeagueId, string>();
   for (const bet of bets) {
-    if (bet.settlement) continue;
     const cached = bet.legResults ?? [];
     backfilledLegs(bet).forEach((leg, i) => {
       if (leg.kind !== "sports" || !leg.league || !leg.startTime) return;
       if (cached[i] === "won" || cached[i] === "lost") return;
+      const kickoff = new Date(leg.startTime).getTime();
+      if (!Number.isFinite(kickoff) || now - kickoff > MAX_SETTLEMENT_LOOKBACK_MS) return;
       const current = earliestByLeague.get(leg.league);
-      if (!current || new Date(leg.startTime).getTime() < new Date(current).getTime()) {
+      if (!current || kickoff < new Date(current).getTime()) {
         earliestByLeague.set(leg.league, leg.startTime);
       }
     });
@@ -182,8 +196,8 @@ export interface SettlementRun {
 // there) — best-effort throughout: a failed fetch just leaves those bets exactly as they were
 // (still open), same as any other best-effort enrichment in this app, never inventing an outcome
 // from missing data. The next check picks up wherever this one left off.
-export async function resolvePendingSettlements(bets: PlacedBet[]): Promise<SettlementRun> {
-  const refs = settlementRefs(bets);
+export async function resolvePendingSettlements(bets: PlacedBet[], now: number = Date.now()): Promise<SettlementRun> {
+  const refs = settlementRefs(bets, now);
   if (refs.length === 0) return { bets, newlyWon: [] };
 
   const scores = await fetchScores(refs);
@@ -191,9 +205,13 @@ export async function resolvePendingSettlements(bets: PlacedBet[]): Promise<Sett
   const settlementUpdates: Record<string, BetOutcome> = {};
   const legResultUpdates: Record<string, LegResult[]> = {};
   for (const bet of bets) {
-    if (bet.settlement) continue;
+    // Per-leg results keep filling in for every bet, settled or not — a leg of an already-lost
+    // parlay still finishes its own match, and that outcome is worth knowing (see settlementRefs).
     const results = computeLegResults(bet, scores);
     legResultUpdates[bet.id] = results;
+    // The bet's OWN fate, though, is decided exactly once and never revisited: a lost parlay whose
+    // remaining legs all come in is still lost, and its payout must not move.
+    if (bet.settlement) continue;
     if (results.some((r) => r === "lost")) {
       settlementUpdates[bet.id] = { status: "lost", payout: 0 };
     } else if (results.length > 0 && results.every((r) => r === "won")) {

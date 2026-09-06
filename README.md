@@ -185,6 +185,16 @@ kickoff time has to be recovered from a question's date text it has no time of d
 00:00 UTC, so a tight server-side window would drop real fixtures. The client, which has the real
 status, does the precise filtering.
 
+### Champions League nights look like Champions League nights
+
+A UCL fixture's card swaps the neutral surface every other card uses for the competition's own
+colors: an electric-blue glow off the top-left corner, a deeper navy pooling in from the right, a
+faintly blue border and a matching outer shadow (`.ucl-card`, `app/globals.css`, applied in
+`components/GameCard.tsx` on `game.league === "champions-league"`). It's deliberately
+background-only — no recolored text, odds bars, percentages, or badges — so a European night is
+recognisable at a glance while scrolling without a single number on the card being any harder to
+read than it is anywhere else.
+
 ### Stale analysis disappears at kickoff
 
 The "AI last said" panel a card shows (see below) reflects whatever the match looked like *before*
@@ -352,7 +362,13 @@ placed bets with their own live P&L.
 - **Recent bets** lists your last 5 placed bets — legs, stake, current live value, and P&L in both
   € and % — with a **Show 10** toggle to see more. Nothing here is a real trade; it's the same
   paper-trade philosophy as the rest of the app, just tracked in one place with real numbers instead
-  of just probabilities.
+  of just probabilities. Each row leads with the **odds the bet was actually taken at**, in place of
+  what used to be a generic ticket icon that said nothing: the one number that says what the bet was
+  worth doing, colored green if it won, red if it lost, neutral while it's still open. The leg labels
+  next to it (`Arsenal`, `1X`, `X2 + 1X`…) are colored the same way but **individually**, each by its
+  own result rather than the bet's — so a parlay that's already lost still shows at a glance which of
+  its legs came in. That relies on per-leg results continuing to resolve after the bet itself has
+  settled; see [A parlay's individual legs settle independently, too](#a-parlays-individual-legs-settle-independently-too).
 
 ### Settling football bets against the real result
 
@@ -425,6 +441,20 @@ green or red the moment ITS match concludes, regardless of what the other legs (
 overall badge) are still waiting on. A parlay that ends up **Lost** because one leg busted still
 shows its other, individually-winning legs in green — the per-leg color and the bet-level badge
 are reporting two different, both-true things, not disagreeing.
+
+**A settled bet's unfinished legs keep resolving.** This is the part that's easy to get wrong, and
+did used to be: a parlay settles Lost the *instant* one leg busts, and its other legs can easily
+still be hours from kicking off at that point. Freezing everything the moment `settlement` was set
+— which `settlementRefs`, `resolvePendingSettlements` and `applyLegResults` each did independently
+— meant a leg that went on to win stayed `"pending"` for good. It never turned green on the bet or
+in Home's recent-bets list, and, less visibly but worse, the
+[Edge Score](#edge-score-are-your-calls-actually-beating-the-market) never counted it at all, since
+that only ever reads legs that actually resolved: a busted parlay silently erased every correct
+call sitting alongside the bad one. Now only the bet's **own** settlement is frozen — status,
+payout and `settledAt` are decided once and never revisited, so a lost parlay stays lost however
+well its remaining legs do — while `legResults` keeps filling in underneath it. Legs whose kickoff
+is older than the server's own lookback (`MAX_SETTLEMENT_LOOKBACK_MS`) drop out of the poll rather
+than being chased forever, since no result can come back for them anyway.
 
 ### A quick, silly reward for winning
 
@@ -712,11 +742,26 @@ results are in, and with no way to dismiss it mid-analysis — with a pulsing ra
 than a checklist (`components/ResearchOverlay.tsx`), and a run-progress indicator ("2 of 3 runs
 done") when more than one pass is in flight.
 
+### Every analysis saves itself
+
+There is no Save button anywhere, and nothing to forget to tap: a finished analysis goes straight
+into Picks on its own, single (`components/AnalysisSheet.tsx`) and batch
+(`components/BatchAnalysisSheet.tsx`) alike, and the sheet just confirms it did. An analysis costs
+real money to run (see [Cost tracking](#cost-tracking)), so "paid for it and then lost it by closing
+the sheet" shouldn't have been a state the app could get into at all. `savePick` (`lib/picks.ts`) is
+keyed by the match's own id and replaces any earlier entry for it, so re-analyzing a match updates
+that one pick in place rather than stacking duplicates of the same fixture.
+
+For the single-analysis sheet this deliberately runs in its own effect keyed on the "compared"
+stage, rather than inline where the comparison lands: the standings/injuries/lineups it saves
+alongside the read live in state, and the closure that fetched them still holds the nulls they
+started as. By the time the stage flips, they've all rendered.
+
 ### Every card remembers its last analysis
 
-Analyzing a match or market caches the result against that match/market's id
-(`lib/lastAnalysis.ts` for Sports, `lib/lastMarketAnalysis.ts` for Discover) the moment it
-finishes — whether or not you ever tap **Save**. The card shows a one-line summary ("AI: Arsenal
+Analyzing a match or market also caches the result against that match/market's id
+(`lib/lastAnalysis.ts` for Sports, `lib/lastMarketAnalysis.ts` for Discover) — a lighter-weight
+record than a saved pick, used only to redraw the card. The card shows a one-line summary ("AI: Arsenal
 52% &middot; +4pp edge &middot; 2h ago") with a dropdown that expands into the full read: AI vs.
 market for every outcome, confidence, the verdict, and the multi-run agreement breakdown if it was
 researched more than once. Re-analyzing overwrites the cached entry; each cache is capped at the
