@@ -10,9 +10,9 @@ export const maxDuration = 300;
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { homeTeam, awayTeam, leagueName, independent, market, model } = body ?? {};
+    const { homeTeam, awayTeam, leagueName, startTime, independent, market, model } = body ?? {};
 
-    if (!homeTeam || !awayTeam || !leagueName || !independent || !market) {
+    if (!homeTeam || !awayTeam || !leagueName || !startTime || !independent || !market) {
       return NextResponse.json({ error: "Missing analysis details." }, { status: 400 });
     }
 
@@ -26,6 +26,7 @@ export async function POST(request: Request) {
             homeTeam,
             awayTeam,
             leagueName,
+            startTime,
             independent: independent as IndependentPrediction,
             market: market as Probabilities,
             model: resolveOpenRouterModel(model),

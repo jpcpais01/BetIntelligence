@@ -181,6 +181,7 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
             homeTeam: game.homeTeam,
             awayTeam: game.awayTeam,
             leagueName: game.leagueName,
+            startTime: game.startTime,
             independent: finalIndependent,
             market: game.odds,
             model,

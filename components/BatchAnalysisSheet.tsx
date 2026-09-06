@@ -86,6 +86,7 @@ export default function BatchAnalysisSheet({
               homeTeam: game.homeTeam,
               awayTeam: game.awayTeam,
               leagueName: game.leagueName,
+              startTime: game.startTime,
               independent: prediction,
               market: game.odds,
               model,

@@ -3,6 +3,7 @@ import {
   getIndependentPrediction,
   buildFootballAnalysisDigest,
   getIndependentPredictionFromDigest,
+  compareToMarket,
 } from "../lib/openrouter";
 import { __resetRateLimiterForTests } from "../lib/footballData";
 
@@ -540,12 +541,77 @@ async function runCostTrackingChecks(failures: string[]) {
   );
 }
 
+// The compare step has no research digest of its own (unlike predict, which gets the real
+// live/final status baked into what it reads) — the match's own kickoff time, alongside
+// nowLine()'s current date/time, is the ONLY thing that lets it work out for itself whether the
+// match it's comparing against the market has actually kicked off yet, rather than the app
+// pre-computing a started/not-started verdict and handing that over instead.
+async function runCompareChecks(failures: string[]) {
+  const check = (name: string, cond: boolean, detail?: string) => {
+    if (!cond) failures.push(detail ? `${name}: ${detail}` : name);
+    console.log(`  ${cond ? "ok" : "FAIL"}  ${name}`);
+  };
+
+  const COMPARE_JSON = JSON.stringify({
+    homeEdge: 0.05,
+    drawEdge: -0.02,
+    awayEdge: -0.03,
+    bestValue: "home",
+    confidence: "medium",
+    agreesWithMarket: false,
+    verdict: "The market undervalues the home side.",
+  });
+
+  let capturedUserPrompt = "";
+  let capturedSystemPrompt = "";
+  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    const body = JSON.parse(init?.body as string) as { messages: { role: string; content: string }[] };
+    capturedSystemPrompt = body.messages.find((m) => m.role === "system")?.content ?? "";
+    capturedUserPrompt = body.messages.find((m) => m.role === "user")?.content ?? "";
+    return completion({ content: COMPARE_JSON });
+  }) as unknown as typeof fetch;
+
+  const kickoff = new Date("2026-03-14T18:00:00Z");
+  await compareToMarket({
+    homeTeam: "Arsenal",
+    awayTeam: "Chelsea",
+    leagueName: "Premier League",
+    startTime: kickoff.toISOString(),
+    independent: {
+      home: 0.55,
+      draw: 0.25,
+      away: 0.2,
+      confidence: "medium",
+      homeAssessment: { pros: [], cons: [] },
+      awayAssessment: { pros: [], cons: [] },
+      summary: "s",
+    },
+    market: { home: 0.4, draw: 0.3, away: 0.3 },
+  });
+
+  check(
+    "the compare prompt includes the match's real kickoff date",
+    capturedUserPrompt.includes(kickoff.toUTCString()),
+    capturedUserPrompt
+  );
+  check(
+    "the compare prompt still tells the model the current date/time too",
+    /Current date and time:/.test(capturedUserPrompt),
+    capturedUserPrompt
+  );
+  check(
+    "the system prompt tells the model to work out kickoff-vs-now for itself",
+    /work out for yourself whether kickoff has already passed/.test(capturedSystemPrompt)
+  );
+}
+
 async function run() {
   const failures: string[] = [];
 
   await runResilienceCases(failures);
   await runFootballPipelineChecks(failures);
   await runCostTrackingChecks(failures);
+  await runCompareChecks(failures);
 
   if (failures.length > 0) {
     console.log("\nFAILURES:");

@@ -527,7 +527,10 @@ const COMPARE_SYSTEM_PROMPT = `You are the same elite football analyst from BetI
 You previously produced an independent 1X2 probability estimate WITHOUT seeing the betting market. You are now being shown the real \
 Polymarket prediction-market implied probabilities for the same match for the first time. Compare your independent view against the \
 market, reason about where and why you might disagree (market overreacting to news, public bias toward big clubs, your own analysis \
-possibly missing something, etc), and decide if the market looks mispriced anywhere. Respond with ONLY a single valid JSON object, no \
+possibly missing something, etc), and decide if the market looks mispriced anywhere. You are told the match's kickoff time and the \
+current date/time — work out for yourself whether kickoff has already passed; if it has, the match may be live or finished, and the \
+market you're shown reflects that (an in-play score, not just pre-match news), so weigh your disagreement accordingly rather than \
+assuming the market is simply wrong. Respond with ONLY a single valid JSON object, no \
 markdown, no commentary, matching exactly this shape: {"homeEdge": number, "drawEdge": number, "awayEdge": number, \
 "bestValue": "home"|"draw"|"away"|"none", "confidence": "low"|"medium"|"high", "agreesWithMarket": boolean, "verdict": string}. \
 Edges are (your probability - market probability) expressed as a decimal, e.g. 0.08 means you think that outcome is 8 percentage \
@@ -540,13 +543,24 @@ export async function compareToMarket(input: {
   homeTeam: string;
   awayTeam: string;
   leagueName: string;
+  startTime: string;
   independent: IndependentPrediction;
   market: Probabilities;
   model?: string;
 }): Promise<ComparisonResult> {
+  // Alongside nowLine() below, this is what actually lets the model reason "has this kicked off
+  // yet" for itself — comparing two real timestamps it's both given directly — rather than the
+  // app trying to compute and hand over a pre-judged started/not-started verdict of its own. The
+  // market probabilities passed in are already live/current once a match is underway (see
+  // GameCard's effectiveOdds, app/sports/page.tsx), so a market that looks unusual relative to the
+  // independent pre-match read may simply mean the match is live and already unfolding, not that
+  // the market is mispriced — the model can only draw that distinction if it knows the kickoff
+  // time, same as the independent prediction step already does.
+  const matchDate = new Date(input.startTime).toUTCString();
+
   const userPrompt = `${nowLine()}
 
-Match: ${input.homeTeam} vs ${input.awayTeam} (${input.leagueName}).
+Match: ${input.homeTeam} vs ${input.awayTeam} (${input.leagueName}), kicking off ${matchDate}.
 
 Your independent estimate (made before seeing the market):
 - Home win: ${(input.independent.home * 100).toFixed(1)}%

@@ -551,7 +551,12 @@ Tapping **AI Analyze** runs against [`deepseek/deepseek-v4-flash-0731`](https://
    not the Gamma snapshot the game object was originally built from. `GameCard`'s Analyze button and the Sports page's
    batch-analysis flow both carry that live price into the `Game` object handed to the analysis sheet, so a live match
    whose odds have moved since kickoff gets compared against where the market actually is right now, not where it was
-   when the general sweep last ran.
+   when the general sweep last ran. This step also gets the match's own kickoff time in its prompt (`compareToMarket`,
+   `lib/openrouter.ts`) — alongside `nowLine()`'s current date/time below, that's what lets the model work out for
+   itself whether kickoff has already passed, rather than the app pre-computing a started/not-started verdict and
+   handing that over instead. Without it, a live match's already-moved market odds could read as the market simply
+   disagreeing with the pre-match independent view, instead of what it actually is: the market pricing in a match
+   that's already underway.
 
 Alongside the AI's own read, the same one-time digest fetch (`/api/analyze/football-digest`) also returns two small,
 factual infograms — real data, not an AI opinion, so they render even before the independent read finishes:
