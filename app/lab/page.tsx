@@ -7,7 +7,7 @@ import { hasKickedOff } from "@/lib/matchClock";
 import { loadSlip, saveSlip, legFromPick, type SlipLeg, type Outcome } from "@/lib/betslip";
 import { loadPlacedBets, removePlacedBet, type PlacedBet } from "@/lib/placedBets";
 import { resolvePendingSettlements } from "@/lib/settlement";
-import { buildCelebration, type Celebration } from "@/lib/celebration";
+import { buildCelebration, hasBeenCelebrated, markCelebrated, type Celebration } from "@/lib/celebration";
 import { liveKey, fetchLivePrices, type LivePriceRequest } from "@/lib/livePrices";
 import { RISK_MODES, buildRiskSlip, type RiskMode } from "@/lib/riskModes";
 import SlipPickRow from "@/components/SlipPickRow";
@@ -57,12 +57,20 @@ export default function LabPage() {
 
   const checkSettlements = useCallback(async (bets: PlacedBet[] | null) => {
     if (!bets || bets.length === 0) return;
-    const { bets: settled, newlyWon } = await resolvePendingSettlements(bets);
+    const { bets: settled } = await resolvePendingSettlements(bets);
     if (!mountedRef.current) return;
     setPlacedBets(settled);
-    if (newlyWon.length > 0) {
-      const c = await buildCelebration(newlyWon);
-      if (mountedRef.current && c) setCelebration(c);
+    // Checks every currently-won bet, not just ones that JUST flipped to won during this exact
+    // call — a bet settled while the app wasn't open would otherwise never get a celebration at
+    // all, since resolvePendingSettlements only ever flags the live transition (see
+    // hasBeenCelebrated in lib/celebration.ts).
+    const uncelebrated = settled.find((b) => b.settlement?.status === "won" && !hasBeenCelebrated(b.id));
+    if (uncelebrated) {
+      const c = await buildCelebration([uncelebrated]);
+      if (mountedRef.current && c) {
+        markCelebrated(uncelebrated.id);
+        setCelebration(c);
+      }
     }
   }, []);
 

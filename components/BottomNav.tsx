@@ -48,9 +48,6 @@ export default function BottomNav() {
             >
               <Icon className="h-[22px] w-[22px]" />
               {label}
-              {active && (
-                <span className="absolute -top-1 h-1 w-1 rounded-full bg-accent shadow-[0_0_8px_rgba(var(--accent-rgb),0.8)]" />
-              )}
             </Link>
           );
         })}

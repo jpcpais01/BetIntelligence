@@ -64,7 +64,13 @@ export default function OddsHistoryChart({
   const [cache, setCache] = useState<Record<string, HistorySeries[]>>({});
   const [failedKeys, setFailedKeys] = useState<Set<string>>(new Set());
   const [hoverT, setHoverT] = useState<number | null>(null);
-  const [windowId, setWindowId] = useState<WindowId>("7d");
+  // Defaults straight to the LIVE window when the match was already underway the moment this
+  // panel opened — a lazy initializer, so it only ever runs once at mount (never re-evaluated as
+  // the match's own live-ness changes later), which is what keeps this from yanking the tab away
+  // from whatever a user is actively looking at if a match happens to kick off while the panel
+  // stays open. Every other case (not yet started, no kickoff time at all — Discover markets)
+  // keeps the original 7D default.
+  const [windowId, setWindowId] = useState<WindowId>(() => (kickoffTime && hasKickedOff(kickoffTime) ? "live" : "7d"));
   const svgRef = useRef<SVGSVGElement>(null);
 
   // Date.now() can't be called directly during render (impure — see the `now` clock pattern in
@@ -125,7 +131,10 @@ export default function OddsHistoryChart({
   // actually promises.
   const windowed = useMemo(() => {
     if (!series) return null;
-    const windowMs = WINDOWS.find((w) => w.id === windowId)!.ms;
+    // Falls back to the first available window rather than asserting a match — windowId can
+    // start as "live" (see its lazy initializer above) a render or two before liveNowMs/WINDOWS
+    // itself catches up and actually grows a "live" entry to match.
+    const windowMs = (WINDOWS.find((w) => w.id === windowId) ?? WINDOWS[0]).ms;
     const allTimes = series.flatMap((s) => s.points.map((p) => new Date(p.t).getTime()));
     if (allTimes.length === 0) return series;
     const cutoff = Math.max(...allTimes) - windowMs;

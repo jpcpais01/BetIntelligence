@@ -10,8 +10,10 @@ import { ChevronRightIcon, BoltIcon } from "./icons";
 // It's the only place edge shows: a number on every single button, value or not, is just noise.
 const VALUE_EDGE_THRESHOLD = 0.02;
 
+// Home -> away reads as a green-to-blue progression rather than the previous pink (reading as red)
+// to cyan (blue) one — draw stays the neutral middle tone either way.
 const OUTCOME_COLOR: Record<"home" | "draw" | "away" | "combo", string> = {
-  home: "var(--lab-pink)",
+  home: "var(--lab-green)",
   draw: "var(--lab-gold)",
   away: "var(--lab-cyan)",
   combo: "var(--lab-gold)",

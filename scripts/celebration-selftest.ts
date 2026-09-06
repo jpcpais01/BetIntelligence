@@ -1,4 +1,22 @@
-import { buildCelebration } from "../lib/celebration";
+// Node has no localStorage — a tiny in-memory stand-in lets hasBeenCelebrated/markCelebrated run
+// their real code path instead of being mocked away.
+class MemoryStorage {
+  private store = new Map<string, string>();
+  getItem(key: string): string | null {
+    return this.store.has(key) ? this.store.get(key)! : null;
+  }
+  setItem(key: string, value: string): void {
+    this.store.set(key, value);
+  }
+  removeItem(key: string): void {
+    this.store.delete(key);
+  }
+}
+(globalThis as unknown as { window: { localStorage: MemoryStorage } }).window = {
+  localStorage: new MemoryStorage(),
+};
+
+import { buildCelebration, hasBeenCelebrated, markCelebrated } from "../lib/celebration";
 import type { SlipLeg } from "../lib/betslip";
 import type { PlacedBet } from "../lib/placedBets";
 
@@ -163,6 +181,25 @@ async function run() {
       fakeBet([sportsLeg({ outcomeLabel: "Chelsea" })]),
     ]);
     check("exactly one fetch is made even when several bets newly won", urls.length === 1, String(urls.length));
+  }
+
+  // --- hasBeenCelebrated/markCelebrated: the fix for a celebration that never fires because the
+  // bet settled while the app wasn't open (resolvePendingSettlements only flags the LIVE
+  // transition, so relying on that alone silently misses every win that already had its
+  // settlement decided before this session opened) ---
+  {
+    check("a bet never marked reads as not yet celebrated", !hasBeenCelebrated("bet-never-seen"));
+    markCelebrated("bet-a");
+    check("a marked bet reads as celebrated", hasBeenCelebrated("bet-a"));
+    check("an unrelated bet is unaffected by marking a different one", !hasBeenCelebrated("bet-b"));
+    markCelebrated("bet-b");
+    check("both marked bets stay celebrated", hasBeenCelebrated("bet-a") && hasBeenCelebrated("bet-b"));
+  }
+  {
+    // Bounded growth: marking well past the cap should still remember the most recent ones.
+    for (let i = 0; i < 320; i++) markCelebrated(`bulk-${i}`);
+    check("an old entry evicted past the cap is forgotten", !hasBeenCelebrated("bulk-0"));
+    check("a recent entry survives the cap", hasBeenCelebrated("bulk-319"));
   }
 
   if (failures.length > 0) {

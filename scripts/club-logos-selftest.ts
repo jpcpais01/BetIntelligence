@@ -157,6 +157,55 @@ async function run() {
     check("exactly one request is made for the one real name", calls === 1, String(calls));
   }
 
+  // --- Espanyol/Celta Vigo: reported wrong/missing crests, fixed the same way PSG was — a
+  // dedicated logo-alias table (lib/clubLogos.ts's LOGO_ALIASES), separate from the "elite clubs"
+  // alias list, since neither club belongs in that curated Top Games list. ---
+  {
+    const urls: string[] = [];
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      urls.push(u);
+      const q = new URL(u).searchParams.get("t");
+      if (q === "RCD Espanyol") return ok([team({ strTeam: "RCD Espanyol de Barcelona" })]);
+      return ok([]);
+    }) as unknown as typeof fetch;
+
+    const [result] = await getClubLogos(["Espanyol"]);
+    check("Espanyol resolves via the dedicated logo-alias retry", result.logoUrl === "https://example.com/badge.png", String(result.logoUrl));
+    check("the RCD Espanyol alias was actually tried", urls.some((u) => new URL(u).searchParams.get("t") === "RCD Espanyol"), urls.join(" | "));
+  }
+  {
+    const urls: string[] = [];
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      urls.push(u);
+      const q = new URL(u).searchParams.get("t");
+      if (q === "RC Celta") return ok([team({ strTeam: "RC Celta de Vigo" })]);
+      return ok([]);
+    }) as unknown as typeof fetch;
+
+    const [result] = await getClubLogos(["Celta Vigo"]);
+    check("Celta Vigo resolves via the dedicated logo-alias retry", result.logoUrl === "https://example.com/badge.png", String(result.logoUrl));
+  }
+
+  // --- A club-type prefix Polymarket's name carries but TheSportsDB's own record doesn't (or vice
+  // versa) — stripped as a generic guess, same as the deaccent/hyphen variants, so it still goes
+  // through full name verification rather than being trusted outright. ---
+  {
+    globalThis.fetch = (async (url: unknown) => {
+      const q = new URL(String(url)).searchParams.get("t");
+      if (q === "Sociedad") return ok([team({ strTeam: "Real Sociedad" })]);
+      return ok([]);
+    }) as unknown as typeof fetch;
+
+    const [result] = await getClubLogos(["Real Sociedad"]);
+    check(
+      "a known club-type prefix is stripped as a generic retry and still name-verified",
+      result.logoUrl === "https://example.com/badge.png",
+      String(result.logoUrl)
+    );
+  }
+
   if (failures.length > 0) {
     console.log("\nFAILURES:");
     for (const f of failures) console.log(`  - ${f}`);

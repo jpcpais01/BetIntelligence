@@ -1,4 +1,4 @@
-import { findBestNameMatch } from "./teamNameMatching";
+import { findBestNameMatch, normalizeTeamName } from "./teamNameMatching";
 import { getKnownAliases } from "./topTeams";
 
 // TheSportsDB. `SPORTS_DB_API_KEY` is a free personal key (registration, no payment) — set it to
@@ -83,6 +83,36 @@ interface QueryAttempt {
   trusted: boolean;
 }
 
+// Known alternate spellings for clubs whose crest has been reported wrong or missing, keyed by
+// normalized name so any spelling of the same club hits the same entry. Deliberately separate from
+// lib/topTeams.ts's alias list: that one is curated for the "elite clubs" Top Games filter, and
+// Espanyol/Celta Vigo have no business being marked as a top team just to get an alias — this table
+// exists purely to help TheSportsDB's own (fairly literal, not full-text) name search find the
+// right record, same reasoning as Paris Saint-Germain needing "Paris SG" below.
+const LOGO_ALIASES: Record<string, string[]> = {
+  espanyol: ["RCD Espanyol", "Espanyol Barcelona", "RCD Espanyol de Barcelona", "Espanol"],
+  "celta vigo": ["RC Celta", "Celta de Vigo", "RC Celta de Vigo", "Real Club Celta de Vigo"],
+  "vitoria guimaraes": ["Vitoria SC", "Vitoria Guimaraes SC", "SC Vitoria", "Guimaraes"],
+  "vitoria sc": ["Vitoria Guimaraes", "SC Vitoria", "Guimaraes"],
+};
+
+function getLogoAliases(name: string): string[] {
+  return LOGO_ALIASES[normalizeTeamName(name)] ?? [];
+}
+
+// A club-type prefix Polymarket's plain name may omit even though TheSportsDB's own record
+// carries one (or the other way around) — stripping it is a generic guess at a name TheSportsDB
+// might recognize better, same spirit as the deaccent/hyphen variants below, so it goes through
+// full name verification rather than being trusted outright.
+const CLUB_PREFIXES = ["RCD ", "RC ", "SC ", "CD ", "CF ", "UD ", "Real ", "Athletic ", "Sporting ", "FC "];
+
+function stripKnownPrefix(name: string): string | null {
+  for (const prefix of CLUB_PREFIXES) {
+    if (name.startsWith(prefix)) return name.slice(prefix.length);
+  }
+  return null;
+}
+
 // Retry queries tried in order when the exact Polymarket-given name doesn't resolve a confident
 // match on its own — TheSportsDB documents matching "by main or alternate name," and plenty of
 // clubs are registered there under a shorter or differently-spelled form the literal name alone
@@ -101,9 +131,13 @@ function queryVariants(name: string): QueryAttempt[] {
   addGeneric(deaccented);
   addGeneric(deaccented.replace(/-/g, " "));
 
-  // Known alternate spellings for this app's curated top clubs — the most reliable retry of all,
-  // since it's a name this app already trusts rather than a guessed transformation.
-  for (const alias of getKnownAliases(name)) {
+  const stripped = stripKnownPrefix(name);
+  if (stripped) addGeneric(stripped);
+
+  // Known alternate spellings, both this app's curated top clubs and the dedicated logo-alias
+  // table above — the most reliable retry of all, since it's a name this app already trusts
+  // rather than a guessed transformation.
+  for (const alias of [...getKnownAliases(name), ...getLogoAliases(name)]) {
     if (seen.has(alias)) continue;
     seen.add(alias);
     attempts.push({ query: alias, trusted: true });

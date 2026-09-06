@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadDeposits, totalDeposited, STARTING_BALANCE, type Deposit } from "@/lib/portfolio";
 import { loadPlacedBets, type PlacedBet } from "@/lib/placedBets";
 import { resolvePendingSettlements } from "@/lib/settlement";
-import { buildCelebration, type Celebration } from "@/lib/celebration";
+import { buildCelebration, hasBeenCelebrated, markCelebrated, type Celebration } from "@/lib/celebration";
 import { fetchPriceSeries, liveKey, type LivePriceRequest } from "@/lib/livePrices";
 import { buildPortfolioSeries } from "@/lib/portfolioHistory";
 import type { HistoryPoint } from "@/lib/oddsHistory";
@@ -49,12 +49,20 @@ export default function HomePage() {
 
   const checkSettlements = useCallback(async (bets: PlacedBet[] | null) => {
     if (!bets || bets.length === 0) return;
-    const { bets: settled, newlyWon } = await resolvePendingSettlements(bets);
+    const { bets: settled } = await resolvePendingSettlements(bets);
     if (!mountedRef.current) return;
     setBets(settled);
-    if (newlyWon.length > 0) {
-      const c = await buildCelebration(newlyWon);
-      if (mountedRef.current && c) setCelebration(c);
+    // Checks every currently-won bet, not just ones that JUST flipped to won during this exact
+    // call — a bet settled while the app wasn't open would otherwise never get a celebration at
+    // all, since resolvePendingSettlements only ever flags the live transition (see
+    // hasBeenCelebrated in lib/celebration.ts).
+    const uncelebrated = settled.find((b) => b.settlement?.status === "won" && !hasBeenCelebrated(b.id));
+    if (uncelebrated) {
+      const c = await buildCelebration([uncelebrated]);
+      if (mountedRef.current && c) {
+        markCelebrated(uncelebrated.id);
+        setCelebration(c);
+      }
     }
   }, []);
 

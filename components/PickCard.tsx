@@ -1,6 +1,6 @@
 import type { SavedPick, Probabilities } from "@/lib/types";
 import type { LiveScoreEntry } from "@/lib/liveScores";
-import { formatKickoff, formatCountdown, toSignedPercent } from "@/lib/format";
+import { formatKickoff, formatCountdown, formatRelativeTime, toSignedPercent } from "@/lib/format";
 import { hasKickedOff, isMatchOver, retentionCountdown } from "@/lib/matchClock";
 import Avatar from "./Avatar";
 import { TrendingUpIcon, ScaleIcon, CloseIcon, ChevronRightIcon } from "./icons";
@@ -70,6 +70,8 @@ export default function PickCard({
         <div className="flex min-w-0 items-center gap-2 text-[11px] text-text-faint">
           <span className="text-xs leading-none">{pick.leagueFlag}</span>
           <span className="truncate">{pick.leagueName}</span>
+          <span className="opacity-50">&middot;</span>
+          <span className="shrink-0">{formatRelativeTime(pick.savedAt)}</span>
           {pick.research && pick.research.runCount > 1 && (
             <>
               <span className="opacity-50">&middot;</span>
