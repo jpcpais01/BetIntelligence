@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { loadDeposits, addFunds, totalDeposited, STARTING_BALANCE, type Deposit } from "@/lib/portfolio";
+import { loadDeposits, totalDeposited, STARTING_BALANCE, type Deposit } from "@/lib/portfolio";
 import { loadPlacedBets, type PlacedBet } from "@/lib/placedBets";
 import { resolvePendingSettlements } from "@/lib/settlement";
 import { buildCelebration, type Celebration } from "@/lib/celebration";
@@ -13,9 +13,7 @@ import PortfolioChart from "@/components/PortfolioChart";
 import PortfolioBetRow from "@/components/PortfolioBetRow";
 import WinCelebration from "@/components/WinCelebration";
 import EdgeScorePanel from "@/components/EdgeScorePanel";
-import { PlusIcon, CloseIcon, CoinsIcon } from "@/components/icons";
-
-const QUICK_ADD_AMOUNTS = [50, 100, 250, 500];
+import { CoinsIcon } from "@/components/icons";
 
 // Bets used to only ever get checked once, right when this page happened to mount — a match that
 // finished while the tab sat open just stayed "Pending" until the next full reload. Rechecking on
@@ -26,7 +24,6 @@ export default function HomePage() {
   const [deposits, setDeposits] = useState<Deposit[] | null>(null);
   const [bets, setBets] = useState<PlacedBet[] | null>(null);
   const [priceSeries, setPriceSeries] = useState<Record<string, HistoryPoint[]>>({});
-  const [showAddFunds, setShowAddFunds] = useState(false);
   const [visibleCount, setVisibleCount] = useState(5);
   // "Now" is read once on mount (an effect, not render) rather than called fresh on every render —
   // Date.now() is impure, and reading it during render is what the lint rule (and re-render
@@ -107,12 +104,6 @@ export default function HomePage() {
   const positive = allTimePnl > 0.005;
   const negative = allTimePnl < -0.005;
 
-  const handleAddFunds = (amount: number) => {
-    addFunds(amount);
-    setDeposits(loadDeposits());
-    setShowAddFunds(false);
-  };
-
   const sortedBets = bets ? [...bets].sort((a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime()) : null;
   const visibleBets = sortedBets?.slice(0, visibleCount) ?? [];
 
@@ -129,27 +120,18 @@ export default function HomePage() {
           style={{ ["--lift-rgb" as string]: positive ? "var(--accent-rgb)" : negative ? "var(--accent-3-rgb)" : "155, 161, 172" }}
         >
           <div className="ambient-glow" />
-          <div className="relative flex items-start justify-between gap-2">
-            <div>
-              <p className="text-[11px] font-medium uppercase tracking-wide text-text-faint">Portfolio value</p>
-              <p className="glow-num font-display text-[38px] font-bold tabular-nums leading-none text-text">
-                {formatEur(currentValue)}
-              </p>
-              <p
-                className="mt-2 text-[12px] font-semibold tabular-nums"
-                style={{ color: positive ? "var(--accent)" : negative ? "var(--accent-3)" : "var(--text-faint)" }}
-              >
-                {allTimePnl >= 0 ? "+" : ""}
-                {formatEur(allTimePnl)} ({toSignedReturnPercent(allTimePnlPct)}) all time
-              </p>
-            </div>
-            <button
-              onClick={() => setShowAddFunds(true)}
-              className="press-spring flex shrink-0 items-center gap-1 rounded-full bg-accent px-3.5 py-2.5 text-[11px] font-bold text-bg shadow-[0_6px_20px_-4px_rgba(var(--accent-rgb),0.5)]"
+          <div className="relative">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-text-faint">Portfolio value</p>
+            <p className="glow-num font-display text-[38px] font-bold tabular-nums leading-none text-text">
+              {formatEur(currentValue)}
+            </p>
+            <p
+              className="mt-2 text-[12px] font-semibold tabular-nums"
+              style={{ color: positive ? "var(--accent)" : negative ? "var(--accent-3)" : "var(--text-faint)" }}
             >
-              <PlusIcon className="h-3.5 w-3.5" />
-              Add funds
-            </button>
+              {allTimePnl >= 0 ? "+" : ""}
+              {formatEur(allTimePnl)} ({toSignedReturnPercent(allTimePnlPct)}) all time
+            </p>
           </div>
 
           <div className="relative mt-4">
@@ -195,7 +177,6 @@ export default function HomePage() {
         </div>
       </div>
 
-      {showAddFunds && <AddFundsModal onClose={() => setShowAddFunds(false)} onConfirm={handleAddFunds} />}
       {celebration && (
         <WinCelebration
           teams={celebration.teams}
@@ -204,59 +185,6 @@ export default function HomePage() {
           onClose={() => setCelebration(null)}
         />
       )}
-    </div>
-  );
-}
-
-function AddFundsModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: (amount: number) => void }) {
-  const [custom, setCustom] = useState("");
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
-      <div
-        className="pop-in w-full max-w-xs rounded-3xl border border-border-soft bg-bg-elevated p-5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <p className="text-[14px] font-bold text-text">Add funds</p>
-          <button onClick={onClose} aria-label="Close" className="press text-text-faint">
-            <CloseIcon className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          {QUICK_ADD_AMOUNTS.map((amount) => (
-            <button
-              key={amount}
-              onClick={() => onConfirm(amount)}
-              className="press rounded-xl bg-surface-2 py-3 text-[13px] font-bold tabular-nums text-text"
-            >
-              {formatEur(amount)}
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-3 flex items-center gap-2">
-          <input
-            value={custom}
-            onChange={(e) => setCustom(e.target.value.replace(/[^0-9.]/g, ""))}
-            placeholder="Custom amount"
-            inputMode="decimal"
-            className="w-full rounded-xl bg-surface-2 px-3 py-2.5 text-[13px] text-text placeholder:text-text-faint focus:outline-none"
-          />
-          <button
-            onClick={() => {
-              const amount = parseFloat(custom);
-              if (Number.isFinite(amount) && amount > 0) onConfirm(amount);
-            }}
-            className="press shrink-0 rounded-xl bg-accent px-4 py-2.5 text-[13px] font-bold text-bg"
-          >
-            Add
-          </button>
-        </div>
-
-        <p className="mt-3 text-center text-[10px] text-text-faint">Paper trade only &middot; no real money moves</p>
-      </div>
     </div>
   );
 }
