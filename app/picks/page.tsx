@@ -12,7 +12,7 @@ import { leagueIdByName } from "@/lib/leagues";
 import type { LiveScoreEntry } from "@/lib/liveScores";
 import { parseElapsedMinutes } from "@/lib/liveScores";
 import { anyTeamNameMatches } from "@/lib/teamNameMatching";
-import { liveKey, fetchLivePrices, type LivePriceRequest } from "@/lib/livePrices";
+import { liveKey, fetchMidpointPrices, type LivePriceRequest } from "@/lib/livePrices";
 
 // Same cadence as the Sports page's own live polling (app/sports/page.tsx) — a saved pick whose
 // match is underway deserves the same "actually live" treatment a game card gets, not a
@@ -23,6 +23,10 @@ const LIVE_ODDS_POLL_MS = 10_000;
 // as odds already are, not the general live cadence the rest of the list is still fine with.
 const LATE_GAME_MINUTE = 85;
 const LATE_LIVE_SCORE_POLL_MS = 10_000;
+// Same reasoning as the Sports page: from the 80th minute on, a ten-second-old odds number itself
+// starts to feel slow, so this stretch gets its own much tighter cadence.
+const LATE_GAME_ODDS_MINUTE = 80;
+const LATE_LIVE_ODDS_POLL_MS = 3_000;
 const CLOCK_TICK_MS = 30_000;
 
 // Discover (and its saved market picks) is deactivated for now — this page is football-only,
@@ -120,6 +124,16 @@ export default function PicksPage() {
     [sportsPicks, scoreByPickId]
   );
 
+  // Same idea, its own (earlier) threshold — drives the live-ODDS poll below rather than the
+  // live-score one above.
+  const anyLateOddsGame = useMemo(
+    () =>
+      (sportsPicks ?? []).some(
+        (p) => (parseElapsedMinutes(scoreByPickId[p.id]?.clockLabel) ?? -1) >= LATE_GAME_ODDS_MINUTE
+      ),
+    [sportsPicks, scoreByPickId]
+  );
+
   useEffect(() => {
     if (!scoreLeaguesKey) return;
     const leagues = scoreLeaguesKey.split(",");
@@ -174,6 +188,7 @@ export default function PicksPage() {
   useEffect(() => {
     if (!liveOddsKey) return;
     const ids = liveOddsKey.split(",");
+    const pollMs = anyLateOddsGame ? LATE_LIVE_ODDS_POLL_MS : LIVE_ODDS_POLL_MS;
 
     let cancelled = false;
     const refreshLiveOdds = async () => {
@@ -187,10 +202,8 @@ export default function PicksPage() {
         requests.push({ key: liveKey(p.id, "away"), tokenId: p.tokenIds?.away, fallback: p.market.away });
       }
       if (requests.length === 0) return;
-      // liveOddsKey only ever contains picks that have actually kicked off — the same finer
-      // "live" fidelity the odds-history chart's own LIVE tab reads, so a card's displayed number
-      // never lags noticeably behind the line the chart underneath it draws.
-      const result = await fetchLivePrices(requests, "live");
+      // The order-book midpoint, not a point read off a bucketed candle — see fetchMidpointPrices.
+      const result = await fetchMidpointPrices(requests);
       if (cancelled) return;
       setLiveOdds((current) => {
         const next = { ...current };
@@ -208,12 +221,12 @@ export default function PicksPage() {
     };
 
     void refreshLiveOdds();
-    const id = setInterval(() => void refreshLiveOdds(), LIVE_ODDS_POLL_MS);
+    const id = setInterval(() => void refreshLiveOdds(), pollMs);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [liveOddsKey]);
+  }, [liveOddsKey, anyLateOddsGame]);
 
   const handleRemove = (id: string) => setSportsPicks(removePick(id));
 

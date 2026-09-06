@@ -75,6 +75,38 @@ export async function fetchLivePrices(
   return result;
 }
 
+// The dedicated live-odds poll's real source (Sports/Picks pages) — CLOB's current order-book
+// midpoint via /api/live-odds, not a point read off a bucketed candle series like fetchLivePrices
+// above. A candle only closes once its full minute has elapsed (plus whatever indexing lag CLOB
+// adds), so even instant polling of the history endpoint left the displayed number a minute or
+// more behind; the midpoint has no bucket to wait on, so it's never stale by more than however
+// long ago the last poll actually ran.
+export async function fetchMidpointPrices(requests: LivePriceRequest[]): Promise<Record<string, number>> {
+  const result: Record<string, number> = {};
+  for (const r of requests) result[r.key] = r.fallback;
+
+  const withToken = requests.filter((r) => r.tokenId);
+  if (withToken.length === 0) return result;
+  const params = new URLSearchParams();
+  for (const r of withToken) {
+    params.append("label", r.key);
+    params.append("token", r.tokenId ?? "");
+    params.append("current", String(r.fallback));
+  }
+
+  try {
+    const res = await fetch(`/api/live-odds?${params.toString()}`);
+    if (!res.ok) return result;
+    const data = (await res.json()) as { prices?: { label: string; price: number | null }[] };
+    for (const p of data.prices ?? []) {
+      if (p.price !== null && Number.isFinite(p.price)) result[p.label] = p.price;
+    }
+  } catch {
+    // Fallback values are already seeded above.
+  }
+  return result;
+}
+
 // Same request shape as fetchLivePrices, but keeps the whole series instead of collapsing it to
 // the latest point — Home's portfolio graph needs each leg's full price history to reconstruct
 // value over time, not just "now". This one genuinely wants the 7-day window: it's drawing a

@@ -77,10 +77,12 @@ From 15 minutes before kickoff until the match is over, the page polls `/api/gam
 every 20 seconds — comfortably inside "at least once a minute," and cheap to do since there's no
 budget to protect — sending only the leagues that actually have a match in play right now. Once
 ESPN's own clock label says any polled match has reached the 85th minute, that poll tightens to
-every 10 seconds instead — the same cadence live odds already run at (below) — since a goal or the
-final whistle in that stretch can flip both the result and the market within seconds, on both
-Sports and Picks (`LATE_GAME_MINUTE`/`parseElapsedMinutes` in `app/sports/page.tsx`,
-`app/picks/page.tsx`, `lib/liveScores.ts`). The result replaces the guessed "LIVE NOW" badge with
+every 10 seconds instead — since a goal or the final whistle in that stretch can flip both the
+result and the market within seconds, on both Sports and Picks
+(`LATE_GAME_MINUTE`/`parseElapsedMinutes` in `app/sports/page.tsx`, `app/picks/page.tsx`,
+`lib/liveScores.ts`). Live odds tighten on their own, earlier threshold (the 80th minute — see
+below), so by the time scores reach their own 85th-minute tightening, odds are usually already
+polling faster still. The result replaces the guessed "LIVE NOW" badge with
 the real thing: the score **and** ESPN's own live match clock — "63′ 2-1", "HT 1-0", "FT 3-1" —
 which is what actually makes a card read as live rather than just eventually-correct; a bare "LIVE"
 label never said whether that meant kickoff had just happened or the 90th minute had. It's also
@@ -123,23 +125,34 @@ same" market at "the same" moment.
 Every listed game that HASN'T kicked off yet gets its price fetched from CLOB at the 5-minute-
 fidelity 3-hour window the moment the games list itself changes (initial load, a manual refresh, a
 live game rejoining after a merge) — not on its own timer, since that already matches the general
-sweep's own cadence. For any game that has actually kicked off, a separate poll reads that same
-price every 10 seconds instead, at the finer 1-minute fidelity the odds-history chart's own LIVE tab
-reads (`fetchLivePrices(requests, "live")`) — so a live card's number never noticeably lags the line
-the chart underneath it is drawing, the same way it briefly could back when both polls shared the
-coarser 5-minute window. A game not returned by CLOB (nothing traded recently enough) just keeps
+sweep's own cadence. A game not returned by CLOB (nothing traded recently enough) just keeps
 showing `game.odds` unchanged.
 
-**A live game's odds belong exclusively to the 10-second poll — nothing else can touch them.** Two
-separate protections make that true regardless of how a general refresh was triggered (the initial
-load, returning to a stale tab, or tapping refresh): `mergeGames` (`lib/gamesCache.ts`) keeps a live
-game's `odds` field (the Gamma snapshot) exactly as it was rather than the general sweep's, and the
-CLOB seed effect above skips any already-live game outright rather than re-fetching its price at the
-coarser 3h window at all. Everything else about the game — volume, liquidity, tokenIds — still
-updates normally from a general refresh; only the two fields the 10s poll already owns are
-protected. Before this, a general refresh landing moments after the live-odds poll would silently
-overwrite a current, correct price with an older, coarser snapshot from a completely different
-fetch strategy.
+For any game that has actually kicked off, a separate poll reads the price a completely different
+way: not a point off `prices-history`'s bucketed candles at all, but CLOB's `/midpoint` endpoint —
+the order book's current best-bid/best-ask midpoint, with no bucket to close and publish before it's
+readable (`fetchMidpoint`/`fetchMidpoints`, `lib/oddsHistoryServer.ts`; `/api/live-odds`;
+`fetchMidpointPrices`, `lib/livePrices.ts`). Even `prices-history`'s finest fidelity is a whole
+1-minute candle, and a candle only gets published once it's fully elapsed — so polling that endpoint
+instantly still meant the number shown could be a minute or more behind the market's actual current
+state. The midpoint has nothing to wait on, so it's stale by at most however long ago the last poll
+ran: every 10 seconds normally, tightened to every 3 seconds once the match clock reaches the 80th
+minute (`LATE_GAME_ODDS_MINUTE`/`LATE_LIVE_ODDS_POLL_MS` in `app/sports/page.tsx`,
+`app/picks/page.tsx`) — a goal in that stretch can swing the market within seconds, and by then even
+a 10-second-old number starts to feel slow. The odds-history chart's own LIVE tab still reads the
+bucketed `prices-history` series at 1-minute fidelity (it's drawing a trend line, not a single
+current number), so the two intentionally use different CLOB endpoints for different jobs.
+
+**A live game's odds belong exclusively to the dedicated poll above — nothing else can touch them.**
+Two separate protections make that true regardless of how a general refresh was triggered (the
+initial load, returning to a stale tab, or tapping refresh): `mergeGames` (`lib/gamesCache.ts`) keeps
+a live game's `odds` field (the Gamma snapshot) exactly as it was rather than the general sweep's,
+and the CLOB seed effect above skips any already-live game outright rather than re-fetching its
+price at the coarser 3h window at all. Everything else about the game — volume, liquidity, tokenIds
+— still updates normally from a general refresh; only the two fields the dedicated poll already owns
+are protected. Before this, a general refresh landing moments after the live-odds poll would
+silently overwrite a current, correct price with an older, coarser snapshot from a completely
+different fetch strategy.
 
 Both the score and odds polls subscribe on a joined *string* key rather than a freshly-built array.
 That sounds like a detail, but depending on the array meant every incoming score rebuilt it, tore
@@ -921,6 +934,7 @@ app/
   api/analyze/predict/route.ts        Sports step 1: independent AI prediction
   api/analyze/compare/route.ts        Sports step 2: compare prediction against market odds
   api/odds-history/route.ts           Proxies Polymarket's CLOB price-history, per outcome token
+  api/live-odds/route.ts              Proxies Polymarket's CLOB midpoint, for the dedicated live-odds poll
 components/                           UI components (game/market cards, analysis sheets, etc.)
 lib/                                  Polymarket + OpenRouter integrations, types, formatting, storage
 ```

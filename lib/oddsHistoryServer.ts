@@ -78,3 +78,41 @@ export async function fetchHistorySeries(
     }))
   );
 }
+
+// prices-history (above) is bucketed into whole candles — 1-minute ones even at `live`'s finest
+// fidelity, CLOB's own finest resolution for that endpoint — and a candle only closes and gets
+// published once it's fully elapsed. Polling that endpoint instantly still means the number shown
+// is however old the last CLOSED bucket is, easily 1-2 minutes plus whatever CLOB's own indexing
+// lag adds on top. /midpoint asks a genuinely different question: not "what did the last closed
+// candle settle at", but "what is the order book's current best-bid/best-ask midpoint right now" —
+// no bucket to wait on. This is what an actually-live number needs, especially late in a match
+// where every ten seconds can flip the market.
+interface ClobMidpointResponse {
+  mid?: string;
+}
+
+export async function fetchMidpoint(tokenId: string, fetchImpl: typeof fetch = fetch): Promise<number | null> {
+  try {
+    const res = await fetchImpl(`${CLOB_BASE}/midpoint?token_id=${encodeURIComponent(tokenId)}`, {
+      headers: { accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as ClobMidpointResponse;
+    const mid = typeof data.mid === "string" ? parseFloat(data.mid) : NaN;
+    return Number.isFinite(mid) ? mid : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchMidpoints(
+  outcomes: { label: string; tokenId: string | null }[],
+  fetchImpl: typeof fetch = fetch
+): Promise<{ label: string; price: number | null }[]> {
+  return Promise.all(
+    outcomes.map(async (o) => ({
+      label: o.label,
+      price: o.tokenId ? await fetchMidpoint(o.tokenId, fetchImpl) : null,
+    }))
+  );
+}

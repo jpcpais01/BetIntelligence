@@ -19,7 +19,7 @@ import { loadLastAnalyses, type LastAnalysisEntry } from "@/lib/lastAnalysis";
 import type { LiveScoreEntry } from "@/lib/liveScores";
 import { parseElapsedMinutes } from "@/lib/liveScores";
 import { anyTeamNameMatches } from "@/lib/teamNameMatching";
-import { liveKey, fetchLivePrices, type LivePriceRequest } from "@/lib/livePrices";
+import { liveKey, fetchLivePrices, fetchMidpointPrices, type LivePriceRequest } from "@/lib/livePrices";
 
 // Live scores now come from ESPN's public site API (lib/liveScores.ts), with no comparable rate
 // limit to football-data.org's — so this polls tightly enough to feel genuinely live (comfortably
@@ -34,6 +34,11 @@ const LIVE_ODDS_POLL_MS = 10_000;
 // LIVE_SCORE_POLL_MS the rest of the live list is still fine with.
 const LATE_GAME_MINUTE = 85;
 const LATE_LIVE_SCORE_POLL_MS = 10_000;
+// From the 80th minute on, a live odds number that's ten whole seconds old is itself starting to
+// feel slow — a goal here swings the market hard and immediately, so this late stretch gets its
+// own much tighter cadence rather than waiting out the rest of LIVE_ODDS_POLL_MS.
+const LATE_GAME_ODDS_MINUTE = 80;
+const LATE_LIVE_ODDS_POLL_MS = 3_000;
 // Lineups aren't announced continuously the way a score or a price is — there's nothing to gain
 // from polling faster than every few minutes, and starting an hour out comfortably covers even the
 // top-5 leagues' earliest announcements without wasting requests on a match still a day away.
@@ -206,6 +211,13 @@ export default function Home() {
     [liveGames, scoreByGameId]
   );
 
+  // Same idea, its own (earlier) threshold — drives the live-ODDS poll below rather than the
+  // live-score one above.
+  const anyLateOddsGame = useMemo(
+    () => liveGames.some((g) => (parseElapsedMinutes(scoreByGameId[g.id]?.clockLabel) ?? -1) >= LATE_GAME_ODDS_MINUTE),
+    [liveGames, scoreByGameId]
+  );
+
   useEffect(() => {
     if (!scoreLeaguesKey) return;
     const leagues = scoreLeaguesKey.split(",");
@@ -309,14 +321,15 @@ export default function Home() {
       : new Set();
   }, [liveOddsKey]);
 
-  // Re-reads CLOB's current price for whichever games are actually live, every LIVE_ODDS_POLL_MS —
-  // the same source as the one-shot effect above, just refreshed far more often for the games that
-  // are actually moving right now. Reads gamesRef rather than depending on `games` directly so this
+  // Re-reads CLOB's current order-book midpoint for whichever games are actually live — every
+  // LIVE_ODDS_POLL_MS normally, tightened to LATE_LIVE_ODDS_POLL_MS once any of them has reached
+  // LATE_GAME_ODDS_MINUTE. Reads gamesRef rather than depending on `games` directly so this
   // interval isn't torn down and restarted by every incoming score/price update — only a genuine
-  // change to WHICH games are live (liveOddsKey) does that.
+  // change to WHICH games are live (liveOddsKey) or the late-game cadence switch does that.
   useEffect(() => {
     if (!liveOddsKey) return;
     const ids = liveOddsKey.split(",").map((entry) => entry.slice(0, entry.lastIndexOf(":")));
+    const pollMs = anyLateOddsGame ? LATE_LIVE_ODDS_POLL_MS : LIVE_ODDS_POLL_MS;
 
     let cancelled = false;
     const refreshLiveOdds = async () => {
@@ -330,10 +343,8 @@ export default function Home() {
         requests.push({ key: liveKey(g.id, "away"), tokenId: g.tokenIds?.away, fallback: g.odds.away });
       }
       if (requests.length === 0) return;
-      // liveOddsKey (and so `ids` above) only ever contains games that have actually kicked off —
-      // the same finer "live" fidelity the odds-history chart's own LIVE tab reads, so a card's
-      // displayed number never lags noticeably behind the line the chart underneath it draws.
-      const result = await fetchLivePrices(requests, "live");
+      // The order-book midpoint, not a point read off a bucketed candle — see fetchMidpointPrices.
+      const result = await fetchMidpointPrices(requests);
       if (cancelled) return;
       setLiveOdds((current) => {
         const next = { ...current };
@@ -351,12 +362,12 @@ export default function Home() {
     };
 
     void refreshLiveOdds();
-    const id = setInterval(() => void refreshLiveOdds(), LIVE_ODDS_POLL_MS);
+    const id = setInterval(() => void refreshLiveOdds(), pollMs);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [liveOddsKey]);
+  }, [liveOddsKey, anyLateOddsGame]);
 
   // Games worth asking about a lineup: within an hour of kickoff, OR already kicked off and still
   // live (liveGames itself already excludes anything over) — a game that already has its lineup

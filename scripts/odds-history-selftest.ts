@@ -1,4 +1,4 @@
-import { fetchOutcomeHistory, fetchHistorySeries, isHistoryWindow } from "../lib/oddsHistoryServer";
+import { fetchOutcomeHistory, fetchHistorySeries, fetchMidpoint, fetchMidpoints, isHistoryWindow } from "../lib/oddsHistoryServer";
 import { generateMockHistory } from "../lib/mockOddsHistory";
 
 type FakeResponse = { ok: boolean; json: () => Promise<unknown> };
@@ -116,6 +116,48 @@ async function run() {
       urls[4].includes("interval=6h") && urls[4].includes("fidelity=1"),
       urls[4]
     );
+  }
+
+  // fetchMidpoint: the /midpoint endpoint used for the dedicated live-odds poll instead of a
+  // point read off a bucketed prices-history candle — see lib/livePrices.ts's fetchMidpointPrices.
+  {
+    const fetchImpl = fakeFetch([{ ok: true, json: async () => ({ mid: "0.634" }) }]);
+    const price = await fetchMidpoint("token-1", fetchImpl);
+    check("parses a well-formed midpoint response", price === 0.634, String(price));
+  }
+  {
+    const fetchImpl = fakeFetch([{ ok: false, json: async () => ({}) }]);
+    const price = await fetchMidpoint("token-thin", fetchImpl);
+    check("a non-ok response yields null rather than throwing", price === null);
+  }
+  {
+    const fetchImpl = fakeFetch([{ ok: true, json: async () => ({ mid: "not-a-number" }) }]);
+    const price = await fetchMidpoint("token-weird", fetchImpl);
+    check("a non-numeric mid field yields null rather than NaN", price === null);
+  }
+  {
+    const throwingFetch = (async () => {
+      throw new Error("network down");
+    }) as unknown as typeof fetch;
+    const price = await fetchMidpoint("token-err", throwingFetch);
+    check("a thrown fetch yields null, not a propagated error", price === null);
+  }
+  {
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      return { ok: true, json: async () => ({ mid: "0.5" }) } as unknown as Response;
+    }) as typeof fetch;
+    const prices = await fetchMidpoints(
+      [
+        { label: "Home", tokenId: "real-token" },
+        { label: "Draw", tokenId: null },
+      ],
+      fetchImpl
+    );
+    check("fetchMidpoints preserves outcome order and labels", prices[0].label === "Home" && prices[1].label === "Draw");
+    check("a null tokenId short-circuits to a null price with no fetch", prices[1].price === null && calls === 1, String(calls));
+    check("a real tokenId resolves to its parsed price", prices[0].price === 0.5, String(prices[0].price));
   }
 
   // isHistoryWindow: the route's own validation for a client-supplied window param — an unknown
