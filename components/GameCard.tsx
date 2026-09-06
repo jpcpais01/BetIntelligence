@@ -26,6 +26,7 @@ export default function GameCard({
   lastAnalysis,
   liveScore,
   liveOdds,
+  lineupsReady,
 }: {
   game: Game;
   onAnalyze: (game: Game) => void;
@@ -41,6 +42,10 @@ export default function GameCard({
   // seconds for whichever games have actually kicked off. Falls back to `game.odds` (the plain
   // snapshot from the last general refresh) only for a token CLOB has no recent trade for.
   liveOdds?: Probabilities | null;
+  // Whether ESPN has posted a starting XI for this match yet — polled every few minutes once
+  // within an hour of kickoff (see app/sports/page.tsx). Purely a heads-up that the NEXT analysis
+  // will have squad data to work with; it doesn't fetch or show the lineup itself here.
+  lineupsReady?: boolean;
 }) {
   const { label: kickoffLabel, isLive: heuristicLive } = formatKickoff(game.startTime);
   const top = isTopGame(game);
@@ -99,6 +104,11 @@ export default function GameCard({
               style={{ color: riskLevelColor(riskLevel), background: `color-mix(in srgb, ${riskLevelColor(riskLevel)} 14%, transparent)` }}
             >
               {riskLevelLabel(riskLevel)}
+            </span>
+          )}
+          {!started && lineupsReady && (
+            <span className="shrink-0 rounded-full bg-accent/14 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-accent">
+              11s Are Here!
             </span>
           )}
         </div>

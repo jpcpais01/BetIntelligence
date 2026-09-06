@@ -225,6 +225,10 @@ function makeMixedFetch(opts: {
 }) {
   return (async (url: unknown, init?: RequestInit) => {
     const u = String(url);
+    // buildFootballAnalysisDigest also checks ESPN for a posted lineup (lib/lineups.ts) — an empty
+    // scoreboard here means "no lineup found", the same as a real not-yet-announced match, without
+    // it being mistaken for an OpenRouter call by the fallback branch below.
+    if (u.includes("site.api.espn.com")) return { ok: true, status: 200, json: async () => ({ events: [] }) };
     if (u.includes("api.football-data.org")) {
       if (u.includes("/competitions/")) return { ok: true, status: 200, json: async () => ({ teams: [opts.home, opts.away] }) };
       if (u.includes("/head2head")) return { ok: true, status: 200, json: async () => ({ matches: opts.h2h ?? [] }) };
@@ -303,6 +307,11 @@ async function runFootballPipelineChecks(failures: string[]) {
     check("the digest includes each team's recent form", /3-1 vs Fulham/.test(predictUserPrompt) && /2-2 at Everton/.test(predictUserPrompt));
     check("the digest includes head-to-head history", /1-1/.test(predictUserPrompt));
     check("the digest notes the match hasn't started yet", /has not started yet/.test(predictUserPrompt));
+    check(
+      "with no lineup posted (mocked ESPN scoreboard is empty), the digest says so for both teams",
+      /Arsenal: not announced yet\./.test(predictUserPrompt) && /Chelsea: not announced yet\./.test(predictUserPrompt),
+      predictUserPrompt.slice(-300)
+    );
 
     check("no sources are returned (no web search happened)", (result.sources ?? []).length === 0, JSON.stringify(result.sources));
     check("cost is just the single predict call's cost, not a sum of two", Math.abs((result.costUsd ?? 0) - 0.0009) < 0.00001, `got ${result.costUsd}`);
@@ -419,6 +428,7 @@ async function runFootballPipelineChecks(failures: string[]) {
     let openRouterCalls = 0;
     globalThis.fetch = (async (url: unknown) => {
       const u = String(url);
+      if (u.includes("site.api.espn.com")) return { ok: true, status: 200, json: async () => ({ events: [] }) };
       if (u.includes("api.football-data.org")) {
         footballDataCalls++;
         if (u.includes("/competitions/")) return { ok: true, status: 200, json: async () => ({ teams: [serieAHome, serieAAway] }) };
@@ -473,6 +483,118 @@ async function runFootballPipelineChecks(failures: string[]) {
       `${callsAfterDigest} -> ${footballDataCalls}`
     );
     check("5 parallel predict-from-digest calls make exactly 5 OpenRouter calls", openRouterCalls === 5, `${openRouterCalls}`);
+  }
+
+  // --- Once ESPN has actually posted a lineup, buildFootballAnalysisDigest surfaces it both as
+  // structured fields (for the analysis sheet's UI) and folded into the text digest the LLM reads
+  // — the same "structured alongside text" contract standings/injuries already follow. ---
+  {
+    // Ligue 1 — not reused from any earlier block in this file, since football-data.org's team
+    // roster cache is keyed by competition code for the life of this process (see the comment
+    // above process.env.FOOTBALL_DATA_API_KEY), and reusing a league already exercised elsewhere
+    // would silently serve that earlier block's cached teams instead of these ones.
+    __resetRateLimiterForTests();
+    const ligue1Home = { id: 600, name: "Paris SG" };
+    const ligue1Away = { id: 601, name: "Marseille" };
+    const ligue1Kickoff = "2026-06-01T19:00:00.000Z";
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/summary?event=")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            rosters: [
+              {
+                homeAway: "home",
+                formation: "4-3-3",
+                roster: [
+                  { starter: true, athlete: { displayName: "Home Keeper" }, position: { abbreviation: "GK" } },
+                  { starter: true, athlete: { displayName: "Home Striker" }, position: { abbreviation: "FW" } },
+                  { starter: false, athlete: { displayName: "Home Sub" }, position: { abbreviation: "MF" } },
+                ],
+              },
+              {
+                homeAway: "away",
+                formation: "4-4-2",
+                roster: [{ starter: true, athlete: { displayName: "Away Keeper" }, position: { abbreviation: "GK" } }],
+              },
+            ],
+          }),
+        };
+      }
+      if (u.includes("/scoreboard?")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            events: [
+              {
+                id: "555999",
+                competitions: [
+                  {
+                    competitors: [
+                      { homeAway: "home", team: { displayName: "Paris SG" } },
+                      { homeAway: "away", team: { displayName: "Marseille" } },
+                    ],
+                  },
+                ],
+              },
+            ],
+          }),
+        };
+      }
+      if (u.includes("api.football-data.org")) {
+        if (u.includes("/competitions/")) return { ok: true, status: 200, json: async () => ({ teams: [ligue1Home, ligue1Away] }) };
+        if (u.includes("/head2head")) return { ok: true, status: 200, json: async () => ({ matches: [] }) };
+        if (u.includes(`/teams/${ligue1Home.id}/matches`) || u.includes(`/teams/${ligue1Away.id}/matches`)) {
+          return { ok: true, status: 200, json: async () => ({ matches: [] }) };
+        }
+        if (u.includes("/matches?")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              matches: [
+                fdMatch({ id: 900020, date: ligue1Kickoff, home: ligue1Home, away: ligue1Away, status: "SCHEDULED", homeGoals: null, awayGoals: null }),
+              ],
+            }),
+          };
+        }
+        throw new Error(`Unhandled football-data.org URL: ${u}`);
+      }
+      return completion({ content: GOOD_JSON }, "stop", { cost: 0.0009 });
+    }) as unknown as typeof fetch;
+
+    const digest = await buildFootballAnalysisDigest({
+      homeTeam: "Paris SG",
+      awayTeam: "Marseille",
+      league: "ligue-1",
+      startTime: ligue1Kickoff,
+    });
+
+    check(
+      "the home side's posted lineup comes back with its formation and only its actual starters",
+      digest.homeLineup?.formation === "4-3-3" &&
+        digest.homeLineup?.starters.length === 2 &&
+        digest.homeLineup?.starters.some((p) => p.name === "Home Keeper" && p.position === "GK"),
+      JSON.stringify(digest.homeLineup)
+    );
+    check(
+      "a non-starter on the roster is excluded",
+      digest.homeLineup?.starters.every((p) => p.name !== "Home Sub") ?? false,
+      JSON.stringify(digest.homeLineup)
+    );
+    check(
+      "the away side's lineup is parsed too, independently of the home side's",
+      digest.awayLineup?.formation === "4-4-2" && digest.awayLineup?.starters.length === 1,
+      JSON.stringify(digest.awayLineup)
+    );
+    check(
+      "the text digest folds both lineups in, for the LLM to actually read",
+      /Paris SG \(4-3-3\): Home Keeper, Home Striker/.test(digest.text) && /Marseille \(4-4-2\): Away Keeper/.test(digest.text),
+      digest.text.slice(digest.text.indexOf("Starting Lineups"))
+    );
   }
 }
 

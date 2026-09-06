@@ -1,4 +1,4 @@
-import type { ComparisonResult, IndependentPrediction, InjuredPlayer, Probabilities, TeamStanding } from "./types";
+import type { ComparisonResult, IndependentPrediction, InjuredPlayer, Probabilities, TeamLineup, TeamStanding } from "./types";
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -10,6 +10,8 @@ export interface MockFootballDigest {
   awayStanding: TeamStanding;
   homeInjuries: InjuredPlayer[];
   awayInjuries: InjuredPlayer[];
+  homeLineup: TeamLineup | null;
+  awayLineup: TeamLineup | null;
 }
 
 // Under MOCK_AI, the eventual prediction never actually reads this digest — but the client always
@@ -36,6 +38,11 @@ Head-to-Head History (last 5 meetings):
     awayStanding: { position: 9, playedGames: 12, points: 17, goalsFor: 15, goalsAgainst: 18, form: ["L", "W", "D", "D", "L"] },
     homeInjuries: [{ name: "Mock Player A", detail: "reported unavailable" }],
     awayInjuries: [],
+    homeLineup: {
+      formation: "4-3-3",
+      starters: Array.from({ length: 11 }, (_, i) => ({ name: `Mock Home Starter ${i + 1}` })),
+    },
+    awayLineup: null,
   };
 }
 

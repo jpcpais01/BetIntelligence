@@ -5,11 +5,13 @@ import type {
   InjuredPlayer,
   LeagueId,
   Probabilities,
+  TeamLineup,
   TeamStanding,
 } from "./types";
 import { MODELS, DEFAULT_MODEL } from "./models";
 import { buildFootballDigest } from "./footballData";
 import { buildInjuryDigest, fetchInjurySummary } from "./bigBallsData";
+import { fetchMatchLineups } from "./lineups";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -404,6 +406,14 @@ export interface FootballAnalysisDigest {
   awayStanding: TeamStanding | null;
   homeInjuries: InjuredPlayer[] | null;
   awayInjuries: InjuredPlayer[] | null;
+  homeLineup: TeamLineup | null;
+  awayLineup: TeamLineup | null;
+}
+
+function lineupText(teamName: string, lineup: TeamLineup | null): string {
+  if (!lineup) return `${teamName}: not announced yet.`;
+  const formation = lineup.formation ? ` (${lineup.formation})` : "";
+  return `${teamName}${formation}: ${lineup.starters.map((p) => p.name).join(", ")}`;
 }
 
 export async function buildFootballAnalysisDigest(input: {
@@ -433,12 +443,24 @@ export async function buildFootballAnalysisDigest(input: {
     league: input.league,
   }).catch(() => null);
 
+  // Same enrichment contract: ESPN not having posted a lineup yet (the normal state until fairly
+  // close to kickoff) means the digest just says so, never a failed analysis.
+  const lineups = await fetchMatchLineups({
+    homeTeam: input.homeTeam,
+    awayTeam: input.awayTeam,
+    league: input.league,
+    startTime: input.startTime,
+  }).catch(() => null);
+  const lineupDigest = `Starting Lineups:\n${lineupText(input.homeTeam, lineups?.home ?? null)}\n${lineupText(input.awayTeam, lineups?.away ?? null)}`;
+
   return {
-    text: `${matchDigest}\n\n${injuryDigest}`,
+    text: `${matchDigest}\n\n${injuryDigest}\n\n${lineupDigest}`,
     homeStanding,
     awayStanding,
     homeInjuries: injurySummary?.home ?? null,
     awayInjuries: injurySummary?.away ?? null,
+    homeLineup: lineups?.home ?? null,
+    awayLineup: lineups?.away ?? null,
   };
 }
 

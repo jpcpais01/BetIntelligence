@@ -15,10 +15,15 @@ import type { LeagueId } from "./types";
 // this situation (an API this sandbox can't reach to verify live); if ESPN's real shape ever drifts
 // from what's coded here, the fix is narrow — everything downstream (Sports page, settlement) only
 // ever sees the normalized LiveScoreEntry shape below, never ESPN's own JSON.
-const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer";
-const REQUEST_TIMEOUT_MS = 10_000;
+// Exported alongside ESPN_LEAGUE_SLUG below so lib/lineups.ts hits the exact same host/timeout
+// rather than a second hardcoded copy that could drift from this one.
+export const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer";
+export const ESPN_REQUEST_TIMEOUT_MS = 10_000;
+const REQUEST_TIMEOUT_MS = ESPN_REQUEST_TIMEOUT_MS;
 
-const ESPN_LEAGUE_SLUG: Record<LeagueId, string> = {
+// Exported so lib/lineups.ts (starting-XI lookups) can resolve the same league -> ESPN slug
+// mapping without duplicating it — both modules hit the same site.api.espn.com base.
+export const ESPN_LEAGUE_SLUG: Record<LeagueId, string> = {
   "premier-league": "eng.1",
   "la-liga": "esp.1",
   bundesliga: "ger.1",

@@ -5,6 +5,7 @@ import EdgeChip from "./EdgeChip";
 import TeamAssessmentSummary from "./TeamAssessmentSummary";
 import TeamStandingsSummary from "./TeamStandingsSummary";
 import TeamInjuriesSummary from "./TeamInjuriesSummary";
+import TeamLineupsSummary from "./TeamLineupsSummary";
 import { CloseIcon, BrainIcon, ScaleIcon, TrendingUpIcon, GlobeIcon } from "./icons";
 import { formatKickoff, toPercent, formatCostUsd } from "@/lib/format";
 import { agreementLabel, agreementTone } from "@/lib/aggregate";
@@ -72,6 +73,13 @@ export default function PickDetailSheet({ pick, onClose }: { pick: SavedPick; on
               awayTeam={pick.awayTeam}
               homeInjuries={pick.homeInjuries}
               awayInjuries={pick.awayInjuries}
+            />
+
+            <TeamLineupsSummary
+              homeTeam={pick.homeTeam}
+              awayTeam={pick.awayTeam}
+              homeLineup={pick.homeLineup}
+              awayLineup={pick.awayLineup}
             />
 
             <TeamAssessmentSummary homeTeam={pick.homeTeam} awayTeam={pick.awayTeam} independent={independent} />

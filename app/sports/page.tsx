@@ -27,6 +27,11 @@ const LIVE_SCORE_POLL_MS = 20_000;
 // Odds move fast once a match is underway; Polymarket has no comparable rate limit either, but
 // there's no reason to poll faster than the market itself meaningfully updates.
 const LIVE_ODDS_POLL_MS = 10_000;
+// Lineups aren't announced continuously the way a score or a price is — there's nothing to gain
+// from polling faster than every few minutes, and starting an hour out comfortably covers even the
+// top-5 leagues' earliest announcements without wasting requests on a match still a day away.
+const LINEUP_POLL_MS = 5 * 60_000;
+const LINEUP_LOOKAHEAD_MS = 60 * 60_000;
 // How often the page re-asks "where is each match up to now?". Kickoff and full time are moments
 // that pass on their own, with no data arriving to announce them, so the clock has to advance by
 // itself or a match would only appear/disappear when some unrelated fetch happened to land. This
@@ -55,6 +60,10 @@ export default function Home() {
   // ever the seed/fallback here, not the displayed number, for any game whose token has traded
   // recently enough for CLOB to have an opinion.
   const [liveOdds, setLiveOdds] = useState<Record<string, Probabilities>>({});
+  // Every game whose starting lineup has shown up this session, keyed by id — never cleared once
+  // true, the same "merge, never drop" reasoning as scoresByMatch above, since the poll below only
+  // ever asks about games that don't have one yet.
+  const [lineupsReady, setLineupsReady] = useState<Record<string, boolean>>({});
   // Read in an effect and advanced on a timer, never called during render: Date.now() is impure,
   // so a memo that called it directly would silently disagree with itself between re-renders.
   const [now, setNow] = useState<number | null>(null);
@@ -316,6 +325,67 @@ export default function Home() {
     };
   }, [liveOddsKey]);
 
+  // Games worth asking about a lineup: not kicked off yet, within an hour of it, and not already
+  // known to have one — a game that already has its lineup, or one already underway, drops out of
+  // this key on its own, which is what stops it from being asked about again. Encoded as a string
+  // for the same re-subscribe reason as scoreLeaguesKey/liveOddsKey above.
+  const lineupPollKey = useMemo(() => {
+    if (now === null) return "";
+    return liveGames
+      .filter((g) => !hasKickedOff(g.startTime, now) && new Date(g.startTime).getTime() - now <= LINEUP_LOOKAHEAD_MS)
+      .filter((g) => !lineupsReady[g.id])
+      .map((g) => g.id)
+      .sort()
+      .join(",");
+  }, [liveGames, now, lineupsReady]);
+
+  useEffect(() => {
+    if (!lineupPollKey) return;
+    const ids = new Set(lineupPollKey.split(","));
+
+    let cancelled = false;
+    const refreshLineups = async () => {
+      const currentGames = (gamesRef.current ?? []).filter((g) => ids.has(g.id));
+      if (currentGames.length === 0) return;
+      try {
+        const res = await fetch("/api/games/lineups", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            games: currentGames.map((g) => ({
+              id: g.id,
+              league: g.league,
+              homeTeam: g.homeTeam,
+              awayTeam: g.awayTeam,
+              startTime: g.startTime,
+            })),
+          }),
+          cache: "no-store",
+        });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const ready = data.ready as Record<string, boolean> | undefined;
+        if (cancelled || !ready) return;
+        const newlyReady = Object.entries(ready).filter(([, v]) => v);
+        if (newlyReady.length === 0) return;
+        setLineupsReady((current) => {
+          const next = { ...current };
+          for (const [id] of newlyReady) next[id] = true;
+          return next;
+        });
+      } catch {
+        // Best-effort enrichment — cards just keep polling on the next tick.
+      }
+    };
+
+    void refreshLineups();
+    const id = setInterval(() => void refreshLineups(), LINEUP_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [lineupPollKey]);
+
   // Every team currently listed gets its crest requested — not just a curated "top club" list —
   // so the whole league, not a handful of elite names, shows real logos.
   useEffect(() => {
@@ -507,6 +577,7 @@ export default function Home() {
                 lastAnalysis={lastAnalysisMap[game.id] ?? null}
                 liveScore={scoreByGameId[game.id] ?? null}
                 liveOdds={liveOdds[game.id] ?? null}
+                lineupsReady={lineupsReady[game.id] ?? false}
               />
             ))}
           </div>

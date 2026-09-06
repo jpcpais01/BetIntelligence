@@ -8,6 +8,7 @@ import type {
   SourceCitation,
   TeamStanding,
   InjuredPlayer,
+  TeamLineup,
 } from "@/lib/types";
 import OutcomeBar from "./OutcomeBar";
 import ConfidenceBadge from "./ConfidenceBadge";
@@ -16,6 +17,7 @@ import ResearchOverlay from "./ResearchOverlay";
 import TeamAssessmentSummary from "./TeamAssessmentSummary";
 import TeamStandingsSummary from "./TeamStandingsSummary";
 import TeamInjuriesSummary from "./TeamInjuriesSummary";
+import TeamLineupsSummary from "./TeamLineupsSummary";
 import {
   CloseIcon,
   BrainIcon,
@@ -90,6 +92,8 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
   const [awayStanding, setAwayStanding] = useState<TeamStanding | null>(null);
   const [homeInjuries, setHomeInjuries] = useState<InjuredPlayer[] | null>(null);
   const [awayInjuries, setAwayInjuries] = useState<InjuredPlayer[] | null>(null);
+  const [homeLineup, setHomeLineup] = useState<TeamLineup | null>(null);
+  const [awayLineup, setAwayLineup] = useState<TeamLineup | null>(null);
 
   // The planned run count is fixed for the lifetime of this sheet instance — chosen on the card
   // before Analyze was tapped, read once here rather than mid-flight.
@@ -123,12 +127,16 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
             awayStanding: fetchedAwayStanding,
             homeInjuries: fetchedHomeInjuries,
             awayInjuries: fetchedAwayInjuries,
+            homeLineup: fetchedHomeLineup,
+            awayLineup: fetchedAwayLineup,
           } = await postJson<{
             digest: string;
             homeStanding: TeamStanding | null;
             awayStanding: TeamStanding | null;
             homeInjuries: InjuredPlayer[] | null;
             awayInjuries: InjuredPlayer[] | null;
+            homeLineup: TeamLineup | null;
+            awayLineup: TeamLineup | null;
           }>(
             "/api/analyze/football-digest",
             {
@@ -143,6 +151,8 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
           setAwayStanding(fetchedAwayStanding);
           setHomeInjuries(fetchedHomeInjuries);
           setAwayInjuries(fetchedAwayInjuries);
+          setHomeLineup(fetchedHomeLineup);
+          setAwayLineup(fetchedAwayLineup);
 
           return Promise.all(
             Array.from({ length: plannedRuns }, () =>
@@ -246,6 +256,8 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
     setAwayStanding(null);
     setHomeInjuries(null);
     setAwayInjuries(null);
+    setHomeLineup(null);
+    setAwayLineup(null);
     setStage("predicting");
     setRetryKey((k) => k + 1);
   };
@@ -272,6 +284,8 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
       awayStanding,
       homeInjuries,
       awayInjuries,
+      homeLineup,
+      awayLineup,
     });
     setSaved(true);
   };
@@ -414,6 +428,13 @@ export default function AnalysisSheet({ game, onClose }: { game: Game; onClose: 
                 awayTeam={game.awayTeam}
                 homeInjuries={homeInjuries}
                 awayInjuries={awayInjuries}
+              />
+
+              <TeamLineupsSummary
+                homeTeam={game.homeTeam}
+                awayTeam={game.awayTeam}
+                homeLineup={homeLineup}
+                awayLineup={awayLineup}
               />
 
               <TeamAssessmentSummary homeTeam={game.homeTeam} awayTeam={game.awayTeam} independent={independent} />

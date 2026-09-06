@@ -32,6 +32,8 @@ export async function POST(request: Request) {
       awayStanding: digest.awayStanding,
       homeInjuries: digest.homeInjuries,
       awayInjuries: digest.awayInjuries,
+      homeLineup: digest.homeLineup,
+      awayLineup: digest.awayLineup,
     });
   } catch (err) {
     console.error("POST /api/analyze/football-digest failed", err);

@@ -93,6 +93,21 @@ export interface InjuredPlayer {
   detail: string;
 }
 
+// One starting-XI player (ESPN's site API — lib/lineups.ts). `position` is whatever short
+// abbreviation ESPN gave for that slot (e.g. "GK", "CB"), omitted when it didn't report one.
+export interface LineupPlayer {
+  name: string;
+  position?: string;
+}
+
+// A team's confirmed starting lineup for one match. Only ever present once ESPN itself has
+// published it — usually posted somewhere from about an hour before kickoff (top-5 leagues) to
+// sometimes much closer to it for smaller ones, never guaranteed by any deadline.
+export interface TeamLineup {
+  formation?: string;
+  starters: LineupPlayer[];
+}
+
 export type ValueSide = "home" | "draw" | "away" | "none";
 
 export interface ComparisonResult {
@@ -143,6 +158,11 @@ export interface SavedPick {
   awayStanding?: TeamStanding | null;
   homeInjuries?: InjuredPlayer[] | null;
   awayInjuries?: InjuredPlayer[] | null;
+  // Confirmed starting XIs at analysis time, same "undefined for an older pick, null when fetched
+  // but genuinely unavailable" contract as the fields above. ESPN often hasn't posted these yet at
+  // analysis time even for a match happening soon — null here is the ordinary case, not a failure.
+  homeLineup?: TeamLineup | null;
+  awayLineup?: TeamLineup | null;
 }
 
 // Generalized versions of the above for the Discover feed — any Polymarket market, not just

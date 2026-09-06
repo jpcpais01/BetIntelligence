@@ -558,6 +558,12 @@ Tapping **AI Analyze** runs against [`deepseek/deepseek-v4-flash-0731`](https://
    disagreeing with the pre-match independent view, instead of what it actually is: the market pricing in a match
    that's already underway.
 
+The research step also folds in a **Starting Lineups** section (`lib/lineups.ts`) once each side's confirmed XI has
+been posted — from the same ESPN site API that already powers live scores, no separate key. ESPN announces a
+match's lineup itself, typically somewhere from about an hour before kickoff for the top-5 leagues to sometimes much
+closer to it for smaller ones, never on any guaranteed schedule — so "not announced yet" is the normal state right up
+until it isn't, both in the text the model reads and in the infogram described below.
+
 Alongside the AI's own read, the same one-time digest fetch (`/api/analyze/football-digest`) also returns two small,
 factual infograms — real data, not an AI opinion, so they render even before the independent read finishes:
 
@@ -573,11 +579,27 @@ factual infograms — real data, not an AI opinion, so they render even before t
   fetchers rather than costing a second real request. Renders nothing at all (not two empty "None reported" lists) when
   the league isn't covered, there's no key, or team-name resolution fails — an empty state there would misleadingly imply
   data was checked and found clean.
+- **Starting XI** (`components/TeamLineupsSummary.tsx`) — each side's confirmed lineup (with formation, when ESPN gave
+  one) from `fetchMatchLineups` (`lib/lineups.ts`), the same structured-counterpart pattern as the two enrichments
+  above. Renders nothing at all when neither side has a lineup posted yet, rather than two "not announced" boxes —
+  that's the ordinary pre-match state, not something worth flagging on every single card.
 
-Both are attached to a `SavedPick` (`homeStanding`/`awayStanding`/`homeInjuries`/`awayInjuries`) so a saved pick's
-read-only detail view (`PickDetailSheet.tsx`) shows the exact same infograms later, not just the live analysis sheet.
-Batch analysis doesn't fetch either (its condensed cards already omit the pros/cons/summary breakdown too), and a pick
-saved before this existed just doesn't have the fields at all — both components render nothing rather than guessing.
+All three are attached to a `SavedPick` (`homeStanding`/`awayStanding`/`homeInjuries`/`awayInjuries`/`homeLineup`/`awayLineup`)
+so a saved pick's read-only detail view (`PickDetailSheet.tsx`) shows the exact same infograms later, not just the live
+analysis sheet. Batch analysis doesn't fetch any of them (its condensed cards already omit the pros/cons/summary
+breakdown too), and a pick saved before a given field existed just doesn't have it at all — every component renders
+nothing rather than guessing.
+
+### "11s Are Here!" — a heads-up before you even tap Analyze
+
+The Sports page polls separately for whichever upcoming games are getting close to kickoff: every game less than an
+hour from starting gets asked about every 5 minutes (`/api/games/lineups`, backed by `getLineupAvailability` in
+`lib/lineups.ts` — one ESPN scoreboard request per league covered among those games, not one per game). The moment a
+lineup shows up for a match, its card gets a small **11s Are Here!** badge next to the league name
+(`components/GameCard.tsx`) — purely a heads-up that the next analysis will have real squad data to work with, not a
+lineup preview itself (that's what tapping Analyze, or the Starting XI infogram above, is for). A match that's
+already kicked off drops out of this poll on its own, the same "stop asking once it's moot" reasoning behind the live
+score/odds polls next to it.
 
 **Discover markets** (`lib/openrouterMarkets.ts`) — any non-football question, where no equivalent structured API exists —
 keep the original three-step shape:
@@ -855,6 +877,13 @@ required to run AI analysis.
   once deployed, since this provider's exact contract can't be tested live from this project's dev
   environment (its domain is blocked by that sandbox's network policy the same way
   football-data.org's docs were).
+- **Starting lineups**: the same [ESPN public site API](https://site.api.espn.com/) as live scores
+  above — `lib/lineups.ts`'s `fetchMatchLineups` finds ESPN's own event id for the fixture (a
+  scoreboard request, matched by team name) and then reads that event's summary for a posted
+  roster, and `getLineupAvailability` does the same in batch across many games at once for the
+  Sports page's "11s Are Here!" poll. No key, same undocumented-endpoint caveat as live scores; a
+  lineup not yet posted, an uncovered league, or a failed request all mean "not available right
+  now" rather than breaking the analysis.
 
 ## Project structure
 
