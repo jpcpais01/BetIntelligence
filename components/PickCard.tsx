@@ -1,7 +1,7 @@
 import type { SavedPick, Probabilities } from "@/lib/types";
 import type { LiveScoreEntry } from "@/lib/liveScores";
-import { formatKickoff, toSignedPercent } from "@/lib/format";
-import { hasKickedOff, isMatchOver } from "@/lib/matchClock";
+import { formatKickoff, formatCountdown, toSignedPercent } from "@/lib/format";
+import { hasKickedOff, isMatchOver, retentionCountdown } from "@/lib/matchClock";
 import Avatar from "./Avatar";
 import { TrendingUpIcon, ScaleIcon, CloseIcon, ChevronRightIcon } from "./icons";
 
@@ -43,6 +43,11 @@ export default function PickCard({
       : phase === "finished"
         ? "border border-border-soft/60 bg-surface-2/40 opacity-75"
         : "border border-border-soft bg-surface";
+
+  // How close this pick is to actually disappearing (lib/picks.ts's pruneFinishedPicks) — shown
+  // as a shrinking bar rather than a bare number so it reads as something actively counting down,
+  // not just another static stat next to it.
+  const countdown = phase === "finished" ? retentionCountdown(pick.startTime) : null;
 
   const bestEdgeLabel =
     pick.comparison.bestValue === "none"
@@ -117,6 +122,24 @@ export default function PickCard({
         <div className="flex items-center gap-2 rounded-xl bg-surface-2 px-3 py-2">
           <ScaleIcon className="h-3.5 w-3.5 shrink-0 text-text-faint" />
           <p className="text-[11px] text-text-dim">Market looked efficient.</p>
+        </div>
+      )}
+
+      {countdown && (
+        <div className="mt-3 flex items-center gap-2">
+          <div className="h-1 flex-1 overflow-hidden rounded-full bg-surface-2">
+            <div
+              key={`${pick.id}-${Math.round(countdown.elapsedFraction * 100)}`}
+              className="countdown-drain h-full rounded-full bg-text-faint/60"
+              style={{
+                width: `${(1 - countdown.elapsedFraction) * 100}%`,
+                animationDuration: `${countdown.remainingMs}ms`,
+              }}
+            />
+          </div>
+          <span className="shrink-0 text-[10px] tabular-nums text-text-faint">
+            Fades in {formatCountdown(countdown.remainingMs)}
+          </span>
         </div>
       )}
     </div>

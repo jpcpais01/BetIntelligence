@@ -202,14 +202,24 @@ export default function PicksPage() {
 
   const valueCount = sportsPicks?.filter((p) => p.comparison.bestValue !== "none").length ?? 0;
 
-  // Ordered by kickoff — the earliest match first, whether it's still upcoming, already live, or
-  // finished a while ago — rather than by whenever each one happened to be saved. A schedule read
-  // top-to-bottom is what this list is for; save order doesn't mean anything once you have more
-  // than a couple of picks.
-  const orderedPicks = useMemo(
-    () => (sportsPicks ? [...sportsPicks].sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()) : null),
-    [sportsPicks]
-  );
+  // Ordered by kickoff — the earliest match first, whether it's still upcoming or already live —
+  // rather than by whenever each one happened to be saved. A schedule read top-to-bottom is what
+  // this list is for; save order doesn't mean anything once you have more than a couple of picks.
+  // Finished picks (PickCard's own faded, fading-away treatment) are pushed to the very end
+  // instead of sorting in wherever their kickoff would otherwise place them — a match that's over
+  // and on its way out isn't part of the upcoming schedule anymore, and mixing it back in among
+  // still-live matches just to honor kickoff order would bury what you're actually here to check.
+  const orderedPicks = useMemo(() => {
+    if (!sportsPicks) return null;
+    const byKickoff = (a: SavedPick, b: SavedPick) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
+    const active: SavedPick[] = [];
+    const finished: SavedPick[] = [];
+    for (const p of sportsPicks) {
+      const over = now !== null && isMatchOver(p.startTime, scoreByPickId[p.id]?.status, now);
+      (over ? finished : active).push(p);
+    }
+    return [...active.sort(byKickoff), ...finished.sort(byKickoff)];
+  }, [sportsPicks, scoreByPickId, now]);
 
   return (
     <div className="mx-auto max-w-md">

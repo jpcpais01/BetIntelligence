@@ -50,6 +50,18 @@ export function formatRelativeTime(iso: string | null): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
+// A coarse "time left" label for a countdown — never fractions of a minute, never negative (a
+// clamped-to-zero ms reads as "<1m" rather than a confusing "-2m").
+export function formatCountdown(ms: number): string {
+  const totalMinutes = Math.floor(Math.max(0, ms) / 60_000);
+  if (totalMinutes < 1) return "<1m";
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}m`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h ${minutes}m`;
+}
+
 export function formatCompactNumber(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return "0";
   return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(n);

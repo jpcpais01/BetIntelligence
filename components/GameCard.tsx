@@ -6,7 +6,6 @@ import type { LastAnalysisEntry } from "@/lib/lastAnalysis";
 import type { LiveScoreEntry } from "@/lib/liveScores";
 import { formatCompactNumber, formatKickoff, formatRelativeTime, toPercent, toSignedPercent, formatCostUsd } from "@/lib/format";
 import { isTopGame } from "@/lib/topTeams";
-import { hasKickedOff } from "@/lib/matchClock";
 import { agreementLabel, agreementTone } from "@/lib/aggregate";
 import { riskLevelFor, riskLevelLabel, riskLevelColor } from "@/lib/riskLevel";
 import Avatar from "./Avatar";
@@ -49,7 +48,6 @@ export default function GameCard({
 }) {
   const { label: kickoffLabel, isLive: heuristicLive } = formatKickoff(game.startTime);
   const top = isTopGame(game);
-  const started = hasKickedOff(game.startTime);
   const effectiveOdds = liveOdds ?? game.odds;
 
   // A real score (when available) replaces the plain "LIVE NOW" guess with the actual result AND
@@ -151,11 +149,10 @@ export default function GameCard({
 
       {!selectMode && <PriceHistoryPanel game={game} odds={effectiveOdds} />}
 
-      {/* Once the match has kicked off, a pre-match analysis is stale — hiding it here means the
-          card only ever shows a "last analysis" that was actually formed live (form, live score,
-          injuries) rather than a snapshot from before the game started. Re-tapping Analyze after
-          kickoff produces a fresh one, which then shows normally until the NEXT match starts. */}
-      {!selectMode && !started && lastAnalysis && <LastAnalysisPanel game={game} entry={lastAnalysis} />}
+      {/* Shown regardless of whether the match has kicked off — a pre-match read is still worth
+          seeing once the game is live (it's what you had going in), and re-tapping Analyze any
+          time replaces it with a fresh one anyway. */}
+      {!selectMode && lastAnalysis && <LastAnalysisPanel game={game} entry={lastAnalysis} />}
 
       <div className="flex items-center justify-between gap-3 border-t border-border-soft pt-3">
         <span className="text-[11px] tabular-nums text-text-faint">

@@ -127,6 +127,19 @@ body {
   animation: grow-bar 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* A finished pick's "fading away" countdown (PickCard) — the mirror of grow-bar above: the
+   element's own inline width is the STARTING point (how much of the retention window is left),
+   and this drains it to 0 over exactly `animation-duration` (set inline to the real remaining ms),
+   so the bar reaches empty at the same real-world moment the pick actually gets pruned. */
+@keyframes countdown-drain {
+  to {
+    width: 0%;
+  }
+}
+.countdown-drain {
+  animation: countdown-drain linear forwards;
+}
+
 @keyframes rise-in {
   from {
     opacity: 0;

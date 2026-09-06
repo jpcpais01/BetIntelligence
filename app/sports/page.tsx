@@ -87,11 +87,14 @@ export default function Home() {
   // card picks up "what the AI last said" right after you close the sheet.
   const refreshLastAnalysis = useCallback(() => setLastAnalysisMap(loadLastAnalyses()), []);
 
-  // The general odds sweep is click-triggered (plus the initial load, and returning to a
-  // long-stale tab), never an automatic timer — but throttled so it's never asked to repeat itself
-  // inside ODDS_REFRESH_MIN_INTERVAL_MS (10 minutes), on the theory that non-live odds simply don't
-  // move fast enough to need it. `force` skips the throttle for explicit error recovery ("Try
-  // again"), so one failed fetch doesn't lock the user out for the rest of that window.
+  // The general odds sweep runs on the initial load and on returning to a long-stale tab, never an
+  // automatic timer — throttled there so it's never asked to repeat itself inside
+  // ODDS_REFRESH_MIN_INTERVAL_MS (10 minutes), on the theory that non-live odds simply don't move
+  // fast enough to need it. `force` skips that throttle — used for the header's refresh button and
+  // the full-page error state's "Try again", i.e. anywhere the user themselves tapped something
+  // asking for a refresh right now. Without force, a manual tap inside that 10-minute window used
+  // to silently no-op (no request, no spin, nothing) — which reads as a broken button, not a
+  // deliberate throttle, so any explicit tap always gets a real fetch and visible feedback.
   const refresh = useCallback(async (opts?: { force?: boolean }) => {
     if (!opts?.force && fetchedAtRef.current && !isStale(fetchedAtRef.current)) return;
     setIsRefreshing(true);
@@ -510,7 +513,7 @@ export default function Home() {
               {selectMode ? <CloseIcon className="h-4 w-4" /> : <ListCheckIcon className="h-4 w-4" />}
             </button>
             <button
-              onClick={() => void refresh()}
+              onClick={() => void refresh({ force: true })}
               disabled={isRefreshing}
               aria-label="Refresh odds"
               className="press rounded-full bg-surface p-2.5 text-text-dim ring-1 ring-inset ring-border-soft disabled:opacity-50"

@@ -59,6 +59,31 @@ export function isPastRetentionWindow(startTime: string | undefined, now: number
   return t !== null && now - t >= MATCH_REMOVED_AFTER_MS;
 }
 
+// How close a finished pick is to actually being removed — for the Picks tab's fading-away
+// countdown, not for deciding whether to hide anything (that's isPastRetentionWindow above; this
+// is purely descriptive). `remainingMs` is time-to-removal, always accurate since removal itself
+// is fixed at kickoff + MATCH_REMOVED_AFTER_MS regardless of when a card started looking
+// "finished" (a real confirmed-FINISHED status usually lands well before the 3h clock backstop
+// does). `elapsedFraction` (0-1) is how far through the fixed 24h fade window (MATCH_OVER_AFTER_MS
+// to MATCH_REMOVED_AFTER_MS) `now` sits, clamped to 0 if a real status already called it finished
+// before that window even opened — a full countdown bar is a reasonable default there, not a bug.
+// Returns null only for a pick with no usable kickoff time at all; the caller (PickCard) already
+// knows whether a match counts as finished and decides on its own whether to show this at all.
+export function retentionCountdown(
+  startTime: string | undefined,
+  now: number = Date.now()
+): { remainingMs: number; elapsedFraction: number } | null {
+  const t = kickoffMs(startTime);
+  if (t === null) return null;
+  const overAt = t + MATCH_OVER_AFTER_MS;
+  const removedAt = t + MATCH_REMOVED_AFTER_MS;
+  const fadeWindowMs = MATCH_REMOVED_AFTER_MS - MATCH_OVER_AFTER_MS;
+  return {
+    remainingMs: Math.max(0, removedAt - now),
+    elapsedFraction: Math.min(1, Math.max(0, (now - overAt) / fadeWindowMs)),
+  };
+}
+
 // Worth asking a live-score provider about: from shortly before kickoff until the match is over.
 // Note this deliberately takes the same `status` as isMatchOver, so a match stops being polled the
 // moment it's confirmed finished rather than being re-requested pointlessly until the clock

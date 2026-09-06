@@ -4,6 +4,7 @@ import {
   isMatchOver,
   isLiveCandidate,
   isPastRetentionWindow,
+  retentionCountdown,
   MATCH_OVER_AFTER_MS,
   MATCH_REMOVED_AFTER_MS,
 } from "../lib/matchClock";
@@ -100,6 +101,50 @@ function run() {
   );
   check("an upcoming match is never past the retention window", !isPastRetentionWindow(isoFromNow(2 * HOUR)));
   check("a missing kickoff time is never past the retention window", !isPastRetentionWindow(undefined));
+
+  // --- retentionCountdown: the Picks tab's "fading away" countdown ---
+  {
+    const fadeWindowMs = MATCH_REMOVED_AFTER_MS - MATCH_OVER_AFTER_MS;
+
+    check("a missing kickoff time returns null, not a crash", retentionCountdown(undefined) === null);
+
+    const justOver = retentionCountdown(isoAgo(MATCH_OVER_AFTER_MS));
+    check(
+      "right at the over threshold, the fade window has barely started",
+      justOver !== null && justOver.elapsedFraction < 0.01,
+      JSON.stringify(justOver)
+    );
+    check(
+      "right at the over threshold, remaining time is (about) the full fade window",
+      justOver !== null && Math.abs(justOver.remainingMs - fadeWindowMs) < MINUTE,
+      JSON.stringify(justOver)
+    );
+
+    const halfway = retentionCountdown(isoAgo(MATCH_OVER_AFTER_MS + fadeWindowMs / 2));
+    check(
+      "halfway through the fade window, elapsedFraction reads ~0.5",
+      halfway !== null && Math.abs(halfway.elapsedFraction - 0.5) < 0.01,
+      JSON.stringify(halfway)
+    );
+
+    const almostRemoved = retentionCountdown(isoAgo(MATCH_REMOVED_AFTER_MS - MINUTE));
+    check(
+      "just before removal, remaining time is (about) one minute",
+      almostRemoved !== null && Math.abs(almostRemoved.remainingMs - MINUTE) < 5000,
+      JSON.stringify(almostRemoved)
+    );
+
+    const pastRemoval = retentionCountdown(isoAgo(MATCH_REMOVED_AFTER_MS + HOUR));
+    check("past its actual removal time, remaining is clamped to 0, never negative", pastRemoval?.remainingMs === 0, JSON.stringify(pastRemoval));
+    check("past its actual removal time, elapsedFraction is clamped to 1", pastRemoval?.elapsedFraction === 1, JSON.stringify(pastRemoval));
+
+    const finishedEarly = retentionCountdown(isoAgo(MINUTE));
+    check(
+      "a match finished by real status well before the clock backstop clamps elapsedFraction to 0, not negative",
+      finishedEarly?.elapsedFraction === 0,
+      JSON.stringify(finishedEarly)
+    );
+  }
 
   if (failures.length > 0) {
     console.log("\nFAILURES:");
