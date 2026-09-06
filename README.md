@@ -120,23 +120,26 @@ directly (or, once a match kicked off, a similarly Gamma-sourced 10-second poll)
 provider than the chart's own data, so the two could disagree even though they were describing "the
 same" market at "the same" moment.
 
-Every listed game's price is fetched from CLOB at the same 5-minute-fidelity 3-hour window the
-moment the games list itself changes (initial load, a manual refresh, a live game rejoining after a
-merge) — not on its own timer, since that already matches the general sweep's own cadence. For any
-game that has actually kicked off, that same CLOB read repeats every 10 seconds, at the finer
-1-minute fidelity the odds-history chart's own LIVE tab reads (`fetchLivePrices(requests, "live")`)
-— so a live card's number never noticeably lags the line the chart underneath it is drawing, the
-same way it briefly could back when both polls shared the coarser 5-minute window. A game not
-returned by CLOB (nothing traded recently enough) just keeps showing `game.odds` unchanged.
+Every listed game that HASN'T kicked off yet gets its price fetched from CLOB at the 5-minute-
+fidelity 3-hour window the moment the games list itself changes (initial load, a manual refresh, a
+live game rejoining after a merge) — not on its own timer, since that already matches the general
+sweep's own cadence. For any game that has actually kicked off, a separate poll reads that same
+price every 10 seconds instead, at the finer 1-minute fidelity the odds-history chart's own LIVE tab
+reads (`fetchLivePrices(requests, "live")`) — so a live card's number never noticeably lags the line
+the chart underneath it is drawing, the same way it briefly could back when both polls shared the
+coarser 5-minute window. A game not returned by CLOB (nothing traded recently enough) just keeps
+showing `game.odds` unchanged.
 
-**A live game's odds belong exclusively to this poll — a general refresh can never touch them.**
-`mergeGames` (`lib/gamesCache.ts`) takes the current set of live game ids and, for any of them,
-keeps the game's existing `odds` field instead of the general sweep's, no matter how that sweep was
-triggered (the initial load, returning to a stale tab, or tapping refresh). Everything else about
-the game — volume, liquidity, tokenIds — still updates normally; only the one field the fast poll
-already owns is protected. Without this, a general refresh landing moments after a live-odds poll
-would silently overwrite a current, correct price with an older snapshot from a completely
-different fetch strategy.
+**A live game's odds belong exclusively to the 10-second poll — nothing else can touch them.** Two
+separate protections make that true regardless of how a general refresh was triggered (the initial
+load, returning to a stale tab, or tapping refresh): `mergeGames` (`lib/gamesCache.ts`) keeps a live
+game's `odds` field (the Gamma snapshot) exactly as it was rather than the general sweep's, and the
+CLOB seed effect above skips any already-live game outright rather than re-fetching its price at the
+coarser 3h window at all. Everything else about the game — volume, liquidity, tokenIds — still
+updates normally from a general refresh; only the two fields the 10s poll already owns are
+protected. Before this, a general refresh landing moments after the live-odds poll would silently
+overwrite a current, correct price with an older, coarser snapshot from a completely different
+fetch strategy.
 
 Both the score and odds polls subscribe on a joined *string* key rather than a freshly-built array.
 That sounds like a detail, but depending on the array meant every incoming score rebuilt it, tore

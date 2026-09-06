@@ -146,40 +146,6 @@ export default function Home() {
     gamesRef.current = games;
   }, [games]);
 
-  // Seeds/refreshes every listed game's odds bars from CLOB's real current price the moment the
-  // games list itself changes (initial load, a manual refresh, or a live game rejoining after
-  // being merged back in) — not on its own timer, since that's exactly the cadence the general
-  // sweep already respects (see ODDS_REFRESH_MIN_INTERVAL_MS). A game whose token hasn't traded
-  // recently enough for CLOB to have an opinion keeps showing its own `game.odds` unchanged
-  // (fetchLivePrices seeds that as the fallback for every request).
-  useEffect(() => {
-    if (!games || games.length === 0) return;
-    const requests: LivePriceRequest[] = [];
-    for (const g of games) {
-      requests.push({ key: liveKey(g.id, "home"), tokenId: g.tokenIds?.home, fallback: g.odds.home });
-      requests.push({ key: liveKey(g.id, "draw"), tokenId: g.tokenIds?.draw, fallback: g.odds.draw });
-      requests.push({ key: liveKey(g.id, "away"), tokenId: g.tokenIds?.away, fallback: g.odds.away });
-    }
-    let cancelled = false;
-    fetchLivePrices(requests).then((result) => {
-      if (cancelled) return;
-      setLiveOdds((current) => {
-        const next = { ...current };
-        for (const g of games) {
-          next[g.id] = {
-            home: result[liveKey(g.id, "home")],
-            draw: result[liveKey(g.id, "draw")],
-            away: result[liveKey(g.id, "away")],
-          };
-        }
-        return next;
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [games]);
-
   useEffect(() => {
     /* eslint-disable-next-line react-hooks/set-state-in-effect -- the wall clock isn't available during SSR */
     setNow(Date.now());
@@ -291,6 +257,49 @@ export default function Home() {
       .sort()
       .join(",");
   }, [liveGames, now]);
+
+  // Seeds/refreshes every listed game's odds bars from CLOB's real current price the moment the
+  // games list itself changes (initial load, a manual refresh, or a live game rejoining after
+  // being merged back in) — not on its own timer, since that's exactly the cadence the general
+  // sweep already respects (see ODDS_REFRESH_MIN_INTERVAL_MS). A game whose token hasn't traded
+  // recently enough for CLOB to have an opinion keeps showing its own `game.odds` unchanged
+  // (fetchLivePrices seeds that as the fallback for every request).
+  //
+  // A game already live is deliberately excluded here — it's exclusively owned by the dedicated
+  // 10s poll below (liveOddsKey), which fetches at CLOB's finer "live" fidelity. Before this, a
+  // manual refresh (or any games-list change) re-seeded a live game's odds too, at the coarser 3h
+  // window — landing moments after the dedicated poll's own fresher number and silently stepping
+  // backward to a less precise one until the next 10s tick corrected it.
+  useEffect(() => {
+    if (!games || games.length === 0 || now === null) return;
+    const requests: LivePriceRequest[] = [];
+    for (const g of games) {
+      if (hasKickedOff(g.startTime, now) && !isMatchOver(g.startTime, scoreByGameId[g.id]?.status, now)) continue;
+      requests.push({ key: liveKey(g.id, "home"), tokenId: g.tokenIds?.home, fallback: g.odds.home });
+      requests.push({ key: liveKey(g.id, "draw"), tokenId: g.tokenIds?.draw, fallback: g.odds.draw });
+      requests.push({ key: liveKey(g.id, "away"), tokenId: g.tokenIds?.away, fallback: g.odds.away });
+    }
+    if (requests.length === 0) return;
+    let cancelled = false;
+    fetchLivePrices(requests).then((result) => {
+      if (cancelled) return;
+      setLiveOdds((current) => {
+        const next = { ...current };
+        for (const g of games) {
+          if (!(liveKey(g.id, "home") in result)) continue;
+          next[g.id] = {
+            home: result[liveKey(g.id, "home")],
+            draw: result[liveKey(g.id, "draw")],
+            away: result[liveKey(g.id, "away")],
+          };
+        }
+        return next;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [games, now, scoreByGameId]);
 
   // Mirrors exactly the same "kicked off, not over" set liveOddsKey encodes — read by `refresh`
   // above via the ref so a general odds sweep never overwrites what the live-odds poll owns.
