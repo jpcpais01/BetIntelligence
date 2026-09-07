@@ -318,9 +318,15 @@ number was never able to affect a real win/loss, only what Lab's live odds displ
   decimal odds, and the combined edge, all live — over a slow, dim gold sheen that drifts across
   the pill (and the expanded sheet behind it) so the slip always feels quietly alive rather than
   static. Tapping it doesn't swap in a separate sheet — the same element morphs in place: its
-  border-radius springs from a full pill to a rounded sheet while its body grows open via a
+  border-radius eases from a full pill to a rounded sheet while its body grows open via a
   `grid-template-rows` transition (`0fr` &rarr; `1fr`, `components/BetSlipBar.tsx`), so the whole
-  thing reads as one shape stretching open rather than two different elements swapping places.
+  thing reads as one shape stretching open rather than two different elements swapping places, and
+  the page behind it dims and blurs (`.lab-slip-scrim`) so the open slip reads as a layer over the
+  app — tapping the dimmed area closes it. That radius transition is pointedly **not** springy,
+  and that's load-bearing: it runs `999px` &rarr; `28px`, so a spring's ~10% overshoot of a 971px
+  range lands far below zero, where `border-radius` clamps — which is exactly why the corners used
+  to snap hard-square partway through every open before rounding off again. The bounce moved to the
+  sheet's contents, which spring up a beat behind the shape and can overshoot for free.
   Tapping the pill again morphs it back shut the same way. Open, it shows the full slip: every leg with its own live odds/edge, a **stake**
   picker (quick chips of €10/€25/€50/€100), and — with 2+ legs — the combined market and AI
   probability, each the product of every leg's own probability for its chosen outcome
@@ -359,6 +365,26 @@ placed bets with their own live P&L.
   now" math as a real prediction-market position, generalized across every leg in a parlay and
   summed across every bet you've placed. A leg that can't be repriced (no token, or the pick
   predates this feature) just holds at its stake, never fabricating a number.
+- **The line is drawn as water.** It carries no y-axis labels at all — the big number above it
+  already says what the portfolio is worth, and the hover readout gives the exact value at any
+  point, so axis ticks were only ever stealing width from the plot. What's left is a surface that
+  actually moves: three sine layers at frequencies that don't divide into each other, two
+  travelling one way and one the other, summed so they never line up the same way twice and the
+  motion reads as water rather than a looping cartoon wave, with the whole surface swelling and
+  calming over ~20s on top of that (`components/PortfolioChart.tsx`). A second, phase-lagged echo
+  line sits just beneath it for depth. When the portfolio is **up**, it's drawn in tropical water —
+  a gradient from turquoise green in the shallows to blue further out (`--water-1`/`--water-2`);
+  down stays the app's plain red, since a portfolio underwater isn't the kind of water this is for.
+
+  Two things keep this honest rather than decorative. The displacement is tapered to exactly zero
+  at both ends, so the first and last points — the latter carrying the "now" dot — sit precisely on
+  their real values while only the stretch between them moves; and the crest is ~2.5% of the plot
+  height, far too small to change what the line says about the numbers underneath it. The hover
+  readout always reports the true stored value, never a waved one. It's driven by writing `d`
+  straight onto the paths from a `requestAnimationFrame` loop rather than through React state,
+  since putting a 60fps clock into state would re-render the whole chart every frame for nothing —
+  and it doesn't run at all for anyone whose OS asks for reduced motion, who gets the same chart
+  held still.
 - **Recent bets** lists your last 5 placed bets — legs, stake, current live value, and P&L in both
   € and % — with a **Show 10** toggle to see more. Nothing here is a real trade; it's the same
   paper-trade philosophy as the rest of the app, just tracked in one place with real numbers instead
@@ -867,6 +893,28 @@ The nav is the only thing rendered above that gradient; the fade's height is kep
 with the nav's own rendered height (which varies by device, mainly the safe-area inset) via a
 `--bottom-nav-height` CSS custom property BottomNav publishes from a `ResizeObserver` on itself,
 rather than duplicating its padding math in a second place.
+
+## Motion: one shared easing vocabulary
+
+Rather than each animation picking its own curve, everything in the app moves on three tokens
+(`app/globals.css`), which is what makes the whole thing feel like one object instead of a pile of
+separately-tuned effects:
+
+- `--ease-spring` overshoots its target and settles back. That's the bounce, and it belongs on
+  **transforms** — scale and translate — where overshooting is the entire point and can't break
+  anything. Every tappable thing (`.press`) squashes instantly on touch and springs back on
+  release; popups, cards and reward flourishes all spring in.
+- `--ease-spring-soft` is the same idea with a gentler overshoot, for larger elements where a full
+  bounce reads as flapping rather than springy (`.rise-in`, used by every list card).
+- `--ease-soft` is a plain expo-out with **no** overshoot, for the cases where going past the
+  target is either invisible or actively wrong. There are three, and each is a real bug avoided
+  rather than a stylistic preference: `border-radius`, which clamps at zero and flashes square
+  corners on the way past (see the bet slip above); a bar whose width encodes a real value, where
+  overshooting would briefly draw a number that isn't true; and a sheet resting flush against the
+  bottom of the screen, which would lift clear of the edge and flash the page through the gap
+  underneath.
+
+The rule of thumb: **spring the transform, ease the geometry.**
 
 ## Install as an app
 

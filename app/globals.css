@@ -20,6 +20,26 @@
   --draw: #f2b44c;
   --away: #7c6bff;
 
+  /* One shared easing vocabulary, so everything in the app accelerates and settles the same way
+     instead of each animation picking its own curve.
+
+     --ease-spring overshoots its target and settles back — that's the bounce, and it belongs on
+     transforms (scale/translate), where overshooting is the entire point and can't break layout.
+     --ease-spring-soft is the same idea with a gentler overshoot, for bigger elements where a full
+     bounce would read as flapping rather than springy.
+     --ease-soft is a plain expo-out with NO overshoot, for anything where going past the target is
+     either invisible or actively wrong: border-radius (which clamps at 0 and flashes square corners
+     on the way past — the bet slip's exact bug), a width that encodes a real value, or a sheet sat
+     flush against the screen edge that would show a gap under it if it overshot. */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-spring-soft: cubic-bezier(0.34, 1.28, 0.5, 1);
+  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Tropical water (PortfolioChart) — the shallow-to-deep turquoise a portfolio that's up gets
+     drawn in, green in the shallows shifting to blue further out. */
+  --water-1: #34e7c8;
+  --water-2: #2bb8f0;
+
   /* Champions League nights (see .ucl-card) — the competition's own electric blue over a deep
      navy, the two colors it's actually recognisable by. */
   --ucl: #3d7bff;
@@ -130,7 +150,7 @@ body {
   }
 }
 .grow-bar {
-  animation: grow-bar 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: grow-bar 0.7s var(--ease-soft) forwards;
 }
 
 /* A finished pick's "fading away" countdown (PickCard) — the mirror of grow-bar above: the
@@ -157,7 +177,7 @@ body {
   }
 }
 .rise-in {
-  animation: rise-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: rise-in 0.5s var(--ease-spring-soft) both;
 }
 
 @keyframes sheet-up {
@@ -168,8 +188,10 @@ body {
     transform: translateY(0);
   }
 }
+/* Soft, not springy: this sheet rests flush against the bottom of the screen, so an overshoot
+   would lift it clear of the edge and flash the page through the gap underneath. */
 .sheet-up {
-  animation: sheet-up 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: sheet-up 0.42s var(--ease-soft) both;
 }
 
 @keyframes spin {
@@ -232,15 +254,18 @@ body {
   animation: research-spin 7s linear infinite;
 }
 
+/* Press down fast and release with a spring, so every tappable thing in the app has the same
+   tactile give — squashing instantly on touch, bouncing back rather than gliding to a stop. */
 .press {
   transition:
-    transform 0.12s ease,
+    transform 0.4s var(--ease-spring),
     background-color 0.15s ease,
     border-color 0.15s ease,
     color 0.15s ease;
 }
 .press:active {
   transform: scale(0.97);
+  transition-duration: 0.1s;
 }
 
 .safe-top {
@@ -390,14 +415,31 @@ body {
   }
 }
 .lab-pop-in {
-  animation: lab-pop-in 0.36s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: lab-pop-in 0.44s var(--ease-spring) both;
 }
 
-/* The bet slip bar's pill-to-sheet morph: a springy overshoot on the shape itself (border-radius)
-   while its height grows smoothly (grid-template-rows, set inline in BetSlipBar.tsx) — together
-   they read as one gooey shape stretching open, not two different elements swapping places. */
+/* The bet slip bar's pill-to-sheet morph: the shape (border-radius) and its height
+   (grid-template-rows, set inline in BetSlipBar.tsx) grow together so it reads as one shape
+   stretching open, not two elements swapping places.
+
+   The radius must NOT use a springy overshoot, however tempting: it animates 999px -> 28px, and
+   an overshoot of ~10% of a 971px range lands far below zero, where border-radius clamps. That
+   flashed hard square corners partway through every open before they rounded off again. The bounce
+   lives on the sheet's own content instead (BetSlipBar.tsx), where overshooting is free. */
 .lab-slip-morph {
-  transition: border-radius 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: border-radius 0.45s var(--ease-soft);
+}
+
+/* The page behind the slip, dimmed while it's open — the sheet reads as a layer above the page
+   rather than something sat on top of it, and there's an obvious place to tap to dismiss. */
+.lab-slip-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 5, 12, 0.55);
+  backdrop-filter: blur(2px);
+  transition:
+    opacity 0.4s var(--ease-soft),
+    visibility 0.4s;
 }
 
 @keyframes lab-buy-pulse {
@@ -427,7 +469,7 @@ body {
   }
 }
 .lab-coin-bounce {
-  animation: lab-coin-bounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation: lab-coin-bounce 0.5s var(--ease-spring) both;
 }
 
 @keyframes lab-confetti-fall {
@@ -548,7 +590,7 @@ body {
   }
 }
 .pop-in {
-  animation: pop-in 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: pop-in 0.46s var(--ease-spring) both;
 }
 
 /* Flying-money easter egg (components/FlyingMoney.tsx). Left-to-right and right-to-left variants
@@ -651,7 +693,7 @@ body {
   }
 }
 .reward-pop {
-  animation: reward-pop 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: reward-pop 0.42s var(--ease-spring) both;
 }
 
 /* --- Native-feel primitives (Home + Sports' default theme) ---------------------------------
@@ -723,7 +765,7 @@ body {
 /* A springier press than .press's plain scale-down — for the handful of primary, tappable hero
    elements (not every button in the app) where a bit of bounce reads as more native/tactile. */
 .press-spring {
-  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform 0.45s var(--ease-spring);
 }
 .press-spring:active {
   transform: scale(0.96);
@@ -740,5 +782,5 @@ body {
 }
 .sweep-in {
   transform-origin: left;
-  animation: sweep-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: sweep-in 0.8s var(--ease-soft) both;
 }

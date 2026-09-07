@@ -87,6 +87,22 @@ export default function BetSlipBar({
         </div>
       )}
 
+      {/* The page dimmed behind the open slip, so it reads as a layer above everything rather than
+          a panel sat on top of it — and gives an obvious "tap anywhere else to close" target.
+          Kept mounted and toggled via opacity/visibility so it fades BOTH ways; unmounting it on
+          collapse would make it vanish instantly while the sheet was still closing. */}
+      {legs.length > 0 && (
+        <div
+          className="lab-slip-scrim z-[44]"
+          onClick={() => setExpanded(false)}
+          aria-hidden={!expanded}
+          style={{
+            opacity: expanded ? 1 : 0,
+            visibility: expanded ? "visible" : "hidden",
+          }}
+        />
+      )}
+
       {legs.length > 0 && (
         <div className="fixed inset-x-0 bottom-[calc(92px+env(safe-area-inset-bottom))] z-[45] mx-auto max-w-md px-4">
           <div
@@ -133,16 +149,20 @@ export default function BetSlipBar({
               style={{
                 display: "grid",
                 gridTemplateRows: expanded ? "1fr" : "0fr",
-                transition: "grid-template-rows 0.5s cubic-bezier(0.22, 1, 0.36, 1)",
+                transition: "grid-template-rows 0.45s var(--ease-soft)",
               }}
             >
               <div className="min-h-0 overflow-hidden">
+                {/* The bounce the shape itself can't have (see .lab-slip-morph) lives here: the
+                    contents spring up into place a beat behind the sheet opening, which is what
+                    actually sells the whole thing as one gooey object stretching open. */}
                 <div
                   className="max-h-[60vh] overflow-y-auto px-4 pb-4"
                   style={{
                     opacity: expanded ? 1 : 0,
-                    transform: expanded ? "translateY(0)" : "translateY(-6px)",
-                    transition: "opacity 0.3s ease 0.08s, transform 0.35s cubic-bezier(0.22, 1, 0.36, 1) 0.08s",
+                    transform: expanded ? "translateY(0)" : "translateY(-10px)",
+                    transition:
+                      "opacity 0.3s var(--ease-soft) 0.06s, transform 0.5s var(--ease-spring) 0.06s",
                   }}
                 >
                   <div className="flex items-center justify-between gap-2 pb-2 pt-1">
