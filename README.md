@@ -365,22 +365,39 @@ placed bets with their own live P&L.
   now" math as a real prediction-market position, generalized across every leg in a parlay and
   summed across every bet you've placed. A leg that can't be repriced (no token, or the pick
   predates this feature) just holds at its stake, never fabricating a number.
-- **The line is drawn as water.** It carries no y-axis labels at all — the big number above it
+- **The graph is drawn as water.** It carries no y-axis labels at all — the big number above it
   already says what the portfolio is worth, and the hover readout gives the exact value at any
-  point, so axis ticks were only ever stealing width from the plot. What's left is a surface that
-  actually moves: three sine layers at frequencies that don't divide into each other, two
-  travelling one way and one the other, summed so they never line up the same way twice and the
-  motion reads as water rather than a looping cartoon wave, with the whole surface swelling and
-  calming over ~20s on top of that (`components/PortfolioChart.tsx`). A second, phase-lagged echo
-  line sits just beneath it for depth. When the portfolio is **up**, it's drawn in tropical water —
-  a gradient from turquoise green in the shallows to blue further out (`--water-1`/`--water-2`);
-  down stays the app's plain red, since a portfolio underwater isn't the kind of water this is for.
+  point, so axis ticks were only ever stealing width from the plot. What's left is a body of water
+  (`components/PortfolioChart.tsx`), built from three pieces:
 
-  Two things keep this honest rather than decorative. The displacement is tapered to exactly zero
-  at both ends, so the first and last points — the latter carrying the "now" dot — sit precisely on
-  their real values while only the stretch between them moves; and the crest is ~2.5% of the plot
-  height, far too small to change what the line says about the numbers underneath it. The hover
-  readout always reports the true stored value, never a waved one. It's driven by writing `d`
+  **The surface** uses trochoidal (Gerstner) waves, not a stack of plain sines. On real water every
+  particle travels in a *circle* rather than straight up and down, so as it rises it also drifts
+  sideways — bunching together at the crests and spreading apart in the troughs. That asymmetry
+  (peaked crests, broad flat troughs) is the entire visual signature of water; symmetric sines just
+  read as a wobbling line, which is exactly what the first attempt at this looked like. Four layers
+  at frequencies that don't divide into each other, travelling in opposite directions, so the
+  pattern never repeats — with two slow out-of-step swells riding on top so the surface builds and
+  calms on its own rhythm instead of churning at one fixed intensity.
+
+  **Caustics** are what actually make the fill read as water rather than a tinted triangle: soft
+  patches of light dappling below the surface, each drifting at its own rate and breathing on its
+  own cycle, clipped to whatever shape the water currently is. Each patch measures its depth from
+  the surface *directly above it* — the water is only as deep as the line is high at that x — and
+  shrinks and fades in the shallows. Pinning them to fixed heights instead puts every one of them
+  outside the clip, and invisible, wherever the line runs low.
+
+  **A glint** slides along the surface on an eased cycle, like sun catching the water, moved by
+  translating a gradient rather than redrawing anything.
+
+  When the portfolio is **up** it's tropical water — turquoise green shifting to blue
+  (`--water-1`/`--water-2`); down stays the app's plain red, since a portfolio underwater isn't the
+  kind of water this is for.
+
+  Two things keep this honest rather than decorative. The displacement tapers to exactly zero at
+  both ends, so the first and last points — the latter carrying the "now" dot — sit precisely on
+  their real values while only the stretch between them moves; and the crest is a few percent of
+  the plot height, far too small to change what the line says about the numbers underneath it. The
+  hover readout always reports the true stored value, never a waved one. It's driven by writing `d`
   straight onto the paths from a `requestAnimationFrame` loop rather than through React state,
   since putting a 60fps clock into state would re-render the whole chart every frame for nothing —
   and it doesn't run at all for anyone whose OS asks for reduced motion, who gets the same chart
