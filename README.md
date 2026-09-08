@@ -598,73 +598,68 @@ breakdown answers "how did the AI's boldest calls do vs. its most marginal ones"
 
 #### Risk-tier animated card backgrounds
 
-A rated card (one with a `riskLevel`, above) trades its plain surface for a continuously-flowing
-glowing signal line, one distinct SHAPE per tier — not just a different color or speed on the
-same effect — defined in `app/globals.css` and drawn in `components/GameCard.tsx`. The idea is
-literal: a risk tier *is* a reading on how strong a signal the AI's call is, so the background
-reads as one. Speed still climbs tier by tier, the same direction the risk read itself moves, but
-now the wave's own shape changes too:
+A rated card (one with a `riskLevel`, above) trades its plain surface for a small, distinct
+light-scattering effect — a different CONCEPT per tier, not just a different color or speed on
+the same effect — defined in `app/globals.css` and drawn in `components/GameCard.tsx`'s
+`RiskBackground`. Each tier is just 2-4 positioned `<span>`s; every visual difference between
+tiers (shape, count, motion, color) is pure CSS:
 
-- **Calm** — one gentle roll per period, thin line, dimmest glow, slowest scroll. The quietest
-  signal in every dimension at once.
-- **Easy** — two rolls per period, a touch brighter and quicker.
-- **Normal** — the shallowest amplitude of the five, so even at a moderate pace it reads as level
-  rather than agitated — the coin-flip tier's own even keel, deliberately dimmer than Easy despite
-  moving faster.
-- **Risky** — three rolls per period, faster and warmer, noticeably more turbulent than anything
-  calmer than it.
-- **Mega** — a genuinely different shape, not a faster/brighter version of the others: a flat
-  baseline with sharp spikes, the same idea as an ECG blip. Fastest scroll, boldest line,
-  strongest glow of the five.
+- **Calm — Aurora Wash.** Two huge, ultra-soft blobs blended with `mix-blend-mode: screen`,
+  drifting in slow, wide, independent loops. The dimmest, biggest-blur, slowest-moving of the
+  five — a distant, restful glow.
+- **Easy — Pulsing Glow.** Two light sources breathing (scale + opacity) from opposite corners,
+  offset so the card is never dim at both corners at once. A touch faster and brighter than Calm.
+- **Normal — Bokeh Drift.** Three small, soft circles drifting independently in smooth, steady
+  loops — restrained and even, deliberately the least dramatic of the five. This tier's own even
+  keel has been its signature through every earlier design of this feature too.
+- **Risky — Signal Ripple.** Concentric rings expanding outward and fading — the exact same proven
+  pattern as `ResearchOverlay`'s `.research-orb-ring` radar ping, reused here rather than
+  reinvented, just repositioned off-center and recolored per tier. Faster and warmer than the calm
+  end of the scale.
+- **Mega — Sparkle Glints.** Four small, bright points flashing on and drifting up before fading,
+  staggered so the card is never fully dark between flashes — the most urgent, most alive tier.
 
-Each card gets two of these: a brighter "main" wave and a fainter "echo" drifting the opposite
-direction underneath it for depth, plus a static (never-animated) tinted wash behind both that
-sets the ambient color even where the lines themselves don't reach. A Champions League fixture's
-blue wash (above) steps aside for this when both apply — the risk tier's own color and motion
-already carry a strong mood tied to that specific recommendation, and layering the UCL wash
+A static (never-animated) tinted wash sits behind all of them (`.risk-bg::before`), setting the
+ambient color even in the moments an animated element isn't over a given spot. A Champions League
+fixture's blue wash (above) steps aside for this when both apply — the risk tier's own color and
+motion already carry a strong mood tied to that specific recommendation, and layering the UCL wash
 underneath would just muddy both.
 
-**This is the second build of this system** — an earlier gradient-blob-and-ribbon version got
-rebuilt twice, once for being computationally heavy and once for not looking distinctive enough,
-and the reasoning from both rounds is worth keeping visible since it's the reason every rule here
-looks the way it does:
+**This is the third build of this system.** The first (gradient-blob-and-ribbon) version got
+rebuilt for being computationally heavy; the second (scrolling waveform) version fixed that but
+was rejected on pure aesthetics — lines just weren't the right visual language. This build keeps
+every performance rule the second one established, now applied to five genuinely different shapes
+instead of one shape reused five ways:
 
-- **Only `transform` is ever animated — nothing else, no exceptions.** Each tier's wave is a
-  single SVG `<path>`, drawn once (the shape itself never changes); it's tiled twice side by side
-  and scrolled with `transform: translateX(-50%)`, the standard seamless-marquee trick — translate
-  a doubled strip by exactly half its own width and the seam is invisible. The browser
-  rasterizes that small, simple path once and then just slides the bitmap every frame. The very
+- **Only `transform` and `opacity` are ever animated — nothing else, no exceptions.** Every orb,
+  ring, and glint moves and fades purely via those two properties, so the compositor animates them
+  on its own thread with zero repaint. This rule exists because of a real regression: the very
   first version of this system animated `background-position` on a repeating gradient instead,
-  which *looks* like the same class of cheap effect but isn't — `background-position` is a paint
-  property, so the browser has to re-rasterize the layer's actual pixels on every single frame, for
-  every such layer, on every rated card on screen. Traced live over 3 seconds of scrolling past 5
-  rated cards, that version generated **1,184 Paint events and 5,318 raster tasks, totaling 3.4
-  seconds of cumulative raster work inside a 3-second window** — the raster thread was pegged well
-  past 100% of real time, which is exactly what dropped frames/visible jank looks like from the
-  browser's side. The current waveform version traces at **15 Paint events, 18 raster tasks, ~52ms
-  of combined raster+paint work** over the same 3 seconds — roughly two orders of magnitude down,
-  the same margin the first (gradient-blob) rewrite already achieved, just with a completely
-  different visual technique.
-- **Two animated elements per card, never more** — one main wave, one echo. No third layer, no
-  particle system.
+  which *looks* like the same class of cheap effect but isn't — it's a paint property, so the
+  browser had to re-rasterize the layer's actual pixels on every frame, for every such layer, on
+  every rated card on screen. Traced live over 3 seconds of scrolling past 5 rated cards, that
+  version generated **1,184 Paint events and 5,318 raster tasks, totaling 3.4 seconds of cumulative
+  raster work inside a 3-second window**. This build, traced the same way over the same 3 seconds
+  across all 5 tiers, produced **zero Paint events and zero RasterTask events** — not just fewer,
+  literally none; the entire 3 seconds of motion was compositor-only work the main thread never
+  touched.
+- **2-4 animated elements per card, never more** — Calm/Easy use 2 orbs, Normal uses 3, Risky uses
+  2 rings, Mega uses 4 glints. No particle system, no per-frame element generation, no JS animation
+  loop of any kind — every motion is a pure CSS `@keyframes` loop.
 - The static tinted wash is a plain, never-animated gradient (`.risk-bg::before`) — a one-time
   paint cost, the same category as `.ucl-card`'s own background, not a per-frame one.
 - `content-visibility: auto` on the whole animated layer means a card scrolled off-screen stops
-  being rendered — and its wave animation stops running — automatically, no JavaScript involved.
-  In a long games list where only a handful of rated cards are ever actually in view, this is the
+  being rendered — and its animation stops running — automatically, no JavaScript involved. In a
+  long games list where only a handful of rated cards are ever actually in view, this is the
   single biggest win of the set.
 - `contain: layout paint` scopes each card's own layout/paint work to itself, so animating one
-  card's wave can't trigger the browser to re-check its neighbors.
+  card's background can't trigger the browser to re-check its neighbors.
 
-Each wave row is stretched tall relative to its own SVG viewBox — not a thin fixed-height band —
-deliberately: the card's real content (team rows, the odds-history button, the AI summary) is
-mostly opaque panels with only small gaps between them, so a thin band sits almost entirely behind
-one panel or another and barely reads. Stretched taller, the same underlying amplitude becomes a
-bigger swing on screen, so the curve's peaks and troughs weave in and out of whichever gaps
-actually exist at any given point along the card, rather than being fully hidden or fully exposed.
 The whole system only mounts for a card that's actually been analyzed — most of a games list never
-pays for any of this at all — and every wave freezes under `prefers-reduced-motion`, keeping each
-tier's color and shape without any of the motion.
+pays for any of this at all — and every element freezes under `prefers-reduced-motion`, keeping
+each tier's color and (for the orb-based tiers) resting position/opacity without any of the
+motion; Mega's glints simply stay hidden rather than freezing mid-flash, since a static bright dot
+would misrepresent what's meant to be a brief flash.
 
 ## Odds history
 

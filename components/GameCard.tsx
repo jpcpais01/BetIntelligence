@@ -15,37 +15,46 @@ import ResearchRunsStepper from "./ResearchRunsStepper";
 import OddsHistoryChart from "./OddsHistoryChart";
 import { SparkleIcon, StarIcon, CheckIcon, BrainIcon, ChevronDownIcon, TrendingUpIcon } from "./icons";
 
-// One flowing signal line per risk tier (see .risk-bg-* in app/globals.css), drawn once here as a
-// single period of a 200×60 SVG path — CSS tiles and scrolls it seamlessly, never regenerated at
-// runtime. The SHAPE itself carries the tier's identity, not just its speed or color: a smooth
-// gentle roll for Calm, tightening and quickening through Easy/Normal/Risky, arriving at Mega as a
-// genuinely different shape — a flat signal with sharp spikes, reading as urgent rather than just
-// "the same wave, faster". Every path starts and ends at the same baseline (y=30) moving the same
-// direction, which is what makes the seam invisible when the two tiled copies meet.
-const WAVE_PATH: Record<RiskLevel, string> = {
-  calm: "M0,30 Q50,22 100,30 Q150,38 200,30",
-  easy: "M0,30 Q25,20 50,30 Q75,40 100,30 Q125,20 150,30 Q175,40 200,30",
-  normal: "M0,30 Q25,24 50,30 Q75,36 100,30 Q125,24 150,30 Q175,36 200,30",
-  risky: "M0,30 Q16.7,18 33.3,30 Q50,42 66.7,30 Q83.3,18 100,30 Q116.7,42 133.3,30 Q150,18 166.7,30 Q183.3,42 200,30",
-  mega: "M0,30 L20,30 L26,16 L32,44 L38,30 L100,30 L120,30 L126,16 L132,44 L138,30 L200,30",
-};
-
-// One period, tiled twice side by side and scrolled exactly one tile-width (see risk-wave-scroll,
-// app/globals.css) — a seamless infinite loop using only `transform`, the standard CSS marquee
-// technique: translate a doubled-up strip by exactly half its own width and the seam is invisible.
-function WaveRow({ level, className }: { level: RiskLevel; className: string }) {
-  const d = WAVE_PATH[level];
-  return (
-    <div className={className}>
-      <div className="risk-wave-track">
-        {[0, 1].map((i) => (
-          <svg key={i} viewBox="0 0 200 60" preserveAspectRatio="none">
-            <path d={d} fill="none" vectorEffect="non-scaling-stroke" />
-          </svg>
-        ))}
-      </div>
-    </div>
-  );
+// A distinct light-scattering effect per risk tier (see .risk-bg-* / .risk-orb / .risk-ring /
+// .risk-glint in app/globals.css) — every element here is just a positioned <span>, with shape,
+// motion, color and count all driven entirely by CSS. Calm/Easy/Normal share the same blurred-orb
+// "material" (.risk-orb) and differ only in size/count/motion; Risky reuses the same expanding-ring
+// pattern as ResearchOverlay's radar ping; Mega is a small staggered field of quick flashes.
+function RiskBackground({ level }: { level: RiskLevel }) {
+  switch (level) {
+    case "calm":
+    case "easy":
+      return (
+        <>
+          <span className="risk-orb risk-orb-a" aria-hidden="true" />
+          <span className="risk-orb risk-orb-b" aria-hidden="true" />
+        </>
+      );
+    case "normal":
+      return (
+        <>
+          <span className="risk-orb risk-orb-a" aria-hidden="true" />
+          <span className="risk-orb risk-orb-b" aria-hidden="true" />
+          <span className="risk-orb risk-orb-c" aria-hidden="true" />
+        </>
+      );
+    case "risky":
+      return (
+        <>
+          <span className="risk-ring" aria-hidden="true" />
+          <span className="risk-ring" aria-hidden="true" />
+        </>
+      );
+    case "mega":
+      return (
+        <>
+          <span className="risk-glint risk-glint-1" aria-hidden="true" />
+          <span className="risk-glint risk-glint-2" aria-hidden="true" />
+          <span className="risk-glint risk-glint-3" aria-hidden="true" />
+          <span className="risk-glint risk-glint-4" aria-hidden="true" />
+        </>
+      );
+  }
 }
 
 export default function GameCard({
@@ -128,13 +137,11 @@ export default function GameCard({
       }`}
       style={style}
     >
-      {/* A static tinted wash (zero animation cost, see .risk-bg::before) plus two flowing signal
-          lines — a brighter one and a fainter echo drifting the opposite way for depth. Only two
-          animated elements per card, same as before, still transform-only. */}
+      {/* A static tinted wash (zero animation cost, see .risk-bg::before) plus a per-tier
+          light-scattering effect (2-4 elements, transform/opacity only — see RiskBackground). */}
       {riskLevel && !selectMode && (
         <div className={`risk-bg risk-bg-${riskLevel}`} aria-hidden="true">
-          <WaveRow level={riskLevel} className="risk-wave-row risk-wave-row-main" />
-          <WaveRow level={riskLevel} className="risk-wave-row risk-wave-row-echo" />
+          <RiskBackground level={riskLevel} />
         </div>
       )}
       {selectMode && (

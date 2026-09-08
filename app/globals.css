@@ -748,38 +748,48 @@ body {
 }
 
 /* --- Risk-tier animated card backgrounds (GameCard) -----------------------------------------
-   A flowing glowing signal line, one distinct SHAPE per lib/riskLevel.ts tier — Calm's gentle
-   roll through Mega's sharp spikes — replacing the plain surface on any card that's actually
-   carrying a rated AI recommendation (riskLevel set). Every other card keeps the plain
-   .surface-lift/.ucl-card treatment, so the cost only ever applies to however many cards on
-   screen actually have a rating, never the whole list. Reads as "a signal", which is what a risk
-   tier actually is: a reading on how strong a call the AI made.
+   A distinct LIGHT-SCATTERING effect per lib/riskLevel.ts tier — replacing the plain surface on
+   any card that's actually carrying a rated AI recommendation (riskLevel set). Every other card
+   keeps the plain .surface-lift/.ucl-card treatment, so the cost only ever applies to however
+   many cards on screen actually have a rating, never the whole list.
 
-   This replaced an earlier gradient-blob/ribbon version, rebuilt for being computationally heavy
-   — the constraints that rewrite established still hold and are worth keeping visible:
+   This is the THIRD design for this feature (a gradient-blob/ribbon version, then a scrolling
+   waveform version) — both earlier ones were rejected on pure aesthetics after already being
+   fixed for performance, so the performance constraints below are the one thing that has stayed
+   constant across all three rewrites and matter more than ever now that each tier is a visually
+   distinct concept rather than one shape reused five ways:
 
-   1. ONLY `transform` is ever animated. Each tier's wave is one SVG path, drawn ONCE — the shape
-      itself never changes — tiled twice side by side and scrolled by translateX(-50%), the
-      standard seamless-marquee trick: translate a doubled strip by exactly half its own width and
-      the seam is invisible. The browser rasterizes the (tiny, simple) path once and then just
-      slides that bitmap every frame; nothing about the path itself is ever recomputed.
-   2. Two animated elements per card, never more: one brighter "main" wave, one fainter "echo"
-      drifting the opposite way underneath for depth. No embers, no particles, no third layer.
-   3. The static tinted wash behind the waves (`.risk-bg::before`) is a plain, NEVER-ANIMATED
-      gradient — a one-time paint cost, same as `.ucl-card`'s own background, not a per-frame one.
+   1. ONLY `transform` and `opacity` are ever animated — never `background-position`, `left/top`,
+      or anything else that forces a per-frame repaint. This is a hard-won lesson: an earlier
+      version of this exact feature animated `background-position` on a large gradient layer and,
+      despite looking like the same class of cheap effect as everything else here, it forced a
+      full re-rasterization every frame — proven via Chrome DevTools tracing to cost 3.4s of raster
+      work in a 3s window. Every element below moves and fades via transform/opacity only, which
+      the compositor can animate on its own thread with no repaint at all.
+   2. Each tier uses 2-4 small, blurred, radial-gradient elements — never more. No per-frame DOM
+      generation, no JS-driven animation loop; every motion is a pure CSS @keyframes loop.
+   3. The static tinted wash behind the scattered light (`.risk-bg::before`) is a plain,
+      NEVER-ANIMATED gradient — a one-time paint cost, same as `.ucl-card`'s own background.
    4. `content-visibility: auto` on `.risk-bg`: a card scrolled off-screen stops being rendered —
-      and its wave animations stop running — automatically, no JS, no IntersectionObserver.
+      and its animations stop running — automatically, no JS, no IntersectionObserver.
    5. `contain: layout paint` scopes each card's own layout/paint work to itself, so animating one
-      card's wave can't trigger the browser to re-check its neighbors.
+      card's background can't trigger the browser to re-check its neighbors.
 
-   Markup (components/GameCard.tsx's WaveRow): `.risk-bg` holding two `.risk-wave-row`s, each a
-   `.risk-wave-track` (the doubled, scrolling strip) containing two identical `<svg>` tiles. Per
-   tier styling — color, line weight, glow, and BOTH rows' scroll speed/direction — lives entirely
-   below via `.risk-bg-<tier> path` / `.risk-wave-row-main` / `.risk-wave-row-echo`, since the path
-   shape itself is set inline per element (components/GameCard.tsx's WAVE_PATH). The pacing still
-   carries meaning: speed climbs tier by tier, the same direction the risk read itself moves.
-   Everything freezes under prefers-reduced-motion, keeping each tier's color, shape and mood
-   without any of the motion. */
+   The five concepts (components/GameCard.tsx's RiskBackground), each its own distinct read on
+   "scattered light" rather than one shape re-skinned five times:
+   - Calm    — Aurora Wash: two huge, ultra-soft blobs blended with `screen`, drifting in slow,
+               wide, independent loops. The dimmest, slowest of the five.
+   - Easy    — Pulsing Glow: two soft light sources breathing in and out from opposite corners.
+   - Normal  — Bokeh Drift: three small, soft circles drifting in smooth, steady loops — restrained
+               and even, this tier's own signature since every earlier design.
+   - Risky   — Signal Ripple: concentric rings expanding and fading outward (the same proven
+               pattern as ResearchOverlay's `.research-orb-ring`), faster and warmer than the calm
+               end of the scale.
+   - Mega    — Sparkle Glints: four small, bright points flashing on and drifting up before fading,
+               staggered so the card never goes fully dark — the most urgent, most alive of the five.
+   Color for every one of them comes from the same `--tier-rgb` set below; only shape, count, and
+   motion differ. Everything freezes under prefers-reduced-motion, keeping each tier's color and
+   mood (via the static wash) without any of the motion. */
 .risk-bg-card {
   position: relative;
   isolation: isolate; /* keeps the negative-z-index background layer local to this card, never
@@ -820,155 +830,233 @@ body {
   background: radial-gradient(130% 100% at 50% 100%, rgba(var(--tier-rgb), 0.14), transparent 62%);
 }
 
-.risk-wave-row {
+/* Shared by every soft-blob tier (Calm, Easy, Normal): a blurred radial-gradient circle, colored
+   from the tier's own --tier-rgb, blended with `screen` so overlapping blobs brighten like real
+   scattered light instead of muddying into a flat color. Position/size/animation are set per
+   element below; only the visual "material" is shared here. */
+.risk-orb {
   position: absolute;
-  left: 0;
-  right: 0;
-  overflow: hidden;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(var(--tier-rgb), var(--orb-alpha, 0.5)), rgba(var(--tier-rgb), 0) 70%);
+  filter: blur(var(--orb-blur, 14px));
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
 }
-/* Spanning most of the card's own height (not a thin fixed-height band) is deliberate: the card's
-   real content — team rows, the odds-history button, the AI summary — is mostly opaque panels
-   with only small gaps between them, so a THIN band sits almost entirely behind one panel or
-   another and barely reads at all. Stretched this tall, the same 0–60 viewBox amplitude becomes a
-   much bigger vertical swing on screen, so the curve's peaks and troughs weave in and out of
-   whichever gaps actually exist at any given point along the card, rather than being fully hidden
-   or fully exposed. */
-.risk-wave-row-main {
-  top: 8%;
-  height: 66%;
+
+/* Calm — Aurora Wash: two huge, very soft blobs drifting in slow, wide, independent loops. The
+   biggest blur and lowest alpha of the three orb-based tiers, reading as a distant, restful glow. */
+.risk-bg-calm .risk-orb {
+  --orb-alpha: 0.38;
+  --orb-blur: 24px;
 }
-.risk-wave-row-echo {
+.risk-bg-calm .risk-orb-a {
+  left: -12%;
+  top: 6%;
+  width: 68%;
+  height: 68%;
+  animation: risk-aurora-a 19s ease-in-out infinite;
+}
+.risk-bg-calm .risk-orb-b {
+  right: -14%;
+  bottom: -10%;
+  width: 56%;
+  height: 56%;
+  opacity: 0.75;
+  animation: risk-aurora-b 24s ease-in-out infinite;
+}
+@keyframes risk-aurora-a {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(7%, -9%) scale(1.15);
+  }
+}
+@keyframes risk-aurora-b {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-9%, 7%) scale(0.88);
+  }
+}
+
+/* Easy — Pulsing Glow: two light sources breathing from opposite corners, a touch faster and
+   brighter than Calm's drift, offset so the card is never dim at both corners at once. */
+.risk-bg-easy .risk-orb {
+  --orb-alpha: 0.5;
+  --orb-blur: 17px;
+}
+.risk-bg-easy .risk-orb-a {
+  left: -10%;
+  bottom: -16%;
+  width: 58%;
+  height: 58%;
+  animation: risk-glow-pulse 4.4s ease-in-out infinite;
+}
+.risk-bg-easy .risk-orb-b {
+  right: -8%;
+  top: -8%;
+  width: 40%;
+  height: 40%;
+  animation: risk-glow-pulse 4.4s ease-in-out infinite 1.6s;
+}
+@keyframes risk-glow-pulse {
+  0%,
+  100% {
+    transform: scale(0.82);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 0.85;
+  }
+}
+
+/* Normal — Bokeh Drift: three small, soft circles drifting in smooth, steady, independent loops —
+   restrained and even, deliberately the least dramatic of the five, this tier's own signature
+   through every earlier design of this feature too. */
+.risk-bg-normal .risk-orb {
+  --orb-alpha: 0.4;
+  --orb-blur: 10px;
+}
+.risk-bg-normal .risk-orb-a {
+  left: 6%;
   top: 18%;
-  height: 52%;
-  opacity: 0.4;
+  width: 24%;
+  height: 24%;
+  animation: risk-bokeh-a 15s ease-in-out infinite;
 }
-.risk-wave-track {
-  display: flex;
-  width: 200%;
-  height: 100%;
-  will-change: transform;
+.risk-bg-normal .risk-orb-b {
+  left: 54%;
+  top: 42%;
+  width: 18%;
+  height: 18%;
+  animation: risk-bokeh-b 18s ease-in-out infinite;
 }
-.risk-wave-track svg {
-  width: 50%;
-  height: 100%;
-  flex-shrink: 0;
-  display: block;
-  overflow: visible;
+.risk-bg-normal .risk-orb-c {
+  left: 28%;
+  top: 64%;
+  width: 15%;
+  height: 15%;
+  animation: risk-bokeh-c 21s ease-in-out infinite;
 }
-.risk-wave-track path {
-  stroke: var(--tier-color);
-  stroke-linecap: round;
-  fill: none;
-}
-@keyframes risk-wave-scroll {
-  to {
-    transform: translateX(-50%);
+@keyframes risk-bokeh-a {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(9%, 12%);
   }
 }
-@keyframes risk-wave-scroll-reverse {
-  from {
-    transform: translateX(-50%);
+@keyframes risk-bokeh-b {
+  0%,
+  100% {
+    transform: translate(0, 0);
   }
-  to {
-    transform: translateX(0);
+  50% {
+    transform: translate(-11%, 7%);
   }
 }
-.risk-wave-row-main .risk-wave-track {
-  animation: risk-wave-scroll var(--wave-speed, 10s) linear infinite;
-}
-.risk-wave-row-echo .risk-wave-track {
-  animation: risk-wave-scroll-reverse var(--wave-speed-echo, 14s) linear infinite;
-}
-
-/* Calm — the gentlest shape (WAVE_PATH.calm, one soft roll) at the slowest speed and thinnest,
-   dimmest line: the quietest tier reads as the quietest signal in every dimension at once. */
-.risk-bg-calm {
-  --tier-color: var(--risk-calm);
-}
-.risk-bg-calm .risk-wave-row-main {
-  --wave-speed: 15s;
-}
-.risk-bg-calm .risk-wave-row-echo {
-  --wave-speed-echo: 21s;
-}
-.risk-bg-calm .risk-wave-track path {
-  stroke-width: 1.75;
-  opacity: 0.5;
-  filter: drop-shadow(0 0 3px rgba(var(--tier-rgb), 0.5));
+@keyframes risk-bokeh-c {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(7%, -9%);
+  }
 }
 
-/* Easy — a livelier two-roll shape, a touch faster and brighter than Calm. */
-.risk-bg-easy {
-  --tier-color: var(--risk-easy);
+/* Risky — Signal Ripple: concentric rings expanding and fading outward from a fixed point, the
+   same proven pattern as ResearchOverlay's .research-orb-ring, staggered by animation-delay
+   instead of adding a third animated element. Positioned off-center for a scattered-light feel
+   rather than the research orb's dead-center sweep. */
+.risk-ring {
+  position: absolute;
+  left: 68%;
+  top: 62%;
+  width: 42%;
+  height: 42%;
+  margin: -21% 0 0 -21%;
+  border-radius: 9999px;
+  border: 1.5px solid rgba(var(--tier-rgb), 0.65);
+  animation: risk-ring-ping 2.4s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
 }
-.risk-bg-easy .risk-wave-row-main {
-  --wave-speed: 11s;
+.risk-ring:nth-child(2) {
+  animation-delay: 1.2s;
 }
-.risk-bg-easy .risk-wave-row-echo {
-  --wave-speed-echo: 16s;
-}
-.risk-bg-easy .risk-wave-track path {
-  stroke-width: 2;
-  opacity: 0.55;
-  filter: drop-shadow(0 0 4px rgba(var(--tier-rgb), 0.55));
-}
-
-/* Normal — restrained on purpose: the coin-flip tier's own even keel. Its shape has the shallowest
-   amplitude of the five (WAVE_PATH.normal), so even at a moderate pace it reads as steady rather
-   than agitated — dimmer than Easy despite moving faster. */
-.risk-bg-normal {
-  --tier-color: var(--risk-normal);
-}
-.risk-bg-normal .risk-wave-row-main {
-  --wave-speed: 8.5s;
-}
-.risk-bg-normal .risk-wave-row-echo {
-  --wave-speed-echo: 12s;
-}
-.risk-bg-normal .risk-wave-track path {
-  stroke-width: 1.5;
-  opacity: 0.4;
-  filter: drop-shadow(0 0 3px rgba(var(--tier-rgb), 0.4));
+@keyframes risk-ring-ping {
+  0% {
+    transform: scale(0.4);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(2.3);
+    opacity: 0;
+  }
 }
 
-/* Risky — faster, bolder, warmer: three rolls per period (WAVE_PATH.risky) instead of one or two,
-   noticeably more turbulent than anything calmer than it. */
-.risk-bg-risky {
-  --tier-color: var(--risk-risky);
+/* Mega — Sparkle Glints: four small, bright points flashing on and drifting up before fading,
+   staggered so the card is never fully dark between flashes — the most urgent, most alive tier. */
+.risk-glint {
+  position: absolute;
+  width: 9%;
+  height: 9%;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(var(--tier-rgb), 0.95), rgba(var(--tier-rgb), 0) 70%);
+  filter: blur(1.5px);
+  opacity: 0;
+  animation: risk-glint-flash 2.6s ease-in-out infinite;
 }
-.risk-bg-risky .risk-wave-row-main {
-  --wave-speed: 5s;
+.risk-glint-1 {
+  left: 12%;
+  top: 68%;
+  animation-delay: 0s;
 }
-.risk-bg-risky .risk-wave-row-echo {
-  --wave-speed-echo: 7s;
+.risk-glint-2 {
+  left: 42%;
+  top: 28%;
+  animation-delay: 0.65s;
 }
-.risk-bg-risky .risk-wave-track path {
-  stroke-width: 2.25;
-  opacity: 0.6;
-  filter: drop-shadow(0 0 5px rgba(var(--tier-rgb), 0.6));
+.risk-glint-3 {
+  left: 70%;
+  top: 58%;
+  animation-delay: 1.3s;
 }
-
-/* Mega — a genuinely different SHAPE, not just a faster/brighter version of the others: a flat
-   baseline with sharp spikes (WAVE_PATH.mega), reading as an urgent signal rather than a wave at
-   all — the same idea as an ECG blip. Fastest speed, boldest line, strongest glow of the five. */
-.risk-bg-mega {
-  --tier-color: var(--risk-mega);
+.risk-glint-4 {
+  left: 86%;
+  top: 20%;
+  animation-delay: 1.95s;
 }
-.risk-bg-mega .risk-wave-row-main {
-  --wave-speed: 3.2s;
-}
-.risk-bg-mega .risk-wave-row-echo {
-  --wave-speed-echo: 4.6s;
-}
-.risk-bg-mega .risk-wave-track path {
-  stroke-width: 2.5;
-  opacity: 0.65;
-  filter: drop-shadow(0 0 6px rgba(var(--tier-rgb), 0.65));
+@keyframes risk-glint-flash {
+  0%,
+  100% {
+    transform: translateY(0) scale(0.5);
+    opacity: 0;
+  }
+  15% {
+    transform: translateY(0) scale(1);
+    opacity: 0.95;
+  }
+  60% {
+    transform: translateY(-16%) scale(0.65);
+    opacity: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .risk-wave-track {
+  .risk-orb,
+  .risk-ring,
+  .risk-glint {
     animation: none !important;
+    opacity: var(--orb-alpha, 0.5);
+  }
+  .risk-glint {
+    opacity: 0;
   }
 }
 
