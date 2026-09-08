@@ -95,14 +95,15 @@ export default function GameCard({
       }`}
       style={style}
     >
+      {/* Two layers per tier, never three — see app/globals.css's own comment on this whole
+          system for why (each one is a separate GPU-composited surface, paid for on every rated
+          card on screen at once, not once per page). */}
       {riskLevel && !selectMode && (
         <div className={`risk-bg risk-bg-${riskLevel}`} aria-hidden="true">
           <span className="risk-bg-layer risk-bg-layer-1" />
           <span className="risk-bg-layer risk-bg-layer-2" />
-          <span className="risk-bg-layer risk-bg-layer-3" />
           {riskLevel === "mega" && (
             <>
-              <span className="risk-ember" />
               <span className="risk-ember" />
               <span className="risk-ember" />
               <span className="risk-ember" />

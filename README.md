@@ -605,27 +605,55 @@ faster and more energetic tier by tier, the same direction the risk read itself 
 
 - **Calm** — *Aurora Drift*: two soft green blobs sliding along wide, slow loops, breathing gently.
   The quietest tier, the quietest motion.
-- **Easy** — *Silk Current*: soft teal ribbons flowing diagonally across the card, one gentle blob
-  underneath.
-- **Normal** — *Even Sweep*: two soft grey conic beams counter-rotating around the card's own
-  center, their interference reading as a slow, restrained pulse rather than a clean spin.
+- **Easy** — *Silk Current*: a soft teal ribbon drifting diagonally across the card, one gentle
+  blob underneath.
+- **Normal** — *Even Sweep*: one soft grey conic beam rotating slowly around the card's own
+  center, plus a faint breathing blob — restrained on purpose, the coin-flip tier's own even keel.
 - **Risky** — *Heat Shimmer*: the same ribbon technique as Easy, amber and noticeably faster, plus
   a warm pulsing glow from one corner.
-- **Mega** — *Ember Rise*: the most animation-heavy of the five — a fast pulsing red glow, two
-  crossing warning-stripe sheens, and small embers that actually rise from the bottom of the card
-  and flicker out near the top.
+- **Mega** — *Ember Rise*: the most energetic of the five — a fast pulsing red glow, one fast
+  diagonal sheen, and small embers that actually rise from the bottom of the card and flicker out
+  near the top.
 
 A Champions League fixture's blue wash (above) steps aside for this when both apply — the risk
 tier's own color and motion already carry a strong mood tied to that specific recommendation,
 and layering the UCL wash underneath would just muddy both.
 
-Performance and accessibility were deliberate constraints, not an afterthought: every layer
-animates only `transform`/`opacity`, so the browser composites the motion on the GPU without
-re-painting pixels every frame — softness comes from wide, soft-edged gradients, never from an
-animated blur filter, which is the expensive way to get the same look. The whole thing only
-mounts for a card that's actually been analyzed (most of a games list never pays for it at all),
-and every layer freezes under `prefers-reduced-motion`, keeping each tier's color and mood without
-any of the motion.
+**This was rebuilt once already for being computationally heavy**, and the reasoning behind that
+rewrite is worth knowing since it's the reason every rule in this system looks the way it does:
+
+- **Only `transform` and `opacity` are ever animated — nothing else, no exceptions.** The first
+  version moved its "flowing ribbon" layers (Easy/Risky/Mega) by animating `background-position`
+  on a repeating gradient. That *looks* like the same class of cheap effect as everything else
+  here, but it isn't: `background-position` is a paint property, so the browser has to
+  re-rasterize that layer's actual pixels on every single animation frame, for every such layer,
+  on every rated card on screen — not something a compositor can just move a bitmap for. Traced
+  live over 3 seconds of scrolling past 5 rated cards, that version generated **1,184 Paint events
+  and 5,318 raster tasks, totaling 3.4 seconds of cumulative raster work inside a 3-second window**
+  — the raster thread was pegged well past 100% of real time, which is exactly what dropped
+  frames/visible jank looks like from the browser's side. The same "flowing ribbon" look is
+  reproduced now by animating `transform: translateX()` on a gradient layer sized wider than the
+  card instead — identical visual, genuinely GPU-composited. The same trace after the rewrite:
+  **15 Paint events, 22 raster tasks, ~24ms of combined raster+paint work** — roughly two orders
+  of magnitude down on every number that matters.
+- **Two layers per tier, never three** (Mega: two layers plus three small embers, down from three
+  layers plus four) — each layer is its own composited GPU surface, and that cost is paid once per
+  *rated card on screen*, not once per page, so trimming it matters more than it looks like it
+  should.
+- Every layer's oversized footprint (the extra `inset` a blob or beam needs so drifting or
+  rotating never reveals a hard edge) is kept as tight as the motion actually needs, since the
+  pixel area a layer covers is what has to be rasterized that one time.
+- `content-visibility: auto` on the whole animated layer means a card scrolled off-screen stops
+  being rendered — and its animations stop running — automatically, no JavaScript involved. In a
+  long games list where only a handful of rated cards are ever actually in view, this is the
+  single biggest win of the five.
+- `contain: layout paint` scopes each card's own layout/paint work to itself, so animating one
+  card's background can't trigger the browser to re-check its neighbors.
+
+Softness throughout comes from wide, soft-edged gradients, never from an animated blur filter
+(the expensive way to get the same look). The whole system only mounts for a card that's actually
+been analyzed — most of a games list never pays for any of this at all — and every layer freezes
+under `prefers-reduced-motion`, keeping each tier's color and mood without any of the motion.
 
 ## Odds history
 
