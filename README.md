@@ -565,24 +565,67 @@ results, not just how the bets as placed happened to turn out.
 
 #### Risk tiers: Calm, Easy, Normal, Risky, Mega
 
-`lib/riskLevel.ts` buckets any market probability into one of five tiers, safest to longest-shot
-(`riskLevelFor`) — purely from the market's own number, independent of the AI's edge or
-confidence: **Calm** (≥70%), **Easy** (≥55%), **Normal** (≥40%), **Risky** (≥25%), **Mega**
-(below that). Any game card that's been analyzed at least once (saved or not — the same
-`lastAnalysis` cache the last-analysis panel reads) shows its tier as a tiny colored label right
-in the card header, based on the market probability of the AI's actual recommended pick
-(`comparison.bestValue`) at the moment it was analyzed — a card with no clear edge (`bestValue`
-`"none"`) shows no tier at all, since there's no specific pick to rate. The same five colors
-(`--risk-calm` … `--risk-mega`, `app/globals.css`) drive both that badge and the Home breakdown,
-so the two always read as the same scale.
+`lib/riskLevel.ts` buckets any AI-vs-market **edge** into one of five tiers, boldest call to most
+marginal one (`riskLevelFor`): **Calm** (≥10pp), **Easy** (≥7pp), **Normal** (≥5pp), **Risky**
+(≥3pp), **Mega** (below that, including zero or negative). Any game card that's been analyzed at
+least once (saved or not — the same `lastAnalysis` cache the last-analysis panel reads) shows its
+tier as a tiny colored label right in the card header, based on the edge behind the AI's actual
+recommended pick (`comparison.edges[bestValue]`) at the moment it was analyzed — a card with no
+clear edge (`bestValue` `"none"`) shows no tier at all, since there's no specific pick to rate. The
+same five colors (`--risk-calm` … `--risk-mega`, `app/globals.css`) drive that badge, the Home
+Edge Score breakdown below, and each tier's own animated card background further down.
 
-**Not to be confused with Lab's identically-named risk presets** ([above](#lab-a-sportsbook-style-slip),
-`lib/riskModes.ts`). Same five labels, two unrelated classifications: this one answers "how big a
-favorite is the market pricing this", from the market's own probability alone; Lab's answers "how
-much edge does the AI think it found, and is it restricted to the favorite", from the AI-vs-market
-edge. A pick can read "Mega" here (a genuine market longshot) while its edge is nowhere near
-Lab's own Mega window, or vice versa — they're deliberately independent reads, not the same tier
-shown in two places.
+This used to classify by the market's raw probability instead (how big a favorite the pick was),
+completely independent of what the AI actually thought — a tiny 6-point edge on a favorite and a
+tiny 6-point edge on a rank outsider read as two different tiers under that scheme, despite being
+the same size of claim, while a huge-conviction call on a longshot could read as "Mega" (implying
+marginal) purely because the longshot itself was unlikely. That old probability-based scale lived
+alongside this one, under the exact same five names, which was its own source of confusion — it's
+gone now; edge is the only classification in the app these labels mean.
+
+Boundaries mirror Lab's own risk presets ([above](#lab-a-sportsbook-style-slip), `lib/riskModes.ts`
+— Calm/Risky/Mega share these same 10/3/1-point floors) with one new value (Easy, 7pp) inserted to
+break a tie that only ever made sense for Lab's own favorite-only-vs-any-outcome axis, which
+doesn't apply to rating a single already-made recommendation. `COMPARE_SYSTEM_PROMPT`
+(`lib/openrouter.ts`) tells the model to flag a `bestValue` at all only once its own edge clears
+roughly 5pp, so in practice most real recommendations land in Calm/Easy/Normal — Risky and Mega
+mark the genuine edge cases where the model went with a thinner margin anyway.
+
+The Edge Score breakdown (above) reads the same way: each resolved leg's tier comes from its own
+`aiProb - marketProb` at the moment it was added to a slip, not from `marketProb` alone — so the
+breakdown answers "how did the AI's boldest calls do vs. its most marginal ones", the question an
+*Edge* Score breakdown is actually for, rather than "how did favorites do vs. longshots."
+
+#### Risk-tier animated card backgrounds
+
+A rated card (one with a `riskLevel`, above) trades its plain surface for a continuously-animated
+one, a different look for each of the five tiers, all defined in `app/globals.css` and applied in
+`components/GameCard.tsx`. The pacing itself carries meaning, not just the palette — motion gets
+faster and more energetic tier by tier, the same direction the risk read itself moves:
+
+- **Calm** — *Aurora Drift*: two soft green blobs sliding along wide, slow loops, breathing gently.
+  The quietest tier, the quietest motion.
+- **Easy** — *Silk Current*: soft teal ribbons flowing diagonally across the card, one gentle blob
+  underneath.
+- **Normal** — *Even Sweep*: two soft grey conic beams counter-rotating around the card's own
+  center, their interference reading as a slow, restrained pulse rather than a clean spin.
+- **Risky** — *Heat Shimmer*: the same ribbon technique as Easy, amber and noticeably faster, plus
+  a warm pulsing glow from one corner.
+- **Mega** — *Ember Rise*: the most animation-heavy of the five — a fast pulsing red glow, two
+  crossing warning-stripe sheens, and small embers that actually rise from the bottom of the card
+  and flicker out near the top.
+
+A Champions League fixture's blue wash (above) steps aside for this when both apply — the risk
+tier's own color and motion already carry a strong mood tied to that specific recommendation,
+and layering the UCL wash underneath would just muddy both.
+
+Performance and accessibility were deliberate constraints, not an afterthought: every layer
+animates only `transform`/`opacity`, so the browser composites the motion on the GPU without
+re-painting pixels every frame — softness comes from wide, soft-edged gradients, never from an
+animated blur filter, which is the expensive way to get the same look. The whole thing only
+mounts for a card that's actually been analyzed (most of a games list never pays for it at all),
+and every layer freezes under `prefers-reduced-motion`, keeping each tier's color and mood without
+any of the motion.
 
 ## Odds history
 

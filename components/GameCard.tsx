@@ -64,18 +64,26 @@ export default function GameCard({
     : null;
   const isLive = liveScore ? liveScore.status === "IN_PLAY" || liveScore.status === "PAUSED" : heuristicLive;
 
-  // A one-word read on how risky the AI's actual recommendation is, from the market's own
-  // probability of that specific outcome — not shown at all when there's no recommendation to
-  // rate (bestValue "none", or never analyzed). Uses the market probability AT ANALYSIS TIME
-  // (entry.market), not the live-updating effectiveOdds above: this describes the pick that was
-  // actually made, which shouldn't relabel itself as prices move afterward.
+  // A one-word read on how bold the AI's actual recommendation is, from its own AI-vs-market edge
+  // on that specific outcome — not shown at all when there's no recommendation to rate (bestValue
+  // "none", or never analyzed). Uses the edge AT ANALYSIS TIME (entry.comparison.edges), not
+  // something recomputed against the live-updating effectiveOdds above: this describes the call
+  // that was actually made, which shouldn't relabel itself as prices move afterward.
   const bestValue = lastAnalysis?.comparison.bestValue;
-  const riskLevel = lastAnalysis && bestValue && bestValue !== "none" ? riskLevelFor(lastAnalysis.market[bestValue]) : null;
+  const riskLevel = lastAnalysis && bestValue && bestValue !== "none" ? riskLevelFor(lastAnalysis.comparison.edges[bestValue]) : null;
 
   // A Champions League fixture gets the competition's own blue wash instead of the neutral surface
   // every other card uses (.ucl-card, app/globals.css) — background only, so nothing on the card
   // reads any differently, it's just instantly recognisable as a European night while scrolling.
-  const surfaceClassName = game.league === "champions-league" ? "ucl-card" : "surface-lift border-border-soft";
+  // A rated card takes priority over that when both apply: the risk tier's own animated background
+  // (below) already carries a strong color and mood of its own, tied to a specific recommendation
+  // rather than the competition it's in, so layering the UCL wash underneath it would just muddy
+  // both. `border-border-soft` here is deliberately plain — the animated layer supplies the color.
+  const surfaceClassName = riskLevel
+    ? "risk-bg-card border-border-soft"
+    : game.league === "champions-league"
+      ? "ucl-card"
+      : "surface-lift border-border-soft";
 
   return (
     <div
@@ -87,6 +95,21 @@ export default function GameCard({
       }`}
       style={style}
     >
+      {riskLevel && !selectMode && (
+        <div className={`risk-bg risk-bg-${riskLevel}`} aria-hidden="true">
+          <span className="risk-bg-layer risk-bg-layer-1" />
+          <span className="risk-bg-layer risk-bg-layer-2" />
+          <span className="risk-bg-layer risk-bg-layer-3" />
+          {riskLevel === "mega" && (
+            <>
+              <span className="risk-ember" />
+              <span className="risk-ember" />
+              <span className="risk-ember" />
+              <span className="risk-ember" />
+            </>
+          )}
+        </div>
+      )}
       {selectMode && (
         <div
           className={`mb-3 flex h-5 w-5 items-center justify-center rounded-full ring-1 ring-inset ${

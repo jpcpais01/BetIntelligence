@@ -46,13 +46,20 @@
   --ucl-rgb: 61, 123, 255;
   --ucl-deep-rgb: 18, 36, 104;
 
-  /* Risk tiers (lib/riskLevel.ts) — one shared five-stop scale, safe to longshot, reused by any
-     card's tiny category badge and by Home's per-category tracker so the two always agree. */
+  /* Risk tiers (lib/riskLevel.ts) — one shared five-stop scale, boldest AI call to most marginal
+     one, reused by any card's tiny category badge, by Home's per-category tracker, and by each
+     tier's own animated card background (below) so all three always agree. RGB pairs exist purely
+     for the animated backgrounds' gradients, which need an alpha channel. */
   --risk-calm: #2fd98f;
+  --risk-calm-rgb: 47, 217, 143;
   --risk-easy: #6bd9c2;
+  --risk-easy-rgb: 107, 217, 194;
   --risk-normal: #9ba1ac;
+  --risk-normal-rgb: 155, 161, 172;
   --risk-risky: #f2b44c;
+  --risk-risky-rgb: 242, 180, 76;
   --risk-mega: #f26b6b;
+  --risk-mega-rgb: 242, 107, 107;
 }
 
 @theme inline {
@@ -738,6 +745,337 @@ body {
   box-shadow:
     0 1px 0 0 rgba(255, 255, 255, 0.05) inset,
     0 18px 42px -24px rgba(var(--ucl-rgb), 0.4);
+}
+
+/* --- Risk-tier animated card backgrounds (GameCard) -----------------------------------------
+   Five distinct, continuously-moving looks, one per lib/riskLevel.ts tier — Calm's slow aurora
+   drift through Mega's fast rising embers — replacing the plain surface on any card that's
+   actually carrying a rated AI recommendation (riskLevel set). Every other card keeps the plain
+   .surface-lift/.ucl-card treatment, so the animation cost only ever applies to however many
+   cards on screen actually have a rating, never the whole list.
+
+   The pacing itself carries meaning: motion gets faster and more energetic tier by tier, the same
+   direction the risk read itself moves — a design choice, not just five arbitrary palettes.
+
+   Markup is one shared shape (components/GameCard.tsx): a `.risk-bg` layer holding three generic
+   `.risk-bg-layer` spans, restyled completely per tier below via `.risk-bg-<tier> .risk-bg-layer-N`
+   — same DOM, five different animations. Mega adds four `.risk-ember` spans on top for its rising
+   particles. Everything animates only `transform`/`opacity`, never a filter or box-shadow, so the
+   browser can composite it on the GPU without re-painting the layer's pixels every frame; softness
+   comes from the gradients themselves (wide, soft-edged radial/conic stops), not from an animated
+   blur. All of it freezes under prefers-reduced-motion, keeping the tier's color/mood but none of
+   the motion. */
+.risk-bg-card {
+  position: relative;
+  isolation: isolate; /* keeps the negative-z-index background layer local to this card, never
+                          bleeding behind an unrelated sibling card in the list. */
+  overflow: hidden;
+}
+.risk-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+.risk-bg-layer {
+  position: absolute;
+  inset: -35%;
+  will-change: transform, opacity;
+}
+
+/* Calm — "Aurora Drift": two soft blobs sliding along wide, slow loops, breathing gently. The
+   slowest, quietest tier gets the slowest, quietest motion. */
+@keyframes risk-calm-a {
+  0% {
+    transform: translate(-8%, -6%) scale(1);
+  }
+  50% {
+    transform: translate(10%, 8%) scale(1.12);
+  }
+  100% {
+    transform: translate(-8%, -6%) scale(1);
+  }
+}
+@keyframes risk-calm-b {
+  0% {
+    transform: translate(6%, 10%) scale(1.05);
+  }
+  50% {
+    transform: translate(-10%, -4%) scale(0.95);
+  }
+  100% {
+    transform: translate(6%, 10%) scale(1.05);
+  }
+}
+@keyframes risk-breathe-slow {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.risk-bg-calm .risk-bg-layer-1 {
+  background: radial-gradient(closest-side, rgba(var(--risk-calm-rgb), 0.24), transparent 72%);
+  left: -20%;
+  top: -25%;
+  width: 85%;
+  height: 85%;
+  animation:
+    risk-calm-a 16s ease-in-out infinite,
+    risk-breathe-slow 9s ease-in-out infinite;
+}
+.risk-bg-calm .risk-bg-layer-2 {
+  background: radial-gradient(closest-side, rgba(var(--risk-calm-rgb), 0.16), transparent 74%);
+  right: -25%;
+  bottom: -30%;
+  width: 90%;
+  height: 90%;
+  animation:
+    risk-calm-b 20s ease-in-out infinite,
+    risk-breathe-slow 11s ease-in-out infinite reverse;
+}
+.risk-bg-calm .risk-bg-layer-3 {
+  background: linear-gradient(180deg, transparent, rgba(var(--risk-calm-rgb), 0.08), transparent);
+  inset: -60% -10%;
+  animation: risk-calm-a 24s ease-in-out infinite reverse;
+}
+
+/* Easy — "Silk Current": soft diagonal ribbons flowing sideways (a moving gradient, the same
+   background-position technique .lab-slip-sheen already uses elsewhere), plus one gentle blob. */
+@keyframes risk-flow {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+@keyframes risk-flow-slow {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -40% 0;
+  }
+}
+.risk-bg-easy .risk-bg-layer-1 {
+  inset: -10% -60%;
+  background: repeating-linear-gradient(
+    118deg,
+    transparent 0 8%,
+    rgba(var(--risk-easy-rgb), 0.16) 10%,
+    transparent 14% 22%
+  );
+  background-size: 220% 100%;
+  animation: risk-flow 11s linear infinite;
+}
+.risk-bg-easy .risk-bg-layer-2 {
+  inset: -10% -60%;
+  background: repeating-linear-gradient(
+    118deg,
+    transparent 0 10%,
+    rgba(var(--risk-easy-rgb), 0.1) 12%,
+    transparent 17% 26%
+  );
+  background-size: 260% 100%;
+  animation: risk-flow-slow 16s linear infinite;
+}
+.risk-bg-easy .risk-bg-layer-3 {
+  background: radial-gradient(closest-side, rgba(var(--risk-easy-rgb), 0.2), transparent 70%);
+  left: -15%;
+  top: -20%;
+  width: 70%;
+  height: 70%;
+  animation:
+    risk-calm-a 13s ease-in-out infinite,
+    risk-breathe-slow 7s ease-in-out infinite;
+}
+
+/* Normal — "Even Sweep": two soft conic beams counter-rotating around the card's own center,
+   the interference between them reading as a slow, restrained pulse rather than a clean spin. */
+@keyframes risk-sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes risk-sweep-reverse {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+.risk-bg-normal .risk-bg-layer-1 {
+  inset: -55%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgba(var(--risk-normal-rgb), 0.14) 40deg,
+    transparent 100deg 360deg
+  );
+  animation: risk-sweep 14s linear infinite;
+}
+.risk-bg-normal .risk-bg-layer-2 {
+  inset: -55%;
+  background: conic-gradient(
+    from 180deg,
+    transparent 0deg,
+    rgba(var(--risk-normal-rgb), 0.1) 50deg,
+    transparent 120deg 360deg
+  );
+  animation: risk-sweep-reverse 19s linear infinite;
+}
+.risk-bg-normal .risk-bg-layer-3 {
+  background: radial-gradient(closest-side, rgba(var(--risk-normal-rgb), 0.12), transparent 75%);
+  left: 20%;
+  top: 20%;
+  width: 60%;
+  height: 60%;
+  animation: risk-breathe-slow 8s ease-in-out infinite;
+}
+
+/* Risky — "Heat Shimmer": faster amber ribbons than Easy's, plus a warm pulsing corner glow — the
+   same building blocks as Calm/Easy, just paced up to read as noticeably more energetic. */
+@keyframes risk-pulse-fast {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+.risk-bg-risky .risk-bg-layer-1 {
+  inset: -10% -60%;
+  background: repeating-linear-gradient(
+    115deg,
+    transparent 0 6%,
+    rgba(var(--risk-risky-rgb), 0.22) 8%,
+    transparent 12% 18%
+  );
+  background-size: 200% 100%;
+  animation: risk-flow 5.5s linear infinite;
+}
+.risk-bg-risky .risk-bg-layer-2 {
+  inset: -10% -60%;
+  background: repeating-linear-gradient(
+    115deg,
+    transparent 0 8%,
+    rgba(var(--risk-risky-rgb), 0.13) 10%,
+    transparent 14% 20%
+  );
+  background-size: 240% 100%;
+  animation: risk-flow-slow 8s linear infinite;
+}
+.risk-bg-risky .risk-bg-layer-3 {
+  background: radial-gradient(closest-side, rgba(var(--risk-risky-rgb), 0.26), transparent 68%);
+  right: -20%;
+  bottom: -25%;
+  width: 85%;
+  height: 85%;
+  animation: risk-pulse-fast 3.6s ease-in-out infinite;
+}
+
+/* Mega — "Ember Rise": the most animation-heavy of the five — a fast pulsing glow, two crossing
+   warning-stripe sheens, and small embers actually rising and flickering out near the top. */
+@keyframes risk-pulse-urgent {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.14);
+  }
+}
+@keyframes risk-ember-rise {
+  0% {
+    transform: translate(0, 0) scale(0.6);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: translate(var(--ember-drift, 6px), -130px) scale(0.15);
+    opacity: 0;
+  }
+}
+.risk-bg-mega .risk-bg-layer-1 {
+  background: radial-gradient(closest-side, rgba(var(--risk-mega-rgb), 0.32), transparent 66%);
+  left: -25%;
+  bottom: -35%;
+  width: 95%;
+  height: 95%;
+  animation: risk-pulse-urgent 2s ease-in-out infinite;
+}
+.risk-bg-mega .risk-bg-layer-2 {
+  inset: -10% -60%;
+  background: repeating-linear-gradient(
+    112deg,
+    transparent 0 5%,
+    rgba(var(--risk-mega-rgb), 0.2) 7%,
+    transparent 10% 15%
+  );
+  background-size: 180% 100%;
+  animation: risk-flow 3.4s linear infinite;
+}
+.risk-bg-mega .risk-bg-layer-3 {
+  inset: -10% -60%;
+  background: repeating-linear-gradient(
+    248deg,
+    transparent 0 6%,
+    rgba(var(--risk-mega-rgb), 0.14) 8%,
+    transparent 12% 17%
+  );
+  background-size: 200% 100%;
+  animation: risk-flow-slow 4.6s linear infinite;
+}
+.risk-ember {
+  position: absolute;
+  bottom: 6%;
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  background: rgba(var(--risk-mega-rgb), 0.9);
+  box-shadow: 0 0 6px 1px rgba(var(--risk-mega-rgb), 0.7);
+  animation: risk-ember-rise 3.2s ease-in infinite;
+}
+.risk-ember:nth-child(4) {
+  left: 18%;
+  --ember-drift: 10px;
+  animation-delay: 0s;
+}
+.risk-ember:nth-child(5) {
+  left: 42%;
+  --ember-drift: -8px;
+  animation-delay: 0.8s;
+  animation-duration: 3.8s;
+}
+.risk-ember:nth-child(6) {
+  left: 65%;
+  --ember-drift: 12px;
+  animation-delay: 1.6s;
+  animation-duration: 2.8s;
+}
+.risk-ember:nth-child(7) {
+  left: 84%;
+  --ember-drift: -6px;
+  animation-delay: 2.3s;
+  animation-duration: 3.5s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .risk-bg-layer,
+  .risk-ember {
+    animation: none !important;
+  }
 }
 
 .glow-num {

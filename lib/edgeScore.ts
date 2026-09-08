@@ -42,10 +42,16 @@ export function computeEdgeScore(outcomes: ResolvedLegOutcome[]): number | null 
 // is one genuine prediction, not two: without this, the Edge Score multiplied it into the product
 // once per bet it happened to appear in, inflating or deflating the score purely by how many
 // slips you'd reused that same pick in, not by how many independent calls you'd actually made.
-// `marketProb` is a frozen snapshot from the underlying SavedPick at the moment each leg was
-// added, so every duplicate is guaranteed to agree on it — keeping the first occurrence is
+// `marketProb`/`aiProb` are frozen snapshots from the underlying SavedPick at the moment each leg
+// was added, so every duplicate is guaranteed to agree on them — keeping the first occurrence is
 // exactly as correct as any other. A different outcomeLabel on the same pick (e.g. "Arsenal" vs
 // "1X") is a genuinely different bet on the same game and is deliberately NOT merged.
+//
+// riskLevel is read from the leg's own AI-vs-market edge (aiProb - marketProb), not from
+// marketProb alone — the same read GameCard's badge uses. A tiny edge on a favorite and a tiny
+// edge on a longshot are the same size of claim, so they land in the same tier here; grouping by
+// market probability instead would answer "how big a favorite did you back", which isn't what a
+// breakdown of the AI's OWN calls by how bold each one was is for.
 export function resolvedLegOutcomes(bets: PlacedBet[]): (ResolvedLegOutcome & { riskLevel: RiskLevel })[] {
   const outcomes: (ResolvedLegOutcome & { riskLevel: RiskLevel })[] = [];
   const seen = new Set<string>();
@@ -61,7 +67,7 @@ export function resolvedLegOutcomes(bets: PlacedBet[]): (ResolvedLegOutcome & { 
       outcomes.push({
         probability: leg.marketProb,
         won: result === "won",
-        riskLevel: riskLevelFor(leg.marketProb),
+        riskLevel: riskLevelFor(leg.aiProb - leg.marketProb),
       });
     });
   }

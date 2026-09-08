@@ -134,11 +134,16 @@ function run() {
   }
 
   // --- The exact scenario the feature exists for: a calm leg that WON inside a bet that overall
-  // LOST still counts toward "calm", even though the bet itself never shows as a win. ---
+  // LOST still counts toward "calm", even though the bet itself never shows as a win. Risk tier is
+  // read from the AI-vs-market EDGE (aiProb - marketProb), not marketProb alone — leg()'s default
+  // aiProb=marketProb would give every leg here a flat 0 edge (always "mega"), so both legs
+  // override aiProb explicitly to land in the tiers the test is actually about. ---
   {
-    // A 2-leg parlay: a calm favorite (won) + a mega longshot (lost) — the whole bet is Lost, but
-    // the calm leg's own result is still "won".
-    const bets: PlacedBet[] = [bet([leg(0.8), leg(0.1)], ["won", "lost"])];
+    // A 2-leg parlay: a calm-edge favorite (15pp edge, won) + a mega-edge longshot (1pp edge,
+    // lost) — the whole bet is Lost, but the calm leg's own result is still "won".
+    const bets: PlacedBet[] = [
+      bet([leg(0.8, "sports", { aiProb: 0.95 }), leg(0.1, "sports", { aiProb: 0.11 })], ["won", "lost"]),
+    ];
     const byLevel = edgeScoreByRiskLevel(bets);
     const calm = byLevel.find((b) => b.level === "calm")!;
     const mega = byLevel.find((b) => b.level === "mega")!;
