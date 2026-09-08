@@ -135,20 +135,41 @@ function run() {
 
   // --- The exact scenario the feature exists for: a calm leg that WON inside a bet that overall
   // LOST still counts toward "calm", even though the bet itself never shows as a win. Risk tier is
-  // read from the AI-vs-market EDGE (aiProb - marketProb), not marketProb alone — leg()'s default
-  // aiProb=marketProb would give every leg here a flat 0 edge (always "mega"), so both legs
-  // override aiProb explicitly to land in the tiers the test is actually about. ---
+  // read from the AI-vs-market EDGE (aiProb - marketProb) AND isFavorite (calm is favorite-only —
+  // see lib/riskModes.ts's riskModeFor), not marketProb alone — leg()'s default aiProb=marketProb
+  // would give every leg here a flat 0 edge (always "mega"), so both legs override aiProb
+  // explicitly to land in the tiers the test is actually about, and the calm leg also sets
+  // isFavorite: true since a "calm" classification requires it. ---
   {
     // A 2-leg parlay: a calm-edge favorite (15pp edge, won) + a mega-edge longshot (1pp edge,
     // lost) — the whole bet is Lost, but the calm leg's own result is still "won".
     const bets: PlacedBet[] = [
-      bet([leg(0.8, "sports", { aiProb: 0.95 }), leg(0.1, "sports", { aiProb: 0.11 })], ["won", "lost"]),
+      bet([leg(0.8, "sports", { aiProb: 0.95, isFavorite: true }), leg(0.1, "sports", { aiProb: 0.11 })], ["won", "lost"]),
     ];
     const byLevel = edgeScoreByRiskLevel(bets);
     const calm = byLevel.find((b) => b.level === "calm")!;
     const mega = byLevel.find((b) => b.level === "mega")!;
     check("the calm leg counts as a win for its own tier despite the parlay losing overall", calm.legCount === 1 && calm.score !== null && calm.score > 1, JSON.stringify(calm));
     check("the mega leg counts as a loss for its own tier", mega.legCount === 1 && mega.score !== null && mega.score < 1, JSON.stringify(mega));
+  }
+
+  // --- Calm/Easy are favorite-only (lib/riskModes.ts): the SAME huge edge that landed in "calm"
+  // above never does without isFavorite set — it falls through to "normal" instead, the highest
+  // non-favorite-restricted tier the edge clears, never an unclassified gap. Also covers a leg
+  // saved before `isFavorite` existed (the field simply absent, not explicitly false): it must
+  // read the same conservative way, never retroactively granted a favorite-only tier. ---
+  {
+    const noFavoriteFlag = leg(0.8, "sports", { aiProb: 0.95 }); // isFavorite omitted entirely
+    const explicitlyNotFavorite = leg(0.8, "sports", { aiProb: 0.95, isFavorite: false });
+    const outcomes = resolvedLegOutcomes([
+      bet([noFavoriteFlag], ["won"]),
+      bet([{ ...explicitlyNotFavorite, pickId: "other-game-2" }], ["won"]),
+    ]);
+    check(
+      "a 15pp-edge leg with isFavorite omitted (pre-existing data) never lands in calm",
+      outcomes.every((o) => o.riskMode === "normal"),
+      JSON.stringify(outcomes)
+    );
   }
 
   // --- edgeScoreByRiskLevel: every tier is represented, even with zero legs ---

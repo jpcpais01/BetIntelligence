@@ -1,4 +1,4 @@
-import { buildRiskSlip } from "../lib/riskModes";
+import { buildRiskSlip, riskModeFor, riskModeLabel, allRiskModes, isMarketFavorite } from "../lib/riskModes";
 import type { SavedPick, Probabilities } from "../lib/types";
 
 function fakePick(id: string, market: Probabilities, independent: Probabilities): SavedPick {
@@ -179,6 +179,41 @@ async function run() {
   const boundaryPicks = [boundaryPick, { ...boundaryPick, id: "bd2" }, { ...boundaryPick, id: "bd3" }];
   check("an edge exactly on a shared boundary (5pp) belongs to the floor side (easy), not the ceiling side (risky)", buildRiskSlip(boundaryPicks, {}, "easy")?.length === 3);
   check("…and does not also qualify for risky, whose ceiling is that same 5pp", buildRiskSlip(boundaryPicks, {}, "risky") === null);
+
+  // --- isMarketFavorite: the highest market probability among the three genuine 1X2 outcomes ---
+  const market3way: Probabilities = { home: 0.5, draw: 0.3, away: 0.2 };
+  check("the true favorite (home, 50%) reads as the favorite", isMarketFavorite(market3way, "home"));
+  check("a mid-probability outcome (draw, 30%) does not", !isMarketFavorite(market3way, "draw"));
+  check("the smallest outcome (away, 20%) does not", !isMarketFavorite(market3way, "away"));
+  check("an exact tie counts as the favorite (inclusive comparison)", isMarketFavorite({ home: 0.4, draw: 0.4, away: 0.2 }, "home"));
+
+  // --- riskModeFor: the reverse of the search above — classify a single already-known (edge,
+  // isFavorite) pair into exactly one tier. This is the ONE classification lib/riskLevel.ts used
+  // to duplicate with a simpler, favorite-blind scale (now deleted) — GameCard's badge, the Edge
+  // Score breakdown, and Lab's own presets all read the same function now. ---
+  check("a huge favorite edge (15pp) is calm", riskModeFor(0.15, true) === "calm");
+  check("exactly the calm boundary (10pp) on a favorite is still calm", riskModeFor(0.1, true) === "calm");
+  check("the SAME 10pp edge on a non-favorite is NOT calm — calm is favorite-only", riskModeFor(0.1, false) !== "calm");
+  check("a mid favorite edge (7pp) is easy", riskModeFor(0.07, true) === "easy");
+  check("the same 7pp edge on a non-favorite is normal, not easy — easy is favorite-only too", riskModeFor(0.07, false) === "normal");
+  check("exactly the shared 5pp floor on a favorite is easy (favorite-only tiers are checked first)", riskModeFor(0.05, true) === "easy");
+  check("the same 5pp floor on a non-favorite is normal", riskModeFor(0.05, false) === "normal");
+  check("just under normal's floor (4pp) is risky, favorite or not", riskModeFor(0.04, true) === "risky" && riskModeFor(0.04, false) === "risky");
+  check("exactly risky's floor (3pp) is still risky", riskModeFor(0.03, false) === "risky");
+  check("a marginal edge (2pp) is mega", riskModeFor(0.02, false) === "mega");
+  check("a barely-there edge (0.5pp) is mega, not a crash", riskModeFor(0.005, false) === "mega");
+  check("zero edge is mega", riskModeFor(0, false) === "mega");
+  check("a negative edge is mega, not out of range — same catch-all as a tiny positive one", riskModeFor(-0.1, true) === "mega");
+  check(
+    "a huge edge (12pp) on a genuine NON-favorite still resolves to normal — the best a non-favorite claim can be rated, not an unclassified gap",
+    riskModeFor(0.12, false) === "normal"
+  );
+  check("an extreme favorite edge (40pp) is still calm, not out of range", riskModeFor(0.4, true) === "calm");
+
+  check("every tier has a non-empty label", allRiskModes().every((m) => riskModeLabel(m).length > 0));
+  check("there are exactly 5 tiers", allRiskModes().length === 5, String(allRiskModes().length));
+  check("calm's label reads 'Calm'", riskModeLabel("calm") === "Calm");
+  check("mega's label reads 'Mega'", riskModeLabel("mega") === "Mega");
 
   if (failures.length > 0) {
     console.log("\nFAILURES:");

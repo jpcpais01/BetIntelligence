@@ -7,7 +7,7 @@ import type { LiveScoreEntry } from "@/lib/liveScores";
 import { formatCompactNumber, formatKickoff, formatRelativeTime, toPercent, toSignedPercent, formatCostUsd } from "@/lib/format";
 import { isTopGame } from "@/lib/topTeams";
 import { agreementLabel, agreementTone } from "@/lib/aggregate";
-import { riskLevelFor, riskLevelLabel, riskLevelColor } from "@/lib/riskLevel";
+import { riskModeFor, riskModeLabel, riskModeColor, isMarketFavorite } from "@/lib/riskModes";
 import Avatar from "./Avatar";
 import OutcomeBar from "./OutcomeBar";
 import ConfidenceBadge from "./ConfidenceBadge";
@@ -65,12 +65,16 @@ export default function GameCard({
   const isLive = liveScore ? liveScore.status === "IN_PLAY" || liveScore.status === "PAUSED" : heuristicLive;
 
   // A one-word read on how bold the AI's actual recommendation is, from its own AI-vs-market edge
-  // on that specific outcome — not shown at all when there's no recommendation to rate (bestValue
-  // "none", or never analyzed). Uses the edge AT ANALYSIS TIME (entry.comparison.edges), not
-  // something recomputed against the live-updating effectiveOdds above: this describes the call
-  // that was actually made, which shouldn't relabel itself as prices move afterward.
+  // on that specific outcome AND whether that outcome was the match's own favorite — not shown at
+  // all when there's no recommendation to rate (bestValue "none", or never analyzed). Uses the
+  // edge and market AT ANALYSIS TIME (entry.comparison.edges / entry.market), not anything
+  // recomputed against the live-updating effectiveOdds above: this describes the call that was
+  // actually made, which shouldn't relabel itself as prices move afterward.
   const bestValue = lastAnalysis?.comparison.bestValue;
-  const riskLevel = lastAnalysis && bestValue && bestValue !== "none" ? riskLevelFor(lastAnalysis.comparison.edges[bestValue]) : null;
+  const riskLevel =
+    lastAnalysis && bestValue && bestValue !== "none"
+      ? riskModeFor(lastAnalysis.comparison.edges[bestValue], isMarketFavorite(lastAnalysis.market, bestValue))
+      : null;
 
   // A Champions League fixture gets the competition's own blue wash instead of the neutral surface
   // every other card uses (.ucl-card, app/globals.css) — background only, so nothing on the card
@@ -110,9 +114,9 @@ export default function GameCard({
           {riskLevel && (
             <span
               className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
-              style={{ color: riskLevelColor(riskLevel), background: `color-mix(in srgb, ${riskLevelColor(riskLevel)} 14%, transparent)` }}
+              style={{ color: riskModeColor(riskLevel), background: `color-mix(in srgb, ${riskModeColor(riskLevel)} 14%, transparent)` }}
             >
-              {riskLevelLabel(riskLevel)}
+              {riskModeLabel(riskLevel)}
             </span>
           )}
           {lineupsReady && (

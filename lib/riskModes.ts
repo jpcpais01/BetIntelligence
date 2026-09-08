@@ -1,13 +1,28 @@
 import type { SavedPick } from "./types";
-import { legFromPick, type Outcome, type SlipLeg } from "./betslip";
+import { legFromPick, isMarketFavorite, type Outcome, type SlipLeg } from "./betslip";
 import { liveKey } from "./livePrices";
 
-// Five risk presets for Lab's one-tap slip builder. Each scans every saved football pick for its
-// single best qualifying leg and assembles them into a slip — "safer" presets only ever bet the
-// match's own favorite (home/draw/away, never a double-chance combo — a combo is definitionally
-// more likely than either outcome it covers, so it would always look like "the favorite" without
-// actually being what the market is picking), while looser presets can pick any of the five leg
-// types (home/draw/away/1X/X2) and need less of an edge to qualify.
+// Re-exported so every risk-classification concept has one home: a consumer classifying a single
+// recommendation (GameCard, Edge Score) only ever needs to import from this file, even though the
+// helper itself lives in lib/betslip.ts (this file already depends on betslip.ts for SlipLeg/
+// Outcome, so defining it there instead of here avoids a circular import between the two).
+export { isMarketFavorite };
+
+// The single classification for how bold an AI recommendation is — used both by Lab's one-tap
+// slip builder (below: scan every saved pick for its best qualifying leg per mode) AND by every
+// other consumer that needs to rate a single already-made recommendation (GameCard's badge/
+// border, the Edge Score breakdown). There used to be two separate systems here — this file's
+// edge-range-plus-favorite-only scale, and a second, simpler edge-only scale (lib/riskLevel.ts,
+// now deleted) invented specifically because classifying a single recommendation didn't have a
+// "favorite" concept readily at hand. It does: `isMarketFavorite` below answers that from the
+// same market probabilities every consumer already has, so there's no reason for two scales to
+// exist — riskModeFor is the one true reverse of this file's own search logic.
+//
+// "safer" tiers only ever count a recommendation that backs the match's own favorite (home/draw/
+// away, never a double-chance combo — a combo is definitionally more likely than either outcome
+// it covers, so it would always look like "the favorite" without actually being what the market
+// is picking), while looser tiers count any of the five leg types (home/draw/away/1X/X2) and need
+// less of an edge to qualify.
 export type RiskMode = "calm" | "easy" | "normal" | "risky" | "mega";
 
 export interface RiskModeInfo {
@@ -34,6 +49,50 @@ export const RISK_MODES: RiskModeInfo[] = [
   { id: "risky", label: "Risky", minEdge: 0.03, maxEdge: 0.05, favoriteOnly: false },
   { id: "mega", label: "Mega", minEdge: 0.01, maxEdge: 0.03, favoriteOnly: false },
 ];
+
+// The reverse of bestCandidateForPick's search below: given a single already-known (edge,
+// isFavorite) pair, which one tier does it belong to? Walks tiers top-down (boldest first),
+// skipping a favorite-only tier when isFavorite is false, and matching on minEdge alone — maxEdge
+// only matters for the search below (partitioning a POOL of candidates so a huge-edge pick doesn't
+// satisfy every looser mode's floor too); a single already-decided recommendation just needs the
+// highest tier its own edge and favorite status actually clear, with "mega" as the catch-all
+// bottom (including a small or negative edge) the same way it already was before this file had a
+// favorite-aware classification. This means an edge that would fall inside a gap between a
+// favorite-only tier's floor and a shared tier's ceiling (e.g. a 12pp edge on a genuine underdog —
+// past Normal's search-only 10pp ceiling but nowhere near a favorite-only tier that would take it)
+// still resolves to Normal here, the highest non-favorite-restricted tier that edge clears — the
+// best a non-favorite claim can ever be rated, since Calm/Easy are reserved for favorites by
+// design regardless of how large the edge on an underdog gets.
+export function riskModeFor(edge: number, isFavorite: boolean): RiskMode {
+  for (const mode of RISK_MODES) {
+    if (mode.favoriteOnly && !isFavorite) continue;
+    if (edge >= mode.minEdge) return mode.id;
+  }
+  return "mega";
+}
+
+export function riskModeLabel(mode: RiskMode): string {
+  return RISK_MODES.find((m) => m.id === mode)?.label ?? mode;
+}
+
+export function allRiskModes(): RiskMode[] {
+  return RISK_MODES.map((m) => m.id);
+}
+
+// One shared color per tier (CSS custom properties, app/globals.css) — calm reads as safe/green,
+// mega as hot/red, so the same five colors work for a one-word badge on a card, for Home's Edge
+// Score breakdown, and for a card's own border without needing separate palettes to stay in sync.
+const COLOR_VAR: Record<RiskMode, string> = {
+  calm: "var(--risk-calm)",
+  easy: "var(--risk-easy)",
+  normal: "var(--risk-normal)",
+  risky: "var(--risk-risky)",
+  mega: "var(--risk-mega)",
+};
+
+export function riskModeColor(mode: RiskMode): string {
+  return COLOR_VAR[mode];
+}
 
 interface Candidate {
   pick: SavedPick;

@@ -565,36 +565,47 @@ results, not just how the bets as placed happened to turn out.
 
 #### Risk tiers: Calm, Easy, Normal, Risky, Mega
 
-`lib/riskLevel.ts` buckets any AI-vs-market **edge** into one of five tiers, boldest call to most
-marginal one (`riskLevelFor`): **Calm** (≥10pp), **Easy** (≥7pp), **Normal** (≥5pp), **Risky**
-(≥3pp), **Mega** (below that, including zero or negative). Any game card that's been analyzed at
-least once (saved or not — the same `lastAnalysis` cache the last-analysis panel reads) shows its
-tier as a tiny colored label right in the card header, based on the edge behind the AI's actual
-recommended pick (`comparison.edges[bestValue]`) at the moment it was analyzed — a card with no
-clear edge (`bestValue` `"none"`) shows no tier at all, since there's no specific pick to rate. The
-same five colors (`--risk-calm` … `--risk-mega`, `app/globals.css`) drive that badge, the Home
-Edge Score breakdown below, and each tier's own animated card background further down.
+`lib/riskModes.ts` is the single classification behind every "Calm/Easy/Normal/Risky/Mega" label in
+the app — Lab's one-tap slip presets ([above](#lab-a-sportsbook-style-slip)), any game card's tiny
+badge, its border color, and the Home Edge Score breakdown all read the same function
+(`riskModeFor`), so a "Calm" pick means the exact same thing everywhere it appears. There used to be
+two separate scales sharing these five names — this one (edge ranges plus a favorite-only axis, for
+Lab's search over a pool of picks) and a second, simpler one invented for the single-recommendation
+case because it didn't have "is this the favorite" readily at hand. It does — `isMarketFavorite`
+answers that from the same market probabilities every consumer already has — so the second scale
+was retired rather than kept in parallel.
 
-This used to classify by the market's raw probability instead (how big a favorite the pick was),
-completely independent of what the AI actually thought — a tiny 6-point edge on a favorite and a
-tiny 6-point edge on a rank outsider read as two different tiers under that scheme, despite being
-the same size of claim, while a huge-conviction call on a longshot could read as "Mega" (implying
-marginal) purely because the longshot itself was unlikely. That old probability-based scale lived
-alongside this one, under the exact same five names, which was its own source of confusion — it's
-gone now; edge is the only classification in the app these labels mean.
+`riskModeFor(edge, isFavorite)` walks five tiers, boldest first, matching on **edge** (AI probability
+minus market probability, for whichever outcome was recommended) and — for the two boldest tiers —
+whether that outcome is also the match's own market favorite:
 
-Boundaries mirror Lab's own risk presets ([above](#lab-a-sportsbook-style-slip), `lib/riskModes.ts`
-— Calm/Risky/Mega share these same 10/3/1-point floors) with one new value (Easy, 7pp) inserted to
-break a tie that only ever made sense for Lab's own favorite-only-vs-any-outcome axis, which
-doesn't apply to rating a single already-made recommendation. `COMPARE_SYSTEM_PROMPT`
-(`lib/openrouter.ts`) tells the model to flag a `bestValue` at all only once its own edge clears
-roughly 5pp, so in practice most real recommendations land in Calm/Easy/Normal — Risky and Mega
-mark the genuine edge cases where the model went with a thinner margin anyway.
+- **Calm** — ≥10pp edge, **and the pick has to be the market favorite**.
+- **Easy** — ≥5pp edge, **also favorite-only**.
+- **Normal** — ≥5pp edge, any outcome (favorite or not).
+- **Risky** — ≥3pp edge, any outcome.
+- **Mega** — everything below that, including zero or negative — the catch-all bottom tier.
 
-The Edge Score breakdown (above) reads the same way: each resolved leg's tier comes from its own
-`aiProb - marketProb` at the moment it was added to a slip, not from `marketProb` alone — so the
-breakdown answers "how did the AI's boldest calls do vs. its most marginal ones", the question an
-*Edge* Score breakdown is actually for, rather than "how did favorites do vs. longshots."
+Calm and Easy share this favorite restriction because "safer" tiers are meant to mean the AI backed
+what the market itself already thinks is likeliest, just with real conviction behind it — a huge
+edge on a rank underdog is still a real signal, but it's a different, bolder kind of claim than
+agreeing with the market's own favorite, so it can never read as Calm or Easy no matter how large
+the edge gets; it lands in Normal instead, the best a non-favorite claim can be rated. A
+double-chance leg (1X/X2) is never counted as "the favorite" either, by the same logic Lab's own
+presets already used — a combo is definitionally more likely than either single side it covers, so
+it would trivially satisfy "favorite" without actually being what the market picked.
+
+Any game card that's been analyzed at least once (saved or not — the same `lastAnalysis` cache the
+last-analysis panel reads) shows its tier as a tiny colored label in the card header, using the edge
+and market prices from `comparison.edges`/`market` at the moment it was analyzed, not anything
+recomputed against a live-updating price — a card with no clear edge (`bestValue` `"none"`) shows no
+tier at all. The Edge Score breakdown reads the same way, from each resolved leg's own
+`aiProb - marketProb` and whether it backed that game's favorite (`SlipLeg.isFavorite`, set once
+when the leg is added to a slip) — a leg placed before that field existed reads as "not the
+favorite" by default, the conservative choice: it can only ever land in a wider tier it genuinely
+still qualifies for, never a narrower favorite-only one it might not have actually earned.
+`COMPARE_SYSTEM_PROMPT` (`lib/openrouter.ts`) tells the model to flag a `bestValue` at all only once
+its own edge clears roughly 5pp, so in practice most real recommendations land in Calm/Easy/Normal —
+Risky and Mega mark the genuine edge cases where the model went with a thinner margin anyway.
 
 #### Risk-tier card border
 
@@ -614,7 +625,7 @@ going to conflict in the first place, no faintness tuning or composition logic r
 It's also about as cheap as a per-card visual can be: one color, painted once at mount, never
 repainted or recomposited again — no `@keyframes`, nothing to trace, nothing for
 `prefers-reduced-motion` to even need to disable. Every tier uses the identical border weight and
-glow strength; only the color (`--tier-rgb`, shared with `lib/riskLevel.ts`'s own palette) changes,
+glow strength; only the color (`--tier-rgb`, shared with `lib/riskModes.ts`'s own palette) changes,
 since the badge label already states the recommendation's strength in words — the border doesn't
 need to re-encode it in decoration.
 

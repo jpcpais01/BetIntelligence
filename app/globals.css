@@ -46,10 +46,10 @@
   --ucl-rgb: 61, 123, 255;
   --ucl-deep-rgb: 18, 36, 104;
 
-  /* Risk tiers (lib/riskLevel.ts) — one shared five-stop scale, boldest AI call to most marginal
+  /* Risk tiers (lib/riskModes.ts) — one shared five-stop scale, boldest AI call to most marginal
      one, reused by any card's tiny category badge, by Home's per-category tracker, and by each
-     tier's own animated card background (below) so all three always agree. RGB pairs exist purely
-     for the animated backgrounds' gradients, which need an alpha channel. */
+     rated card's own thin border (below) so all three always agree. RGB pairs exist purely for
+     the border's soft glow, which needs an alpha channel. */
   --risk-calm: #2fd98f;
   --risk-calm-rgb: 47, 217, 143;
   --risk-easy: #6bd9c2;
@@ -757,7 +757,7 @@ body {
    sits cleanly on top of `.ucl-card`'s own wash or the plain `.surface-lift` with zero composition
    logic needed, and it's also about as cheap as a per-card visual can possibly be — one paint at
    mount, never repainted or re-composited again, no keyframes, nothing to trace.
-   Just the color changes per tier (`--tier-rgb`, shared with lib/riskLevel.ts's own palette);
+   Just the color changes per tier (`--tier-rgb`, shared with lib/riskModes.ts's own palette);
    weight and glow strength are identical across all five so intricacy of RECOMMENDATION (which
    the badge label already states outright) isn't confused with intricacy of DECORATION. */
 .risk-border-calm {

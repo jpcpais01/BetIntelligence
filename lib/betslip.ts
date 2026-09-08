@@ -1,5 +1,17 @@
-import type { SavedPick, SavedMarketPick, LeagueId, OutcomeTokenIds } from "./types";
+import type { SavedPick, SavedMarketPick, LeagueId, OutcomeTokenIds, Probabilities } from "./types";
 import { leagueIdByName } from "./leagues";
+
+// Whether `outcome` is the match's own biggest favorite — the highest market probability among
+// the three genuine 1X2 outcomes. Never true for a double-chance combo (not a valid input here at
+// all — a combo is definitionally more likely than either side it covers, so by this same
+// definition it would trivially always "be the favorite" without actually being what the market
+// picked, which is exactly the case lib/riskModes.ts's favoriteOnly tiers exist to exclude).
+// Lives here rather than in riskModes.ts (which already imports SlipLeg/Outcome from this file)
+// purely to avoid a circular import — riskModes.ts re-exports it as the single home for every
+// risk-classification concept.
+export function isMarketFavorite(market: Probabilities, outcome: "home" | "draw" | "away"): boolean {
+  return market[outcome] >= market.home && market[outcome] >= market.draw && market[outcome] >= market.away;
+}
 
 // v2: legs now carry a resolved title/meta/outcomeLabel directly instead of a fixed
 // home/draw/away enum plus raw match fields, so a leg can come from either a football pick or
@@ -39,6 +51,14 @@ export interface SlipLeg {
   // side is currently priced highest). `tokenId` above only ever carries the backed side's token,
   // which isn't enough to compare it against the other two.
   tokenIds?: OutcomeTokenIds;
+  // Whether this leg's own outcome was the match's biggest favorite at the moment it was added —
+  // never true for a double-chance combo (see isMarketFavorite above), always undefined for a
+  // market (non-football) leg, which has no such concept, and undefined for any leg placed before
+  // this field existed. lib/riskModes.ts's riskModeFor treats a missing value as "not the
+  // favorite" — the conservative default, since it can only ever push a leg into a wider tier it
+  // definitely still qualifies for, never wrongly grant it a narrower favorite-only one it might
+  // not actually have earned.
+  isFavorite?: boolean;
 }
 
 export function legFromPick(pick: SavedPick, outcome: Outcome): SlipLeg {
@@ -64,6 +84,7 @@ export function legFromPick(pick: SavedPick, outcome: Outcome): SlipLeg {
       marketProb: pick.market.home + pick.market.draw,
       aiProb: pick.independent.home + pick.independent.draw,
       tokenId: null,
+      isFavorite: false,
     };
   }
   if (outcome === "x2") {
@@ -73,6 +94,7 @@ export function legFromPick(pick: SavedPick, outcome: Outcome): SlipLeg {
       marketProb: pick.market.draw + pick.market.away,
       aiProb: pick.independent.draw + pick.independent.away,
       tokenId: null,
+      isFavorite: false,
     };
   }
 
@@ -82,6 +104,7 @@ export function legFromPick(pick: SavedPick, outcome: Outcome): SlipLeg {
     marketProb: pick.market[outcome],
     aiProb: pick.independent[outcome],
     tokenId: pick.tokenIds?.[outcome] ?? null,
+    isFavorite: isMarketFavorite(pick.market, outcome),
   };
 }
 

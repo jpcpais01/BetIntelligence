@@ -1,5 +1,5 @@
 import type { PlacedBet } from "./placedBets";
-import { riskLevelFor, allRiskLevels, type RiskLevel } from "./riskLevel";
+import { riskModeFor, allRiskModes, type RiskMode } from "./riskModes";
 
 export interface ResolvedLegOutcome {
   // Market probability of the side that was actually backed.
@@ -47,13 +47,15 @@ export function computeEdgeScore(outcomes: ResolvedLegOutcome[]): number | null 
 // exactly as correct as any other. A different outcomeLabel on the same pick (e.g. "Arsenal" vs
 // "1X") is a genuinely different bet on the same game and is deliberately NOT merged.
 //
-// riskLevel is read from the leg's own AI-vs-market edge (aiProb - marketProb), not from
-// marketProb alone — the same read GameCard's badge uses. A tiny edge on a favorite and a tiny
-// edge on a longshot are the same size of claim, so they land in the same tier here; grouping by
-// market probability instead would answer "how big a favorite did you back", which isn't what a
-// breakdown of the AI's OWN calls by how bold each one was is for.
-export function resolvedLegOutcomes(bets: PlacedBet[]): (ResolvedLegOutcome & { riskLevel: RiskLevel })[] {
-  const outcomes: (ResolvedLegOutcome & { riskLevel: RiskLevel })[] = [];
+// riskMode is read from the leg's own AI-vs-market edge (aiProb - marketProb) AND whether it
+// backed the match's own favorite (leg.isFavorite) — the same read GameCard's badge uses
+// (lib/riskModes.ts's riskModeFor is the one shared classification, used everywhere a single
+// recommendation needs a tier). `isFavorite` is undefined for a leg placed before that field
+// existed — treated as "not the favorite", the conservative default, so an old leg can only ever
+// land in a wider tier it still genuinely qualifies for, never a narrower favorite-only one it
+// might not have actually earned.
+export function resolvedLegOutcomes(bets: PlacedBet[]): (ResolvedLegOutcome & { riskMode: RiskMode })[] {
+  const outcomes: (ResolvedLegOutcome & { riskMode: RiskMode })[] = [];
   const seen = new Set<string>();
   for (const bet of bets) {
     if (!bet.legResults) continue;
@@ -67,7 +69,7 @@ export function resolvedLegOutcomes(bets: PlacedBet[]): (ResolvedLegOutcome & { 
       outcomes.push({
         probability: leg.marketProb,
         won: result === "won",
-        riskLevel: riskLevelFor(leg.aiProb - leg.marketProb),
+        riskMode: riskModeFor(leg.aiProb - leg.marketProb, leg.isFavorite ?? false),
       });
     });
   }
@@ -79,7 +81,7 @@ export function overallEdgeScore(bets: PlacedBet[]): number | null {
 }
 
 export interface EdgeScoreByLevel {
-  level: RiskLevel;
+  level: RiskMode;
   score: number | null;
   legCount: number;
 }
@@ -91,8 +93,8 @@ export interface EdgeScoreByLevel {
 // not just how the bets as placed happened to turn out.
 export function edgeScoreByRiskLevel(bets: PlacedBet[]): EdgeScoreByLevel[] {
   const outcomes = resolvedLegOutcomes(bets);
-  return allRiskLevels().map((level) => {
-    const forLevel = outcomes.filter((o) => o.riskLevel === level);
+  return allRiskModes().map((level) => {
+    const forLevel = outcomes.filter((o) => o.riskMode === level);
     return { level, score: computeEdgeScore(forLevel), legCount: forLevel.length };
   });
 }

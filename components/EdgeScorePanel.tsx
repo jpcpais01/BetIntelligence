@@ -2,7 +2,7 @@
 
 import type { PlacedBet } from "@/lib/placedBets";
 import { overallEdgeScore, edgeScoreByRiskLevel } from "@/lib/edgeScore";
-import { riskLevelLabel, riskLevelColor, type RiskLevel } from "@/lib/riskLevel";
+import { riskModeLabel, riskModeColor, type RiskMode } from "@/lib/riskModes";
 import { toSignedReturnPercent } from "@/lib/format";
 import { ScaleIcon } from "./icons";
 
@@ -80,11 +80,11 @@ function CategoryRow({
   score,
   legCount,
 }: {
-  level: RiskLevel;
+  level: RiskMode;
   score: number | null;
   legCount: number;
 }) {
-  const color = riskLevelColor(level);
+  const color = riskModeColor(level);
   // A bar length purely for visual texture — capped so one huge multiplier from a single lucky
   // leg can't stretch a bar off the edge of the card. Centered isn't meaningful here (this isn't
   // a 0-100% scale), it's just "more filled = further above the 1x/break-even line".
@@ -92,7 +92,7 @@ function CategoryRow({
 
   return (
     <div className="flex items-center gap-2.5">
-      <span className="w-14 shrink-0 text-[11px] font-medium text-text-dim">{riskLevelLabel(level)}</span>
+      <span className="w-14 shrink-0 text-[11px] font-medium text-text-dim">{riskModeLabel(level)}</span>
       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
         {score !== null && (
           <div
