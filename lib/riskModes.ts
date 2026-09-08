@@ -14,15 +14,25 @@ export interface RiskModeInfo {
   id: RiskMode;
   label: string;
   minEdge: number; // decimal, e.g. 0.10 = 10 percentage points of AI-vs-market edge
+  // Exclusive upper bound — a leg qualifies for this mode only when minEdge <= edge < maxEdge.
+  // Without a ceiling, a huge-edge favorite would happily satisfy every looser mode's minEdge too,
+  // so tapping "Mega" (which only asks for 1+pp) could surface the exact same rock-solid favorite
+  // "Calm" would have picked, rather than the marginal, genuinely riskier signal Mega is for. Each
+  // mode's ceiling is the minEdge of the tier immediately above it, so the five ranges partition
+  // the edge axis with no gaps or overlaps: [10, Infinity), [5, 10), [5, 10), [3, 5), [1, 3).
+  // "Easy" and "Normal" deliberately share both ends of that range — they're not ranked against
+  // each other by edge at all, only by favoriteOnly, so giving them different edge windows would
+  // invent a distinction that isn't real. Infinity marks the one mode (Calm) with no tier above it.
+  maxEdge: number;
   favoriteOnly: boolean;
 }
 
 export const RISK_MODES: RiskModeInfo[] = [
-  { id: "calm", label: "Calm", minEdge: 0.1, favoriteOnly: true },
-  { id: "easy", label: "Easy", minEdge: 0.05, favoriteOnly: true },
-  { id: "normal", label: "Normal", minEdge: 0.05, favoriteOnly: false },
-  { id: "risky", label: "Risky", minEdge: 0.03, favoriteOnly: false },
-  { id: "mega", label: "Mega", minEdge: 0.01, favoriteOnly: false },
+  { id: "calm", label: "Calm", minEdge: 0.1, maxEdge: Infinity, favoriteOnly: true },
+  { id: "easy", label: "Easy", minEdge: 0.05, maxEdge: 0.1, favoriteOnly: true },
+  { id: "normal", label: "Normal", minEdge: 0.05, maxEdge: 0.1, favoriteOnly: false },
+  { id: "risky", label: "Risky", minEdge: 0.03, maxEdge: 0.05, favoriteOnly: false },
+  { id: "mega", label: "Mega", minEdge: 0.01, maxEdge: 0.03, favoriteOnly: false },
 ];
 
 interface Candidate {
@@ -51,17 +61,21 @@ function bestCandidateForPick(
   if (mode.favoriteOnly) {
     const favorite = options.slice(0, 3).reduce((a, b) => (b.market > a.market ? b : a));
     const edge = favorite.ai - favorite.market;
-    return edge >= mode.minEdge ? { pick, outcome: favorite.outcome, edge } : null;
+    return inRange(edge, mode) ? { pick, outcome: favorite.outcome, edge } : null;
   }
 
   let best: Candidate | null = null;
   for (const o of options) {
     const edge = o.ai - o.market;
-    if (edge >= mode.minEdge && (!best || edge > best.edge)) {
+    if (inRange(edge, mode) && (!best || edge > best.edge)) {
       best = { pick, outcome: o.outcome, edge };
     }
   }
   return best;
+}
+
+function inRange(edge: number, mode: RiskModeInfo): boolean {
+  return edge >= mode.minEdge && edge < mode.maxEdge;
 }
 
 const SLIP_SIZE = 3;

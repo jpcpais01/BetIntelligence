@@ -308,12 +308,23 @@ number was never able to affect a real win/loss, only what Lab's live odds displ
   and replacing whatever's currently in the slip with the result. Calm and Easy only ever bet the
   match's own market favorite among home/draw/away (never a double-chance combo, which is
   definitionally more likely than either outcome it covers and would always look like "the
-  favorite" without actually being the market's pick), needing a 10-point or 5-point AI-vs-market
-  edge respectively. Normal, Risky, and Mega open the search to all five leg types (home, draw,
-  away, 1X, X2) and progressively lower the bar to 5, 3, and 1 point of edge. Whatever qualifies is
-  always capped at exactly 3 legs — the highest-edge qualifying games first, whatever kind of bet
-  each one is — so a preset never floods the slip with every match that happens to qualify; fewer
-  than 3 qualifying games shows "Not enough games for &lt;preset&gt; mode." instead of building anything.
+  favorite" without actually being the market's pick); Normal, Risky, and Mega open the search to
+  all five leg types (home, draw, away, 1X, X2).
+
+  Each mode is a genuine **window** on AI-vs-market edge, not just a floor — `minEdge <= edge <
+  maxEdge` — so the five ranges partition the whole edge axis with no gaps or overlaps: Calm is
+  `[10pp, &infin;)`, Easy and Normal both `[5pp, 10pp)`, Risky `[3pp, 5pp)`, Mega `[1pp, 3pp)`. Every
+  mode's ceiling is simply the floor of the tier above it, and Calm — the top of the ladder — is the
+  one mode with no ceiling at all. This is why Mega actually means "the AI barely thinks this is
+  worth it," rather than "at least a little edge": without a ceiling, a 25-point-edge sure thing
+  would satisfy Mega's floor just as easily as Calm's, and tapping Mega could hand you back the same
+  rock-solid favorite Calm would have — never the genuinely marginal signal the preset is named for.
+  Easy and Normal deliberately share their entire window; they're not ranked against each other by
+  edge at all, only by whether they're restricted to the favorite, so giving them different edge
+  ranges would invent a distinction that was never there. Whatever qualifies within a mode's window
+  is always capped at exactly 3 legs — the highest-edge qualifying games first — so a preset never
+  floods the slip with every match that happens to qualify; fewer than 3 qualifying games shows "Not
+  enough games for &lt;preset&gt; mode." instead of building anything.
 - Adding a leg surfaces a floating pill at the bottom of the screen — how many bets, the combined
   decimal odds, and the combined edge, all live — over a slow, dim gold sheen that drifts across
   the pill (and the expanded sheet behind it) so the slip always feels quietly alive rather than
@@ -564,6 +575,14 @@ in the card header, based on the market probability of the AI's actual recommend
 `"none"`) shows no tier at all, since there's no specific pick to rate. The same five colors
 (`--risk-calm` … `--risk-mega`, `app/globals.css`) drive both that badge and the Home breakdown,
 so the two always read as the same scale.
+
+**Not to be confused with Lab's identically-named risk presets** ([above](#lab-a-sportsbook-style-slip),
+`lib/riskModes.ts`). Same five labels, two unrelated classifications: this one answers "how big a
+favorite is the market pricing this", from the market's own probability alone; Lab's answers "how
+much edge does the AI think it found, and is it restricted to the favorite", from the AI-vs-market
+edge. A pick can read "Mega" here (a genuine market longshot) while its edge is nowhere near
+Lab's own Mega window, or vice versa — they're deliberately independent reads, not the same tier
+shown in two places.
 
 ## Odds history
 
