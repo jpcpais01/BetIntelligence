@@ -717,7 +717,12 @@ Tapping **AI Analyze** runs against [`deepseek/deepseek-v4-flash-0731`](https://
    two structured providers, no LLM involved at all. [football-data.org](https://www.football-data.org/) supplies the
    core match data — each club's last 5 completed results, the last 5 head-to-head meetings, and the fixture's own live
    status (whether it's started yet, and if so the current score, straight from its own kickoff time rather than assuming
-   Polymarket's original schedule still holds). There's no fallback to web search if a team or fixture can't be matched
+   Polymarket's original schedule still holds). "Last 5" means genuinely the last 5 matches a club played, in ANY
+   competition — the form fetch queries football-data.org with an explicit 120-day `dateFrom`/`dateTo` window rather than
+   leaving it to the API's own narrow implicit default, then sorts and takes the most recent 5 itself rather than trusting
+   the API's own ordering. Without that explicit window, a club whose actual last match fell outside it (a common gap
+   around a Champions League/Europa League matchday, an international break, or a lighter domestic schedule) would come
+   back with no form at all — the bug this fixed. There's no fallback to web search if a team or fixture can't be matched
    there — the analysis fails with a clear error rather than quietly falling back to a shakier source. (This app first
    tried [API-Football](https://www.api-football.com/) instead — its free plan looked equivalent on paper, but locks every
    endpoint to old completed seasons in practice, making it useless for a current match. football-data.org's free tier has

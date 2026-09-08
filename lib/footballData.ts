@@ -190,9 +190,27 @@ interface FormLine {
   result: FormResult;
 }
 
+// How far back to look for a team's last 5 finished matches, regardless of which competition
+// they were in. Without an explicit dateFrom/dateTo, football-data.org's /teams/{id}/matches
+// endpoint applies its own narrow default window around today — fine for a team that plays every
+// few days, but a team whose most recent actual match falls outside that window (a common gap
+// around a Champions League/Europa League matchday, an international break, or a lighter domestic
+// schedule) comes back with no matches at all instead of its real last games. This mirrors
+// findFixture's own explicit dateFrom/dateTo above, for the same reason: don't rely on this API's
+// implicit default range for anything that isn't itself a narrow, deliberate lookup.
+const FORM_LOOKBACK_DAYS = 120;
+
 async function fetchForm(teamId: number): Promise<FormLine[]> {
-  const response = await footballDataFetch<{ matches: FootballDataMatch[] }>(`/teams/${teamId}/matches?status=FINISHED&limit=5`);
-  return response.matches.map((m) => {
+  const to = new Date().toISOString().slice(0, 10);
+  const from = new Date(Date.now() - FORM_LOOKBACK_DAYS * 86_400_000).toISOString().slice(0, 10);
+  const response = await footballDataFetch<{ matches: FootballDataMatch[] }>(
+    `/teams/${teamId}/matches?status=FINISHED&dateFrom=${from}&dateTo=${to}&limit=20`
+  );
+  // Not relying on the API's own ordering (or on `limit` alone) for which 5 matches come back —
+  // sorting by date here guarantees these are genuinely the most recent 5 in the window, whatever
+  // competition each one was from and whatever order the API happened to return them in.
+  const mostRecent = [...response.matches].sort((a, b) => b.utcDate.localeCompare(a.utcDate)).slice(0, 5);
+  return mostRecent.map((m) => {
     const isHome = m.homeTeam.id === teamId;
     const own = isHome ? m.score.fullTime.home : m.score.fullTime.away;
     const opp = isHome ? m.score.fullTime.away : m.score.fullTime.home;
