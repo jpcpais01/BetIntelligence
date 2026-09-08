@@ -747,179 +747,41 @@ body {
     0 18px 42px -24px rgba(var(--ucl-rgb), 0.4);
 }
 
-/* --- Risk-tier card accent (GameCard) --------------------------------------------------------
-   A faint, intricate constellation — small nodes joined by hairline threads, one distinct graph
-   per lib/riskLevel.ts tier — laid over any card that's actually carrying a rated AI
-   recommendation (riskLevel set). This is an ACCENT, not a background: it sits at very low
-   opacity ON TOP OF whatever surface the card already has (.ucl-card's blue wash or the plain
-   .surface-lift), rather than replacing it. That distinction is the whole point of this design —
-   every earlier version of this feature (a gradient-blob/ribbon wash, a scrolling waveform, a
-   set of light-scattering orbs/rings/glints) was a strong enough visual that a Champions League
-   fixture's own blue identity got fully overridden by it whenever both applied. This one is quiet
-   enough, and additive enough (see risk-bg-card's composition in components/GameCard.tsx), that
-   it never needs to make that choice — a rated UCL card keeps looking like a UCL card.
-
-   Only two things carry the tier's identity, both structural rather than loud: how many nodes/
-   threads the constellation has (3 for Calm's sparse two-line path, up to a 6-spoke starburst for
-   Mega) and how slowly it drifts (a bare handful of percent of movement over 16-50 seconds — nothing
-   here is meant to be noticed directly, just to make the card feel quietly alive on a second look).
-   Every tier renders at the same near-invisible strength; intricacy and pace are the only signal.
-
-   Performance constraints carried over from every earlier rewrite of this feature, since they're
-   what make ANY per-card animation safe to ship at all, regardless of how it looks:
-   1. ONLY `transform` and `opacity` are ever animated — never `background-position`, `left/top`,
-      stroke geometry, or anything else that forces a per-frame repaint. (A very early version of
-      this feature animated `background-position` on a gradient layer instead, which looks like the
-      same class of cheap effect but isn't — it's a paint property, and traced at 3.4s of raster
-      work in a 3s window across 5 cards. Never again.)
-   2. One SVG element per card, drawn once — the nodes/lines themselves never change, only the
-      whole element's transform and opacity animate, as a single compositor layer.
-   3. `content-visibility: auto` on `.risk-bg`: a card scrolled off-screen stops being rendered —
-      and its animation stops running — automatically, no JS, no IntersectionObserver.
-   4. `contain: layout paint` scopes each card's own layout/paint work to itself, so animating one
-      card's accent can't trigger the browser to re-check its neighbors.
-   Everything freezes under prefers-reduced-motion, keeping each tier's constellation visible at
-   its resting position without any of the drift. */
-.risk-bg-card {
-  position: relative;
-  isolation: isolate; /* keeps the negative-z-index accent layer local to this card, never
-                          bleeding behind an unrelated sibling card in the list. */
-  overflow: hidden;
-  contain: layout paint;
-}
-.risk-bg {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 140px;
-}
-/* One shared custom property per tier, so every rule below can just read --tier-rgb rather than
-   five near-duplicate color-specific rulesets. */
-.risk-bg-calm {
+/* --- Risk-tier card border (GameCard) --------------------------------------------------------
+   A thin, tier-colored border plus a soft matching glow — no background layer, no animation, no
+   extra DOM element at all. Every earlier version of this feature (a gradient/ribbon wash, a
+   scrolling waveform, light-scattering orbs, a faint constellation overlay) was a whole animated
+   layer competing for the same visual space as the card's own surface — a Champions League card's
+   blue wash kept needing special-case handling to survive underneath whichever one was live. A
+   border never has that problem: it's a different CSS property from `background` entirely, so it
+   sits cleanly on top of `.ucl-card`'s own wash or the plain `.surface-lift` with zero composition
+   logic needed, and it's also about as cheap as a per-card visual can possibly be — one paint at
+   mount, never repainted or re-composited again, no keyframes, nothing to trace.
+   Just the color changes per tier (`--tier-rgb`, shared with lib/riskLevel.ts's own palette);
+   weight and glow strength are identical across all five so intricacy of RECOMMENDATION (which
+   the badge label already states outright) isn't confused with intricacy of DECORATION. */
+.risk-border-calm {
   --tier-rgb: var(--risk-calm-rgb);
 }
-.risk-bg-easy {
+.risk-border-easy {
   --tier-rgb: var(--risk-easy-rgb);
 }
-.risk-bg-normal {
+.risk-border-normal {
   --tier-rgb: var(--risk-normal-rgb);
 }
-.risk-bg-risky {
+.risk-border-risky {
   --tier-rgb: var(--risk-risky-rgb);
 }
-.risk-bg-mega {
+.risk-border-mega {
   --tier-rgb: var(--risk-mega-rgb);
 }
-
-/* The constellation itself: stretched to fill the card (preserveAspectRatio="none" on the <svg>
-   in components/GameCard.tsx, same technique the very first waveform version used) so its nodes
-   spread across the whole card rather than sitting in one corner. `screen` blend keeps the tiny
-   nodes reading as specks of light against a dark surface rather than muddying it, scoped to just
-   this card by the parent's `isolation: isolate` above. Deliberately faint — this is an accent, not
-   a wash, so both the fill/stroke alpha below AND this element-level opacity are low at once. */
-.risk-constellation {
-  width: 100%;
-  height: 100%;
-  display: block;
-  mix-blend-mode: screen;
-  opacity: var(--constellation-opacity, 0.6);
-  will-change: transform, opacity;
-}
-.risk-constellation circle {
-  fill: rgba(var(--tier-rgb), 0.55);
-}
-.risk-constellation line {
-  stroke: rgba(var(--tier-rgb), 0.32);
-  stroke-width: 1;
-}
-
-/* Calm — the sparsest graph (3 nodes, 2 threads) at the slowest, smallest drift: the quietest
-   signal in both structure and motion at once. */
-.risk-bg-calm .risk-constellation {
-  --constellation-opacity: 0.45;
-  animation: risk-constellation-drift-calm 50s ease-in-out infinite;
-}
-@keyframes risk-constellation-drift-calm {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(1.5%, -1%) scale(1.02);
-  }
-}
-
-/* Easy — one more node than Calm, a touch more opacity and pace. */
-.risk-bg-easy .risk-constellation {
-  --constellation-opacity: 0.52;
-  animation: risk-constellation-drift-easy 40s ease-in-out infinite;
-}
-@keyframes risk-constellation-drift-easy {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(-2%, 1.5%) scale(1.03);
-  }
-}
-
-/* Normal — a symmetric hub-and-spoke graph (one centered node, four even arms) rather than an
-   open chain: restrained and balanced, this tier's own even-keel signature through every earlier
-   design of this feature too. */
-.risk-bg-normal .risk-constellation {
-  --constellation-opacity: 0.5;
-  animation: risk-constellation-drift-normal 32s ease-in-out infinite;
-}
-@keyframes risk-constellation-drift-normal {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(1.5%, 1.5%) scale(1.03);
-  }
-}
-
-/* Risky — a denser, closed web (6 nodes, 7 threads including one crossing diagonal) at a
-   noticeably quicker, wider drift than anything calmer than it. */
-.risk-bg-risky .risk-constellation {
-  --constellation-opacity: 0.58;
-  animation: risk-constellation-drift-risky 24s ease-in-out infinite;
-}
-@keyframes risk-constellation-drift-risky {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(-2.5%, -2%) scale(1.04);
-  }
-}
-
-/* Mega — the densest, most intricate graph: a 6-spoke starburst radiating from a single bright
-   center node, at the fastest (still slow in absolute terms) and widest drift of the five — the
-   most urgent, most alive tier, carried entirely by structure and pace rather than brightness. */
-.risk-bg-mega .risk-constellation {
-  --constellation-opacity: 0.64;
-  animation: risk-constellation-drift-mega 16s ease-in-out infinite;
-}
-@keyframes risk-constellation-drift-mega {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(2.5%, 2%) scale(1.05);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .risk-constellation {
-    animation: none !important;
-  }
+.risk-border-calm,
+.risk-border-easy,
+.risk-border-normal,
+.risk-border-risky,
+.risk-border-mega {
+  border-color: rgba(var(--tier-rgb), 0.55);
+  box-shadow: 0 0 0 1px rgba(var(--tier-rgb), 0.12);
 }
 
 .glow-num {

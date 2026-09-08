@@ -7,124 +7,13 @@ import type { LiveScoreEntry } from "@/lib/liveScores";
 import { formatCompactNumber, formatKickoff, formatRelativeTime, toPercent, toSignedPercent, formatCostUsd } from "@/lib/format";
 import { isTopGame } from "@/lib/topTeams";
 import { agreementLabel, agreementTone } from "@/lib/aggregate";
-import { riskLevelFor, riskLevelLabel, riskLevelColor, type RiskLevel } from "@/lib/riskLevel";
+import { riskLevelFor, riskLevelLabel, riskLevelColor } from "@/lib/riskLevel";
 import Avatar from "./Avatar";
 import OutcomeBar from "./OutcomeBar";
 import ConfidenceBadge from "./ConfidenceBadge";
 import ResearchRunsStepper from "./ResearchRunsStepper";
 import OddsHistoryChart from "./OddsHistoryChart";
 import { SparkleIcon, StarIcon, CheckIcon, BrainIcon, ChevronDownIcon, TrendingUpIcon } from "./icons";
-
-// A faint constellation — small nodes joined by hairline threads — one distinct graph per risk
-// tier, drawn once here as plain coordinates and rendered by RiskBackground below (see .risk-bg-*
-// / .risk-constellation in app/globals.css for the actual styling/animation). Node and thread
-// COUNT is what carries each tier's identity: Calm's sparse two-thread path grows through a
-// symmetric hub-and-spoke for Normal to Mega's dense 6-spoke starburst — intricacy tracks the risk
-// read itself, at a uniformly faint, near-invisible strength so the effect never competes with a
-// Champions League fixture's own blue wash (or anything else already on the card) for attention.
-// Coordinates live in a fixed 200×120 space; the SVG stretches to fill the card via
-// preserveAspectRatio="none", the same technique this feature's very first version used.
-const RISK_CONSTELLATION: Record<RiskLevel, { nodes: [number, number][]; edges: [number, number][] }> = {
-  calm: {
-    nodes: [
-      [30, 95],
-      [110, 35],
-      [175, 80],
-    ],
-    edges: [
-      [0, 1],
-      [1, 2],
-    ],
-  },
-  easy: {
-    nodes: [
-      [25, 100],
-      [70, 30],
-      [140, 45],
-      [178, 105],
-    ],
-    edges: [
-      [0, 1],
-      [1, 2],
-      [2, 3],
-    ],
-  },
-  normal: {
-    // A hub (index 2) with four even spokes — a symmetric, balanced shape rather than an open
-    // chain, matching this tier's restrained "even keel" through every earlier design too.
-    nodes: [
-      [100, 20],
-      [40, 65],
-      [100, 65],
-      [160, 65],
-      [100, 108],
-    ],
-    edges: [
-      [2, 0],
-      [2, 1],
-      [2, 3],
-      [2, 4],
-    ],
-  },
-  risky: {
-    // A closed, jagged hexagonal web with one crossing diagonal — denser and more angular than
-    // anything calmer than it.
-    nodes: [
-      [20, 105],
-      [65, 30],
-      [105, 80],
-      [145, 20],
-      [178, 72],
-      [92, 112],
-    ],
-    edges: [
-      [0, 1],
-      [1, 2],
-      [2, 3],
-      [3, 4],
-      [4, 5],
-      [5, 0],
-      [1, 3],
-    ],
-  },
-  mega: {
-    // A 6-spoke starburst radiating from a single center node (index 0) — the densest, most
-    // intricate graph of the five, reading as urgent through structure alone.
-    nodes: [
-      [100, 62],
-      [100, 15],
-      [142, 35],
-      [152, 88],
-      [100, 110],
-      [48, 88],
-      [38, 35],
-    ],
-    edges: [
-      [0, 1],
-      [0, 2],
-      [0, 3],
-      [0, 4],
-      [0, 5],
-      [0, 6],
-    ],
-  },
-};
-
-function RiskBackground({ level }: { level: RiskLevel }) {
-  const { nodes, edges } = RISK_CONSTELLATION[level];
-  return (
-    <svg className="risk-constellation" viewBox="0 0 200 120" preserveAspectRatio="none" aria-hidden="true">
-      {edges.map(([a, b], i) => {
-        const [x1, y1] = nodes[a];
-        const [x2, y2] = nodes[b];
-        return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} vectorEffect="non-scaling-stroke" />;
-      })}
-      {nodes.map(([cx, cy], i) => (
-        <circle key={i} cx={cx} cy={cy} r={2.4} />
-      ))}
-    </svg>
-  );
-}
 
 export default function GameCard({
   game,
@@ -186,13 +75,13 @@ export default function GameCard({
   // A Champions League fixture gets the competition's own blue wash instead of the neutral surface
   // every other card uses (.ucl-card, app/globals.css) — background only, so nothing on the card
   // reads any differently, it's just instantly recognisable as a European night while scrolling.
-  // A rated card ADDS its constellation accent on top of whichever base surface already applies —
-  // it never replaces one, since it's deliberately faint enough (see .risk-constellation) to sit
-  // over the UCL wash without fighting it, unlike this feature's earlier, louder designs (a
-  // gradient wash, a waveform, light-scattering orbs) which all had to fully override the UCL
-  // surface just to stay legible.
+  // A rated card just gets a thin, tier-colored border (.risk-border-<tier>) on top of whichever
+  // base surface already applies — a border is a different CSS property from `background`
+  // entirely, so it never needs to compete with the UCL wash (or anything else) for the card's
+  // surface the way this feature's earlier animated-layer designs (a gradient wash, a waveform,
+  // light-scattering orbs, a constellation overlay) always did.
   const baseSurfaceClassName = game.league === "champions-league" ? "ucl-card" : "surface-lift border-border-soft";
-  const surfaceClassName = riskLevel ? `${baseSurfaceClassName} risk-bg-card` : baseSurfaceClassName;
+  const surfaceClassName = riskLevel ? `${baseSurfaceClassName} risk-border-${riskLevel}` : baseSurfaceClassName;
 
   return (
     <div
@@ -204,13 +93,6 @@ export default function GameCard({
       }`}
       style={style}
     >
-      {/* A faint constellation accent — one SVG element, transform/opacity only — layered on top
-          of whichever base surface above already applies (see RiskBackground). */}
-      {riskLevel && !selectMode && (
-        <div className={`risk-bg risk-bg-${riskLevel}`} aria-hidden="true">
-          <RiskBackground level={riskLevel} />
-        </div>
-      )}
       {selectMode && (
         <div
           className={`mb-3 flex h-5 w-5 items-center justify-center rounded-full ring-1 ring-inset ${

@@ -596,63 +596,27 @@ The Edge Score breakdown (above) reads the same way: each resolved leg's tier co
 breakdown answers "how did the AI's boldest calls do vs. its most marginal ones", the question an
 *Edge* Score breakdown is actually for, rather than "how did favorites do vs. longshots."
 
-#### Risk-tier card accent
+#### Risk-tier card border
 
-A rated card (one with a `riskLevel`, above) gets a faint constellation laid over it — small nodes
-joined by hairline threads, one distinct graph per tier — defined in `app/globals.css` and drawn
-in `components/GameCard.tsx`'s `RiskBackground`/`RISK_CONSTELLATION`. Intricacy is the signal, not
-brightness: every tier renders at the same near-invisible strength, and only the graph's own
-shape/density and drift speed change between tiers.
+A rated card (one with a `riskLevel`, above) gets a thin, tier-colored border and a soft matching
+glow (`.risk-border-<tier>`, `app/globals.css`) — nothing else. No background layer, no extra DOM
+element, no animation of any kind: `components/GameCard.tsx` just adds one class name alongside
+whichever base surface the card already has (`ucl-card` or `surface-lift`).
 
-- **Calm** — 3 nodes, 2 threads: a sparse, open path. The slowest, smallest drift of the five.
-- **Easy** — 4 nodes, 3 threads: one more link in the chain, a touch more pace.
-- **Normal** — 5 nodes as a symmetric hub-and-spoke (one centered node, four even arms) rather than
-  an open chain — restrained and balanced, this tier's own even-keel signature through every
-  earlier design of this feature too.
-- **Risky** — 6 nodes, 7 threads: a closed, jagged hexagonal web with one crossing diagonal —
-  denser and more angular than anything calmer than it.
-- **Mega** — 7 nodes, 6 threads: a starburst radiating from a single center node — the densest,
-  most intricate graph of the five, reading as urgent through structure alone rather than through
-  speed or brightness.
+**This is the fifth build of this system**, and by far the simplest. The previous four (a
+gradient-blob-and-ribbon wash, a scrolling waveform, a set of light-scattering orbs/rings/glints, a
+faint constellation overlay) were all some kind of animated background layer, which meant every one
+of them had to solve the same recurring problem: a Champions League fixture's own blue wash
+(`.ucl-card`, above) competing with the risk tier's own background for the same visual space. A
+border sidesteps that entirely — it's a different CSS property from `background`, so it was never
+going to conflict in the first place, no faintness tuning or composition logic required.
 
-**This is the fourth build of this system**, and the first one that's an *accent* rather than a
-*background*. The first three designs (a gradient-blob-and-ribbon wash, a scrolling waveform, a set
-of light-scattering orbs/rings/glints) were all strong enough visuals that a Champions League
-fixture's own blue wash (`.ucl-card`, above) had to fully step aside whenever both applied — the
-risk tier's own color and motion would otherwise muddy it. That was a real bug, not just a design
-compromise: a rated Champions League card stopped looking like a Champions League card at all.
-This build fixes it structurally rather than by choosing a winner — the constellation is deliberately
-faint enough, both in its own fill/stroke alpha and in an additional low element-level `opacity`,
-to sit on top of whichever base surface the card already has (`components/GameCard.tsx` composes
-`ucl-card`/`surface-lift` and `risk-bg-card` together now, rather than choosing one or the other) —
-so a rated UCL fixture keeps its blue identity, with the constellation just barely visible over it.
-
-Every performance rule from the earlier rebuilds carries over unchanged, since they're what make
-any per-card animation safe to ship at all, regardless of how it looks:
-
-- **Only `transform` and `opacity` are ever animated — nothing else, no exceptions.** This rule
-  exists because of a real regression: the very first version of this system animated
-  `background-position` on a repeating gradient instead, which *looks* like the same class of
-  cheap effect but isn't — it's a paint property, so the browser had to re-rasterize the layer's
-  actual pixels on every frame, for every such layer, on every rated card on screen. Traced live
-  over 3 seconds of scrolling past 5 rated cards, that version generated **1,184 Paint events and
-  5,318 raster tasks, totaling 3.4 seconds of cumulative raster work inside a 3-second window**.
-  This build, traced the same way over the same 3 seconds across all 5 tiers plus a rated
-  Champions League card, produced **zero Paint events and zero RasterTask events** — the entire
-  window was compositor-only work the main thread never touched.
-- **One SVG element per card, drawn once** — the nodes and threads themselves never change; only
-  the whole element's `transform` (a few percent of drift) and `opacity` animate, as a single
-  compositor layer. No particle system, no per-frame DOM generation, no JS animation loop of any
-  kind — a pure CSS `@keyframes` loop.
-- `content-visibility: auto` means a card scrolled off-screen stops being rendered — and its
-  animation stops running — automatically, no JavaScript involved. In a long games list where only
-  a handful of rated cards are ever actually in view, this is the single biggest win of the set.
-- `contain: layout paint` scopes each card's own layout/paint work to itself, so animating one
-  card's accent can't trigger the browser to re-check its neighbors.
-
-The whole system only mounts for a card that's actually been analyzed — most of a games list never
-pays for any of this at all — and it freezes under `prefers-reduced-motion`, keeping each tier's
-constellation visible at its resting position without any of the drift.
+It's also about as cheap as a per-card visual can be: one color, painted once at mount, never
+repainted or recomposited again — no `@keyframes`, nothing to trace, nothing for
+`prefers-reduced-motion` to even need to disable. Every tier uses the identical border weight and
+glow strength; only the color (`--tier-rgb`, shared with `lib/riskLevel.ts`'s own palette) changes,
+since the badge label already states the recommendation's strength in words — the border doesn't
+need to re-encode it in decoration.
 
 ## Odds history
 
