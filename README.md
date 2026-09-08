@@ -596,70 +596,63 @@ The Edge Score breakdown (above) reads the same way: each resolved leg's tier co
 breakdown answers "how did the AI's boldest calls do vs. its most marginal ones", the question an
 *Edge* Score breakdown is actually for, rather than "how did favorites do vs. longshots."
 
-#### Risk-tier animated card backgrounds
+#### Risk-tier card accent
 
-A rated card (one with a `riskLevel`, above) trades its plain surface for a small, distinct
-light-scattering effect — a different CONCEPT per tier, not just a different color or speed on
-the same effect — defined in `app/globals.css` and drawn in `components/GameCard.tsx`'s
-`RiskBackground`. Each tier is just 2-4 positioned `<span>`s; every visual difference between
-tiers (shape, count, motion, color) is pure CSS:
+A rated card (one with a `riskLevel`, above) gets a faint constellation laid over it — small nodes
+joined by hairline threads, one distinct graph per tier — defined in `app/globals.css` and drawn
+in `components/GameCard.tsx`'s `RiskBackground`/`RISK_CONSTELLATION`. Intricacy is the signal, not
+brightness: every tier renders at the same near-invisible strength, and only the graph's own
+shape/density and drift speed change between tiers.
 
-- **Calm — Aurora Wash.** Two huge, ultra-soft blobs blended with `mix-blend-mode: screen`,
-  drifting in slow, wide, independent loops. The dimmest, biggest-blur, slowest-moving of the
-  five — a distant, restful glow.
-- **Easy — Pulsing Glow.** Two light sources breathing (scale + opacity) from opposite corners,
-  offset so the card is never dim at both corners at once. A touch faster and brighter than Calm.
-- **Normal — Bokeh Drift.** Three small, soft circles drifting independently in smooth, steady
-  loops — restrained and even, deliberately the least dramatic of the five. This tier's own even
-  keel has been its signature through every earlier design of this feature too.
-- **Risky — Signal Ripple.** Concentric rings expanding outward and fading — the exact same proven
-  pattern as `ResearchOverlay`'s `.research-orb-ring` radar ping, reused here rather than
-  reinvented, just repositioned off-center and recolored per tier. Faster and warmer than the calm
-  end of the scale.
-- **Mega — Sparkle Glints.** Four small, bright points flashing on and drifting up before fading,
-  staggered so the card is never fully dark between flashes — the most urgent, most alive tier.
+- **Calm** — 3 nodes, 2 threads: a sparse, open path. The slowest, smallest drift of the five.
+- **Easy** — 4 nodes, 3 threads: one more link in the chain, a touch more pace.
+- **Normal** — 5 nodes as a symmetric hub-and-spoke (one centered node, four even arms) rather than
+  an open chain — restrained and balanced, this tier's own even-keel signature through every
+  earlier design of this feature too.
+- **Risky** — 6 nodes, 7 threads: a closed, jagged hexagonal web with one crossing diagonal —
+  denser and more angular than anything calmer than it.
+- **Mega** — 7 nodes, 6 threads: a starburst radiating from a single center node — the densest,
+  most intricate graph of the five, reading as urgent through structure alone rather than through
+  speed or brightness.
 
-A static (never-animated) tinted wash sits behind all of them (`.risk-bg::before`), setting the
-ambient color even in the moments an animated element isn't over a given spot. A Champions League
-fixture's blue wash (above) steps aside for this when both apply — the risk tier's own color and
-motion already carry a strong mood tied to that specific recommendation, and layering the UCL wash
-underneath would just muddy both.
+**This is the fourth build of this system**, and the first one that's an *accent* rather than a
+*background*. The first three designs (a gradient-blob-and-ribbon wash, a scrolling waveform, a set
+of light-scattering orbs/rings/glints) were all strong enough visuals that a Champions League
+fixture's own blue wash (`.ucl-card`, above) had to fully step aside whenever both applied — the
+risk tier's own color and motion would otherwise muddy it. That was a real bug, not just a design
+compromise: a rated Champions League card stopped looking like a Champions League card at all.
+This build fixes it structurally rather than by choosing a winner — the constellation is deliberately
+faint enough, both in its own fill/stroke alpha and in an additional low element-level `opacity`,
+to sit on top of whichever base surface the card already has (`components/GameCard.tsx` composes
+`ucl-card`/`surface-lift` and `risk-bg-card` together now, rather than choosing one or the other) —
+so a rated UCL fixture keeps its blue identity, with the constellation just barely visible over it.
 
-**This is the third build of this system.** The first (gradient-blob-and-ribbon) version got
-rebuilt for being computationally heavy; the second (scrolling waveform) version fixed that but
-was rejected on pure aesthetics — lines just weren't the right visual language. This build keeps
-every performance rule the second one established, now applied to five genuinely different shapes
-instead of one shape reused five ways:
+Every performance rule from the earlier rebuilds carries over unchanged, since they're what make
+any per-card animation safe to ship at all, regardless of how it looks:
 
-- **Only `transform` and `opacity` are ever animated — nothing else, no exceptions.** Every orb,
-  ring, and glint moves and fades purely via those two properties, so the compositor animates them
-  on its own thread with zero repaint. This rule exists because of a real regression: the very
-  first version of this system animated `background-position` on a repeating gradient instead,
-  which *looks* like the same class of cheap effect but isn't — it's a paint property, so the
-  browser had to re-rasterize the layer's actual pixels on every frame, for every such layer, on
-  every rated card on screen. Traced live over 3 seconds of scrolling past 5 rated cards, that
-  version generated **1,184 Paint events and 5,318 raster tasks, totaling 3.4 seconds of cumulative
-  raster work inside a 3-second window**. This build, traced the same way over the same 3 seconds
-  across all 5 tiers, produced **zero Paint events and zero RasterTask events** — not just fewer,
-  literally none; the entire 3 seconds of motion was compositor-only work the main thread never
-  touched.
-- **2-4 animated elements per card, never more** — Calm/Easy use 2 orbs, Normal uses 3, Risky uses
-  2 rings, Mega uses 4 glints. No particle system, no per-frame element generation, no JS animation
-  loop of any kind — every motion is a pure CSS `@keyframes` loop.
-- The static tinted wash is a plain, never-animated gradient (`.risk-bg::before`) — a one-time
-  paint cost, the same category as `.ucl-card`'s own background, not a per-frame one.
-- `content-visibility: auto` on the whole animated layer means a card scrolled off-screen stops
-  being rendered — and its animation stops running — automatically, no JavaScript involved. In a
-  long games list where only a handful of rated cards are ever actually in view, this is the
-  single biggest win of the set.
+- **Only `transform` and `opacity` are ever animated — nothing else, no exceptions.** This rule
+  exists because of a real regression: the very first version of this system animated
+  `background-position` on a repeating gradient instead, which *looks* like the same class of
+  cheap effect but isn't — it's a paint property, so the browser had to re-rasterize the layer's
+  actual pixels on every frame, for every such layer, on every rated card on screen. Traced live
+  over 3 seconds of scrolling past 5 rated cards, that version generated **1,184 Paint events and
+  5,318 raster tasks, totaling 3.4 seconds of cumulative raster work inside a 3-second window**.
+  This build, traced the same way over the same 3 seconds across all 5 tiers plus a rated
+  Champions League card, produced **zero Paint events and zero RasterTask events** — the entire
+  window was compositor-only work the main thread never touched.
+- **One SVG element per card, drawn once** — the nodes and threads themselves never change; only
+  the whole element's `transform` (a few percent of drift) and `opacity` animate, as a single
+  compositor layer. No particle system, no per-frame DOM generation, no JS animation loop of any
+  kind — a pure CSS `@keyframes` loop.
+- `content-visibility: auto` means a card scrolled off-screen stops being rendered — and its
+  animation stops running — automatically, no JavaScript involved. In a long games list where only
+  a handful of rated cards are ever actually in view, this is the single biggest win of the set.
 - `contain: layout paint` scopes each card's own layout/paint work to itself, so animating one
-  card's background can't trigger the browser to re-check its neighbors.
+  card's accent can't trigger the browser to re-check its neighbors.
 
 The whole system only mounts for a card that's actually been analyzed — most of a games list never
-pays for any of this at all — and every element freezes under `prefers-reduced-motion`, keeping
-each tier's color and (for the orb-based tiers) resting position/opacity without any of the
-motion; Mega's glints simply stay hidden rather than freezing mid-flash, since a static bright dot
-would misrepresent what's meant to be a brief flash.
+pays for any of this at all — and it freezes under `prefers-reduced-motion`, keeping each tier's
+constellation visible at its resting position without any of the drift.
 
 ## Odds history
 
