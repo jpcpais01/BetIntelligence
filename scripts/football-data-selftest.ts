@@ -409,6 +409,98 @@ async function run() {
     check("the text digest names each team's position and points", /Napoli: #2, 44pts/.test(digest.text) && /Roma: #7, 30pts/.test(digest.text), digest.text);
   }
 
+  // --- A competition split into groups (how football-data.org has historically reported Champions
+  // League standings) repeats `type: "TOTAL"` once PER GROUP — taking only the first such block (the
+  // bug this replaced) would silently lose any team not in that first group. Both Napoli and Roma
+  // sit in the SECOND group here; the fix must flatten every TOTAL block to find them regardless. ---
+  {
+    __resetRateLimiterForTests();
+    __resetStandingsCacheForTests();
+    // Reuses the Napoli/Roma identities already cached for "champions-league" above.
+    const home = { id: 50, name: "Napoli" };
+    const away = { id: 51, name: "Roma" };
+    const other = { id: 52, name: "Bayern Munich" };
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/standings")) {
+        return ok({
+          standings: [
+            { type: "TOTAL", group: "GROUP_A", table: [{ position: 1, team: other, playedGames: 5, points: 12, goalsFor: 10, goalsAgainst: 3 }] },
+            {
+              type: "TOTAL",
+              group: "GROUP_B",
+              table: [
+                { position: 3, team: home, playedGames: 5, points: 9, goalsFor: 8, goalsAgainst: 5 },
+                { position: 5, team: away, playedGames: 5, points: 6, goalsFor: 6, goalsAgainst: 7 },
+              ],
+            },
+          ],
+        });
+      }
+      if (u.includes("/competitions/")) return ok({ teams: [home, away] });
+      if (u.includes("/head2head")) return ok({ matches: [] });
+      if (u.includes(`/teams/${home.id}/matches`) || u.includes(`/teams/${away.id}/matches`)) return ok({ matches: [] });
+      if (u.includes("/matches?")) {
+        return ok({ matches: [match({ id: 80, date: "2026-03-01T20:00:00.000Z", home, away, status: "SCHEDULED", homeGoals: null, awayGoals: null })] });
+      }
+      throw new Error(`Unhandled URL in grouped-standings test: ${u}`);
+    }) as unknown as typeof fetch;
+
+    const digest = await buildFootballDigest({ homeTeam: "Napoli", awayTeam: "Roma", league: "champions-league", startTime: "2026-03-01T20:00:00.000Z" });
+    check(
+      "a team in the SECOND group's table is still found, not lost to the first group",
+      digest.homeStanding?.position === 3 && digest.awayStanding?.position === 5,
+      JSON.stringify({ home: digest.homeStanding, away: digest.awayStanding })
+    );
+  }
+
+  // --- A standings row with zero games played means this competition's current table has nothing
+  // real to say yet for that team (the normal state for a Champions League fixture before its
+  // league-phase has started) — every team in that state would tie at the identical "position 1, 0
+  // points, 0 played", so it's treated as unavailable rather than shown as if it meant something.
+  // The team's own recent FORM is a separate fetch and must stay visible regardless. ---
+  {
+    __resetRateLimiterForTests();
+    __resetStandingsCacheForTests();
+    const home = { id: 50, name: "Napoli" };
+    const away = { id: 51, name: "Roma" };
+    globalThis.fetch = makeFootballDataFetch({
+      rosterTeams: [home, away],
+      home,
+      away,
+      fixtures: [match({ id: 90, date: "2026-03-08T20:00:00.000Z", home, away, status: "SCHEDULED", homeGoals: null, awayGoals: null })],
+      homeForm: [match({ id: 210, date: "2026-02-20T20:00:00.000Z", home, away: { id: 60, name: "Genoa" }, status: "FINISHED", homeGoals: 2, awayGoals: 1 })],
+      awayForm: [],
+      standings: [
+        { position: 1, team: home, playedGames: 0, points: 0, goalsFor: 0, goalsAgainst: 0 },
+        { position: 1, team: away, playedGames: 0, points: 0, goalsFor: 0, goalsAgainst: 0 },
+      ],
+      urls: [],
+    });
+
+    const digest = await buildFootballDigest({ homeTeam: "Napoli", awayTeam: "Roma", league: "champions-league", startTime: "2026-03-08T20:00:00.000Z" });
+    check(
+      "zero games played resolves position/points to null rather than a misleading '#1, 0pts'",
+      digest.homeStanding?.position === null && (digest.awayStanding === null || digest.awayStanding.position === null),
+      JSON.stringify({ home: digest.homeStanding, away: digest.awayStanding })
+    );
+    check(
+      "the team's own recent form stays visible even though this competition's table is empty",
+      JSON.stringify(digest.homeStanding?.form) === JSON.stringify(["W"]),
+      JSON.stringify(digest.homeStanding)
+    );
+    check(
+      "a team with neither a real table row nor any recent form resolves to null outright",
+      digest.awayStanding === null,
+      JSON.stringify(digest.awayStanding)
+    );
+    check(
+      "the text digest explains the table is empty rather than printing '#1, 0pts, 0 played'",
+      digest.text.includes("Napoli: not available yet this competition") && !digest.text.includes("#1, 0pts"),
+      digest.text
+    );
+  }
+
   // --- A standings fetch that fails entirely (network error, an uncovered response shape) never
   // breaks the digest — it's an enrichment, same as injuries elsewhere in this app — and a team
   // missing from a standings table it DID fetch resolves to null the same way, not a crash. ---

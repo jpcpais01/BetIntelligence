@@ -75,12 +75,20 @@ export interface IndependentPrediction {
 // form strip (oldest first, ending with the most recent match). Purely factual data from
 // football-data.org's standings endpoint (position/points/goals) combined with its own recent
 // results (form) — not an AI opinion, unlike TeamAssessment above.
+//
+// The table fields are null (rather than a real-but-uninformative all-zero row) when the
+// competition's CURRENT table has no games played yet for this team — the normal state for a
+// Champions League fixture before that team's played its first league-phase match of the season,
+// where every team would otherwise tie at the identical, meaningless "position 1, 0 points, 0
+// played". `form` is fetched independently of this competition's own table (it's the team's last
+// 5 results in ANY competition), so it's always populated when available, never hidden just
+// because THIS competition's table has nothing to say yet.
 export interface TeamStanding {
-  position: number;
-  playedGames: number;
-  points: number;
-  goalsFor: number;
-  goalsAgainst: number;
+  position: number | null;
+  playedGames: number | null;
+  points: number | null;
+  goalsFor: number | null;
+  goalsAgainst: number | null;
   form: ("W" | "D" | "L" | "?")[];
 }
 

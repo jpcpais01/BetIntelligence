@@ -39,21 +39,33 @@ function StandingCard({ teamName, standing }: { teamName: string; standing?: Tea
     );
   }
 
-  const goalDiff = standing.goalsFor - standing.goalsAgainst;
+  // position (and the rest of the table facts alongside it) is null when this specific competition
+  // has no real games played yet for this team — most commonly a Champions League fixture before
+  // its league-phase has started for that team this season. `form` is a separate fetch (the team's
+  // last 5 results in ANY competition) and stays available regardless, so it's never hidden just
+  // because this competition's own table has nothing to say yet.
+  const hasTable = standing.position !== null;
+  const goalDiff = hasTable ? standing.goalsFor! - standing.goalsAgainst! : 0;
 
   return (
     <div className="min-w-0 rounded-xl bg-surface-2 p-3">
       <p className="truncate text-[12px] font-medium text-text">{teamName}</p>
-      <div className="mt-1.5 flex items-baseline gap-1.5">
-        <span className="font-display text-[18px] font-bold tabular-nums text-text">#{standing.position}</span>
-        <span className="truncate text-[10px] text-text-faint">
-          {standing.points} pts &middot; {standing.playedGames}pl
-        </span>
-      </div>
-      <p className="mt-0.5 text-[10px] tabular-nums text-text-faint">
-        {standing.goalsFor}-{standing.goalsAgainst} goals ({goalDiff >= 0 ? "+" : ""}
-        {goalDiff} GD)
-      </p>
+      {hasTable ? (
+        <>
+          <div className="mt-1.5 flex items-baseline gap-1.5">
+            <span className="font-display text-[18px] font-bold tabular-nums text-text">#{standing.position}</span>
+            <span className="truncate text-[10px] text-text-faint">
+              {standing.points} pts &middot; {standing.playedGames}pl
+            </span>
+          </div>
+          <p className="mt-0.5 text-[10px] tabular-nums text-text-faint">
+            {standing.goalsFor}-{standing.goalsAgainst} goals ({goalDiff >= 0 ? "+" : ""}
+            {goalDiff} GD)
+          </p>
+        </>
+      ) : (
+        <p className="mt-1.5 text-[11px] text-text-faint">Hasn&apos;t played in this competition yet.</p>
+      )}
       {standing.form.length > 0 && (
         <div className="mt-2 flex gap-1">
           {standing.form.map((r, i) => (

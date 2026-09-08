@@ -270,8 +270,15 @@ async function fetchCompetitionStandingsRows(code: string): Promise<FootballData
   if (cached && Date.now() - cached.at < STANDINGS_CACHE_TTL_MS) return cached.rows;
 
   const response = await footballDataFetch<FootballDataStandingsResponse>(`/competitions/${code}/standings`);
-  const total = response.standings.find((s) => s.type === "TOTAL") ?? response.standings[0];
-  const rows = total?.table ?? [];
+  // A competition split into groups — how football-data.org has historically reported Champions
+  // League standings — repeats `type: "TOTAL"` once PER GROUP rather than once overall, distinguished
+  // only by a separate `group` field this app doesn't otherwise need. Taking only the first such
+  // block (the old behavior here) silently lost every team that wasn't in that one group, which a
+  // single-table domestic league never surfaced since it only ever has one block to begin with.
+  // Concatenating every TOTAL block instead finds any team regardless of which group it's actually
+  // in, while staying a no-op for a single-table competition.
+  const totalTables = response.standings.filter((s) => s.type === "TOTAL");
+  const rows = (totalTables.length > 0 ? totalTables : response.standings.slice(0, 1)).flatMap((s) => s.table ?? []);
   standingsCache.set(code, { at: Date.now(), rows });
   return rows;
 }
@@ -366,14 +373,23 @@ async function fetchFootballDigest(input: FootballDigestInput, cacheKey: string)
 
   const toStanding = (teamId: number, form: FormLine[]): TeamStanding | null => {
     const row = standingsRows.find((r) => r.team.id === teamId);
-    if (!row) return null;
+    // A row with zero games played means this competition's current table has no real information
+    // for this team yet (most commonly a Champions League fixture before its league-phase has
+    // started for that team this season) — every team in that state would tie at the identical
+    // "position 1, 0 points, 0 played", which is real data but carries no actual signal, so it's
+    // treated the same as no row at all rather than shown as if it meant something.
+    const hasTableRow = row !== undefined && row.playedGames > 0;
+    const formLetters_ = formLetters(form);
+    // Still nothing to show at all only when BOTH the table row and the team's own recent form
+    // (a separate fetch, unrelated to this specific competition) are empty.
+    if (!hasTableRow && formLetters_.length === 0) return null;
     return {
-      position: row.position,
-      playedGames: row.playedGames,
-      points: row.points,
-      goalsFor: row.goalsFor,
-      goalsAgainst: row.goalsAgainst,
-      form: formLetters(form),
+      position: hasTableRow ? row!.position : null,
+      playedGames: hasTableRow ? row!.playedGames : null,
+      points: hasTableRow ? row!.points : null,
+      goalsFor: hasTableRow ? row!.goalsFor : null,
+      goalsAgainst: hasTableRow ? row!.goalsAgainst : null,
+      form: formLetters_,
     };
   };
   const homeStanding = toStanding(home.id, homeForm);
@@ -387,7 +403,9 @@ async function fetchFootballDigest(input: FootballDigestInput, cacheKey: string)
       `${fixture.score.fullTime.away ?? "?"} ${input.awayTeam}, kickoff was ${new Date(fixture.utcDate).toUTCString()}.`;
 
   const standingsLine = (name: string, s: TeamStanding | null) =>
-    s ? `${name}: #${s.position}, ${s.points}pts, ${s.playedGames} played, ${s.goalsFor}-${s.goalsAgainst} goals` : `${name}: not available`;
+    s && s.position !== null
+      ? `${name}: #${s.position}, ${s.points}pts, ${s.playedGames} played, ${s.goalsFor}-${s.goalsAgainst} goals`
+      : `${name}: not available yet this competition (hasn't played a match in it so far this season)`;
 
   const text = `Match Status:
 ${statusLine}

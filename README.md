@@ -715,8 +715,17 @@ Tapping **AI Analyze** runs against [`deepseek/deepseek-v4-flash-0731`](https://
    leaving it to the API's own narrow implicit default, then sorts and takes the most recent 5 itself rather than trusting
    the API's own ordering. Without that explicit window, a club whose actual last match fell outside it (a common gap
    around a Champions League/Europa League matchday, an international break, or a lighter domestic schedule) would come
-   back with no form at all — the bug this fixed. There's no fallback to web search if a team or fixture can't be matched
-   there — the analysis fails with a clear error rather than quietly falling back to a shakier source. (This app first
+   back with no form at all — the bug this fixed. The league-STANDINGS side of the digest had two related bugs of its
+   own, both specific to Champions League: first, a competition split into groups repeats `type: "TOTAL"` once PER GROUP
+   rather than once overall, and taking only the first such block (the old code) silently lost any team not in that one
+   group — fixed by flattening every `TOTAL` block before searching for a team's row, which is a no-op for a single-table
+   domestic league. Second, a standings row with zero games played (the normal state for a Champions League fixture before
+   its league-phase has started for that team this season) used to render as a real-looking `#1 · 0 pts · 0pl` card — since
+   every team in that state ties at the identical values, it's genuine data but carries zero signal, so it's now treated
+   the same as no row at all (`TeamStandingsSummary.tsx` shows "Hasn't played in this competition yet" instead) — while the
+   team's actual recent FORM, a separate fetch unrelated to this specific competition's own table, stays visible regardless.
+   There's no fallback to web search if a team or fixture can't be matched there — the analysis fails with a clear error
+   rather than quietly falling back to a shakier source. (This app first
    tried [API-Football](https://www.api-football.com/) instead — its free plan looked equivalent on paper, but locks every
    endpoint to old completed seasons in practice, making it useless for a current match. football-data.org's free tier has
    no such season lock, covering 7 of the 8 domestic leagues below plus the Champions League — everything except Belgian
