@@ -629,6 +629,49 @@ glow strength; only the color (`--tier-rgb`, shared with `lib/riskModes.ts`'s ow
 since the badge label already states the recommendation's strength in words — the border doesn't
 need to re-encode it in decoration.
 
+## Overview: a hypothetical record by class and strategy
+
+The Edge Score panel (above) only ever counts legs from bets you actually placed. **Overview**
+(`/overview`, `app/overview/page.tsx`) answers a different question: how would every match the AI
+has *ever analyzed* — saved or not, staked or not — have done if you'd bet each one individually,
+one flat stake per match, the moment the AI called it? `lib/overview.ts` reads the same
+`lastAnalysis` cache the last-analysis panel and GameCard's badge already use (every entry that's
+ever been through `saveLastAnalysis`, auto-written on every analysis regardless of whether it was
+saved as a Pick), so nothing extra needs to be tracked for this page to work — it's a different lens
+on data the app was already keeping.
+
+Two independent strategies per game, never sharing a leg:
+
+- **1 / X / 2** — literally the AI's own actual recommendation (`comparison.bestValue`), the exact
+  same read the GameCard badge and Edge Score breakdown already use.
+- **1X / X2** — *not* derived from `bestValue` (a "draw" recommendation has no natural
+  double-chance analog — both combos equally contain it). Instead it independently searches the two
+  double-chance combos for whichever has the better edge, the same edge-maximization
+  `lib/riskModes.ts`'s own `bestCandidateForPick` already uses for Lab's "any outcome" presets, just
+  narrowed to the combo pool alone.
+
+Both strategies are classified through the exact same `riskModeFor` used everywhere else in the app
+([above](#risk-tiers-calm-easy-normal-risky-mega)), which means a combo — never counted as backing
+the match's own favorite — can never land in Calm or Easy. That's not a gap in this page's data; the
+grid shows it as an explicit "N/A — a combo can never be the favorite" rather than a misleading "no
+data yet", since more analyses would never fill those two cells in no matter how many piled up.
+
+A game only enters the grid at all once the AI found something worth recommending
+(`bestValue !== "none"`) — "unclassed" is the one real exclusion; every classed game lands in
+exactly one of the five tiers per strategy, `riskModeFor`'s own Mega tier being the catch-all
+bottom, same as everywhere else.
+
+Settlement reuses the exact same real-match-result pipeline placed bets already use
+(`lib/settlement.ts`'s `legResult`/`/api/bets/settlement-scores`, batched by league and each
+league's earliest still-unresolved kickoff) — nothing here is ever inferred from a live-trading
+market price, only a confirmed final score. A match still in progress, or one football-data.org's
+own lookback window can't reach any more, shows as **pending** rather than a guess, and doesn't
+affect that cell's score at all. Because this reads real match identity (league/homeTeam/awayTeam/
+startTime), `lastAnalysis` had to start carrying that alongside the analysis itself
+(`lib/lastAnalysis.ts`) — an entry saved before this existed is simply skipped, the same
+"undefined means predates this field" contract every other evolving-shape cache in this app already
+uses, never guessed at.
+
 ## Odds history
 
 Every card — a Discover market or a Sports match — has a collapsed **Odds history** dropdown that

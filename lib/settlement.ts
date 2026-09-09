@@ -164,7 +164,11 @@ function settlementRefs(bets: PlacedBet[], now: number): { league: LeagueId; ear
   return [...earliestByLeague.entries()].map(([league, earliestKickoff]) => ({ league, earliestKickoff }));
 }
 
-async function fetchScores(refs: { league: LeagueId; earliestKickoff: string }[]): Promise<LiveScoreEntry[]> {
+// Exported so lib/overview.ts can reuse the exact same lookup for its own hypothetical-settlement
+// pipeline (every analyzed game, not just ones with a placed bet) rather than duplicating this
+// fetch — same endpoint, same shape, same best-effort "a failure just means nothing resolves this
+// round" contract.
+export async function fetchScores(refs: { league: LeagueId; earliestKickoff: string }[]): Promise<LiveScoreEntry[]> {
   if (refs.length === 0) return [];
   try {
     const res = await fetch("/api/bets/settlement-scores", {

@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { HomeIcon, TrophyIcon, BookmarkIcon, TicketIcon } from "./icons";
+import { HomeIcon, TrophyIcon, BookmarkIcon, TicketIcon, ChartIcon } from "./icons";
 
 // Discover (Polymarket's non-football markets) is hidden for now — its route still exists but
 // redirects home (app/discover/page.tsx) rather than being deleted, so it's a quick, reversible
@@ -13,6 +13,7 @@ const TABS = [
   { href: "/sports", label: "Sports", icon: TrophyIcon },
   { href: "/picks", label: "Picks", icon: BookmarkIcon },
   { href: "/lab", label: "Lab", icon: TicketIcon },
+  { href: "/overview", label: "Overview", icon: ChartIcon },
 ] as const;
 
 export default function BottomNav() {

@@ -79,6 +79,14 @@ export function allRiskModes(): RiskMode[] {
   return RISK_MODES.map((m) => m.id);
 }
 
+// Whether a tier requires the backed outcome to be the match's own favorite — Calm and Easy only.
+// Exported so a consumer that ALSO needs to reflect this rule in its own UI (the Overview page,
+// lib/overview.ts: a combo leg is never the favorite, so Calm/Easy can never have a "combo
+// strategy" row at all) can ask directly rather than re-deriving it from RISK_MODES itself.
+export function isFavoriteOnlyMode(mode: RiskMode): boolean {
+  return RISK_MODES.find((m) => m.id === mode)?.favoriteOnly ?? false;
+}
+
 // One shared color per tier (CSS custom properties, app/globals.css) — calm reads as safe/green,
 // mega as hot/red, so the same five colors work for a one-word badge on a card, for Home's Edge
 // Score breakdown, and for a card's own border without needing separate palettes to stay in sync.

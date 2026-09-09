@@ -115,6 +115,12 @@ export default function BatchAnalysisSheet({
             independent: prediction,
             comparison,
             totalCostUsd: totalCost(prediction.costUsd, comparison.costUsd),
+            league: game.league,
+            leagueName: game.leagueName,
+            leagueFlag: game.leagueFlag,
+            homeTeam: game.homeTeam,
+            awayTeam: game.awayTeam,
+            startTime: game.startTime,
           });
           // Straight into Picks the moment it's done, same as a single analysis — no per-card or
           // "save all" tap to remember. Keyed by game id, so re-analyzing replaces that pick

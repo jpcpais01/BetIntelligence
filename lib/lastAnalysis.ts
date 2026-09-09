@@ -1,4 +1,4 @@
-import type { ComparisonResult, IndependentPrediction, Probabilities, ResearchSummary } from "./types";
+import type { ComparisonResult, IndependentPrediction, LeagueId, Probabilities, ResearchSummary } from "./types";
 
 // The most recent analysis for a match, keyed by game id — written automatically whenever an
 // analysis completes, whether or not the user taps "Save". This is deliberately separate from
@@ -12,6 +12,17 @@ export interface LastAnalysisEntry {
   comparison: ComparisonResult;
   research?: ResearchSummary<Probabilities>;
   totalCostUsd?: number;
+  // Match identity — needed to look up the real final result later (the Overview page's
+  // hypothetical-settlement pipeline, lib/overview.ts, and Lab/PlacedBetCard's own settlement all
+  // need league/homeTeam/awayTeam/startTime to find a match's real score). Undefined for an entry
+  // saved before this existed; lib/overview.ts simply skips any entry missing these rather than
+  // guessing at a match it can't actually identify.
+  league?: LeagueId;
+  leagueName?: string;
+  leagueFlag?: string;
+  homeTeam?: string;
+  awayTeam?: string;
+  startTime?: string;
 }
 
 const STORAGE_KEY = "betintelligence.lastAnalysis.v1";

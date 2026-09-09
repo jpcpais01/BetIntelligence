@@ -299,3 +299,17 @@ export function TrophyIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+export function ChartIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className}>
+      <path
+        d="M4 20V10M10 20V4M16 20v-7M4 20h16"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

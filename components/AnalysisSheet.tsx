@@ -236,6 +236,12 @@ export default function AnalysisSheet({
           comparison: result,
           research: toFootballResearchSummary(collected),
           totalCostUsd: totalCost(finalIndependent.costUsd, result.costUsd),
+          league: game.league,
+          leagueName: game.leagueName,
+          leagueFlag: game.leagueFlag,
+          homeTeam: game.homeTeam,
+          awayTeam: game.awayTeam,
+          startTime: game.startTime,
         });
       } catch (err) {
         if (cancelled) return;
