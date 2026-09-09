@@ -45,12 +45,26 @@ export async function POST(request: Request) {
       throw err;
     }
 
+    // The account already exists at this point — nothing from here on may turn a real success
+    // into a reported failure. importLocalData is already best-effort per key internally, but this
+    // still wraps the call itself: a real signup with a real, sizeable history to import once threw
+    // here (an oversized single Firestore document, since fixed by splitting large data types into
+    // one document per record — see lib/auth/migrate.ts) and the whole request reported "could not
+    // create your account" even though the account had already been created successfully.
     const snapshot = parseSnapshot(body.snapshot);
-    const { importedKeys } =
-      Object.keys(snapshot).length > 0 ? await importLocalData(created.username, snapshot) : { importedKeys: [] };
+    let importedKeys: MigratableKey[] = [];
+    let failedKeys: MigratableKey[] = [];
+    if (Object.keys(snapshot).length > 0) {
+      try {
+        ({ importedKeys, failedKeys } = await importLocalData(created.username, snapshot));
+      } catch (err) {
+        console.error("Local-data import threw entirely (account was still created)", err);
+        failedKeys = Object.keys(snapshot) as MigratableKey[];
+      }
+    }
 
     await setSessionCookie(created.username);
-    return NextResponse.json({ username: created.username, importedKeys });
+    return NextResponse.json({ username: created.username, importedKeys, failedKeys });
   } catch (err) {
     console.error("POST /api/auth/signup failed", err);
     return NextResponse.json({ error: "Could not create your account. Try again in a moment." }, { status: 500 });

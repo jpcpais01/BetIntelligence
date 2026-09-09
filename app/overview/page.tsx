@@ -1,12 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { loadLastAnalyses } from "@/lib/lastAnalysis";
+import { loadLastAnalyses, type LastAnalysisEntry } from "@/lib/lastAnalysis";
 import { computeOverview, type OverviewResult } from "@/lib/overview";
 import { allRiskModes } from "@/lib/riskModes";
 import OverviewSummaryCard from "@/components/OverviewSummaryCard";
 import OverviewTierRow from "@/components/OverviewTierRow";
 import { ChartIcon, RefreshIcon } from "@/components/icons";
+
+// A logged-in account's previously-migrated analysis history (imported once at signup, or by a
+// future ongoing-sync pass) — /api/account/last-analysis degrades to `{ entries: {} }` for a
+// logged-out visitor, so this never needs its own separate "am I logged in" check first. Never
+// throws: a network hiccup or a logged-out session both just mean nothing extra to merge in, the
+// same best-effort contract as every other enrichment fetch in this app.
+async function fetchAccountAnalyses(): Promise<Record<string, LastAnalysisEntry>> {
+  try {
+    const res = await fetch("/api/account/last-analysis", { cache: "no-store" });
+    if (!res.ok) return {};
+    const data = await res.json();
+    return data && typeof data.entries === "object" ? data.entries : {};
+  } catch {
+    return {};
+  }
+}
 
 // Not a live-polling page like Home/Lab (nothing here is time-critical the way an open bet is) —
 // just a fresh look at real match results every time this page is opened, plus a manual refresh
@@ -14,13 +30,35 @@ import { ChartIcon, RefreshIcon } from "@/components/icons";
 export default function OverviewPage() {
   const [result, setResult] = useState<OverviewResult | null>(null);
   const [loading, setLoading] = useState(false);
+  // Distinct from `result === null` (which also covers "still loading"): only set when a refresh
+  // actually threw, so a genuine failure shows a retry affordance instead of leaving the skeleton
+  // on screen forever with nothing telling the user anything went wrong.
+  const [error, setError] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    setError(false);
     try {
-      const analyses = loadLastAnalyses();
-      const next = await computeOverview(analyses);
+      // Local wins on a collision (the same game analyzed again on this exact device is the
+      // freshest read of it) — the account's own history just fills in whatever this device
+      // doesn't already have locally, e.g. right after importing on signup, or a game analyzed on
+      // a different device. This is a read-only merge for THIS page's own computation; it never
+      // writes the account's data back into localStorage, and analyzing a new match still only
+      // ever saves locally (components/AnalysisSheet.tsx) — unchanged.
+      const [localAnalyses, accountAnalyses] = await Promise.all([
+        Promise.resolve(loadLastAnalyses()),
+        fetchAccountAnalyses(),
+      ]);
+      const merged = { ...accountAnalyses, ...localAnalyses };
+      const next = await computeOverview(merged);
       setResult(next);
+    } catch (err) {
+      // computeOverview/fetchAccountAnalyses are already best-effort internally, but this still
+      // guards the call itself — an uncaught throw here used to leave `result` at null forever,
+      // which renders identically to "still loading": a stuck skeleton with no sign anything had
+      // gone wrong, and no way to recover short of leaving the page.
+      console.error("Overview refresh failed", err);
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -55,7 +93,20 @@ export default function OverviewPage() {
       </header>
 
       <div className="px-4 pt-4">
-        {result === null ? (
+        {error && result === null ? (
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-border-soft bg-surface px-5 py-14 text-center">
+            <ChartIcon className="h-6 w-6 text-text-faint" />
+            <p className="selectable text-[13px] leading-relaxed text-text-dim">
+              Couldn&rsquo;t load your analysis history this time.
+            </p>
+            <button
+              onClick={() => void refresh()}
+              className="press rounded-full bg-surface px-4 py-2 text-[12px] font-semibold text-text-dim ring-1 ring-inset ring-border-soft"
+            >
+              Try again
+            </button>
+          </div>
+        ) : result === null ? (
           <div className="space-y-3">
             {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="skeleton h-24 rounded-2xl" />

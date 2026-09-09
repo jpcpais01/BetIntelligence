@@ -696,14 +696,23 @@ picks, placed bets, portfolio deposits, the open slip, ...) gets an extra checkb
 something to bring over — `lib/auth/localSnapshot.ts`'s `hasLocalDataToMigrate`) collects every known
 localStorage key — never Polymarket's own games/markets lists or the club-logo cache, which are pure
 refetchable caches and never really "yours" — and sends it along in the same signup request.
-`lib/auth/migrate.ts` writes each data type into its own Firestore document
-(`users/{id}/data/{key}`) rather than one giant blob, both because a single Firestore document has a
-1MB cap (`lastAnalysis` alone can hold up to 150 full entries) and because this is the shape any
-future ongoing-sync work will want anyway. This account system currently covers **signup, login, and
-that one-time import** — every other localStorage-backed feature in this app (Picks, Lab, Home's
-portfolio, Overview) still reads/writes local storage exactly as it always has once you're logged
-in; keeping those continuously synced to the logged-in account across devices is a deliberately
-separate, larger piece of work layered on top of this foundation, not bundled into it.
+`lib/auth/migrate.ts` writes most data types into their own single Firestore document
+(`users/{id}/data/{key}`), but the types that can genuinely grow large — `lastAnalysis`/
+`lastMarketAnalysis` (map-shaped, up to 150 full entries) and `picks`/`marketPicks`/`placedBets`
+(arrays of already-ided objects) — are split one Firestore document per record
+(`users/{id}/{key}/{recordId}`, chunked into batches of 400 writes) instead, since a single Firestore
+document has a 1MB cap that a real history of any of these could otherwise exceed (a real signup
+whose import hit that cap used to report "could not create your account" even though the account had
+already been created — the account-creation step and the best-effort import are now independently
+wrapped so an import failure can never look like a failed signup). `GET /api/account/last-analysis`
+reads that per-record `lastAnalysis` collection back for the logged-in user; the **Overview** page
+merges it with whatever's already local (local wins on a collision) so a freshly-imported account's
+history shows up there immediately, without waiting on a full sync system. This account system
+currently covers **signup, login, and that one-time import** — every other localStorage-backed
+feature in this app (Picks, Lab, Home's portfolio) still reads/writes local storage exactly as it
+always has once you're logged in; keeping those continuously synced to the logged-in account across
+devices is a deliberately separate, larger piece of work layered on top of this foundation, not
+bundled into it.
 
 ## Odds history
 
