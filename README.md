@@ -672,6 +672,39 @@ startTime), `lastAnalysis` had to start carrying that alongside the analysis its
 "undefined means predates this field" contract every other evolving-shape cache in this app already
 uses, never guessed at.
 
+## Accounts: username + password, no email
+
+Tapping **Log in** (top-right of Home, `components/AccountButton.tsx`) opens a create-account/log-in
+sheet (`components/AuthSheet.tsx`) with exactly two fields — username and password. There's no email
+anywhere in this flow, by design: no address to collect, verify, or leak, and no "forgot password"
+recovery flow that would need one (a lost password today just means a new account).
+
+This is fully custom auth, not Firebase Authentication's own email-based system wearing a disguise —
+`lib/auth/` hashes passwords with bcrypt (`lib/auth/passwords.ts`, 12 salt rounds) and stores one
+document per user directly in Firestore (`lib/auth/users.ts`), keyed by a lowercased, trimmed
+username so `"Alice"` and `"alice"` are the same account rather than two confusingly separate ones.
+The session itself is a plain HMAC-SHA256-signed cookie (`lib/auth/session.ts`) — one claim (which
+username), one property (unforgeable without the server's `SESSION_SECRET`) — rather than pulling in
+a JWT library for a feature this small. `POST /api/auth/signup` fails with 409 if the username's
+taken (an atomic Firestore `.create()`, not a check-then-write that could race); `POST
+/api/auth/login` returns the identical error for a wrong password and a nonexistent username on
+purpose, since telling them apart is exactly what lets an attacker enumerate real accounts.
+
+**Bringing your existing data in.** A browser that already has local activity (analyzed games,
+picks, placed bets, portfolio deposits, the open slip, ...) gets an extra checkbox on signup:
+"Import what's already on this device." Checking it (the default, only shown when there's actually
+something to bring over — `lib/auth/localSnapshot.ts`'s `hasLocalDataToMigrate`) collects every known
+localStorage key — never Polymarket's own games/markets lists or the club-logo cache, which are pure
+refetchable caches and never really "yours" — and sends it along in the same signup request.
+`lib/auth/migrate.ts` writes each data type into its own Firestore document
+(`users/{id}/data/{key}`) rather than one giant blob, both because a single Firestore document has a
+1MB cap (`lastAnalysis` alone can hold up to 150 full entries) and because this is the shape any
+future ongoing-sync work will want anyway. This account system currently covers **signup, login, and
+that one-time import** — every other localStorage-backed feature in this app (Picks, Lab, Home's
+portfolio, Overview) still reads/writes local storage exactly as it always has once you're logged
+in; keeping those continuously synced to the logged-in account across devices is a deliberately
+separate, larger piece of work layered on top of this foundation, not bundled into it.
+
 ## Odds history
 
 Every card — a Discover market or a Sports match — has a collapsed **Odds history** dropdown that
@@ -1089,6 +1122,8 @@ Open [http://localhost:3000](http://localhost:3000).
 | `BIG_BALLS_API_KEY` | No | Free key from [bigballsdata.com](https://bigballsdata.com/). Adds the injuries/availability section to football's research step. Left unset, that section just says injury data isn't available. |
 | `SPORTS_DB_API_KEY` | No | Free personal key from [TheSportsDB](https://www.thesportsdb.com/) (registration, no payment). Left unset, club-crest lookups use TheSportsDB's shared public demo key, which their own docs/forum describe as restricted for `searchteams.php` — see [Club crests](#filtering-and-refreshing). |
 | `NEXT_PUBLIC_APP_URL` | No | Sent to OpenRouter as the app's referer/title for their dashboards. |
+| `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` | Yes (for accounts) | A Firebase service account's three fields ([Accounts](#accounts-username--password-no-email)) — create a project at [console.firebase.google.com](https://console.firebase.google.com), enable Firestore, then Project settings → Service accounts → Generate new private key. |
+| `SESSION_SECRET` | Yes (for accounts) | Signs the login session cookie. Generate with `openssl rand -base64 32`; never reuse the `.env.example` placeholder. |
 | `MOCK_GAMES` | No | Set to `1` to serve built-in sample matches instead of calling Polymarket. Useful for local UI work without network access. |
 | `MOCK_MARKETS` | No | Set to `1` to serve built-in sample Discover markets instead of calling Polymarket. |
 | `MOCK_AI` | No | Set to `1` to return a canned analysis instead of calling OpenRouter (covers both Sports and Discover's analysis flows). Useful for testing without spending API credits. |

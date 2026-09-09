@@ -7,16 +7,19 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "selftest": "tsx scripts/parser-selftest.ts && tsx scripts/team-name-matching-selftest.ts && tsx scripts/club-logos-selftest.ts && tsx scripts/football-data-selftest.ts && tsx scripts/live-scores-selftest.ts && tsx scripts/lineups-selftest.ts && tsx scripts/big-balls-data-selftest.ts && tsx scripts/openrouter-selftest.ts && tsx scripts/openrouter-markets-selftest.ts && tsx scripts/aggregate-selftest.ts && tsx scripts/last-analysis-selftest.ts && tsx scripts/format-selftest.ts && tsx scripts/betslip-selftest.ts && tsx scripts/risk-modes-selftest.ts && tsx scripts/odds-history-selftest.ts && tsx scripts/lucky-money-selftest.ts && tsx scripts/placed-bets-selftest.ts && tsx scripts/portfolio-selftest.ts && tsx scripts/portfolio-history-selftest.ts && tsx scripts/match-clock-selftest.ts && tsx scripts/games-cache-selftest.ts && tsx scripts/settlement-selftest.ts && tsx scripts/leg-resolution-selftest.ts && tsx scripts/picks-selftest.ts && tsx scripts/club-vibe-selftest.ts && tsx scripts/celebration-selftest.ts && tsx scripts/edge-score-selftest.ts && tsx scripts/overview-selftest.ts",
+    "selftest": "tsx scripts/parser-selftest.ts && tsx scripts/team-name-matching-selftest.ts && tsx scripts/club-logos-selftest.ts && tsx scripts/football-data-selftest.ts && tsx scripts/live-scores-selftest.ts && tsx scripts/lineups-selftest.ts && tsx scripts/big-balls-data-selftest.ts && tsx scripts/openrouter-selftest.ts && tsx scripts/openrouter-markets-selftest.ts && tsx scripts/aggregate-selftest.ts && tsx scripts/last-analysis-selftest.ts && tsx scripts/format-selftest.ts && tsx scripts/betslip-selftest.ts && tsx scripts/risk-modes-selftest.ts && tsx scripts/odds-history-selftest.ts && tsx scripts/lucky-money-selftest.ts && tsx scripts/placed-bets-selftest.ts && tsx scripts/portfolio-selftest.ts && tsx scripts/portfolio-history-selftest.ts && tsx scripts/match-clock-selftest.ts && tsx scripts/games-cache-selftest.ts && tsx scripts/settlement-selftest.ts && tsx scripts/leg-resolution-selftest.ts && tsx scripts/picks-selftest.ts && tsx scripts/club-vibe-selftest.ts && tsx scripts/celebration-selftest.ts && tsx scripts/edge-score-selftest.ts && tsx scripts/overview-selftest.ts && tsx scripts/auth-selftest.ts",
     "icons": "tsx scripts/generate-icons.ts"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "firebase-admin": "^14.3.0",
     "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

@@ -13,6 +13,7 @@ import PortfolioChart from "@/components/PortfolioChart";
 import PortfolioBetRow from "@/components/PortfolioBetRow";
 import WinCelebration from "@/components/WinCelebration";
 import EdgeScorePanel from "@/components/EdgeScorePanel";
+import AccountButton from "@/components/AccountButton";
 import { CoinsIcon } from "@/components/icons";
 
 // Bets used to only ever get checked once, right when this page happened to mount — a match that
@@ -126,8 +127,13 @@ export default function HomePage() {
   return (
     <div className="mx-auto max-w-md">
       <header className="safe-top sticky top-0 z-30 bg-bg/85 px-5 pb-4 backdrop-blur-xl">
-        <h1 className="font-display text-[26px] font-bold tracking-tight text-text">Home</h1>
-        <p className="text-[12px] text-text-faint">Your paper portfolio</p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="font-display text-[26px] font-bold tracking-tight text-text">Home</h1>
+            <p className="text-[12px] text-text-faint">Your paper portfolio</p>
+          </div>
+          <AccountButton />
+        </div>
       </header>
 
       <div className="px-4 pt-1 pb-8">
