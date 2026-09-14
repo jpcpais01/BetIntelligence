@@ -11,9 +11,14 @@ export const maxDuration = 60;
 // array covering the entire sweep (thousands of entries) which is impractical to paste back
 // when the only thing actually needed is what a real premier-league/la-liga/serie-a event's
 // raw `series`/`tags` fields look like.
+//
+// ?league=<id> narrows partnerLeagueEvents to just that one league (any LeagueId, not only the
+// three official partner ones) — without it, a league whose event pool is small next to the
+// others sharing this same 20-item cap never appears in the sample at all.
 export async function GET(request: Request) {
   try {
-    const sample = await getRawSample();
+    const league = new URL(request.url).searchParams.get("league") ?? undefined;
+    const sample = await getRawSample(league);
     const slim = new URL(request.url).searchParams.get("slim");
     if (slim) {
       return NextResponse.json({

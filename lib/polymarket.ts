@@ -814,7 +814,7 @@ export interface RawSample {
   partnerLeagueEvents: ReturnType<typeof trimEventForDebug>[];
 }
 
-export async function getRawSample(): Promise<RawSample> {
+export async function getRawSample(onlyLeague?: string): Promise<RawSample> {
   const { events, strategy } = await fetchSoccerEvents();
 
   const matchLikeEvents = events.filter((e) => MATCH_LIKE_TITLE.test(e.title)).slice(0, 4);
@@ -827,10 +827,17 @@ export async function getRawSample(): Promise<RawSample> {
   // match-like titles first — the debug endpoint's samplePartnerLeagueRejections shows
   // parsed outcome labels only, this shows the complete raw market objects (question,
   // groupItemTitle, outcomes, outcomePrices) so nothing about their real shape is guessed.
+  //
+  // When one of these leagues is small relative to the others (e.g. Premier League alone
+  // has enough real match-like events to fill this whole 20-item cap), its own events never
+  // show up here at all — silently crowded out rather than reported as empty. `onlyLeague`
+  // (?league= on the route) targets a single league by id so a small one is never invisible.
   const partnerLeagueEvents = events
     .filter((e) => {
       const league = matchLeague(eventLeagueFields(e));
-      return league && PARTNER_LEAGUE_IDS.has(league.id);
+      if (!league) return false;
+      if (onlyLeague) return league.id === onlyLeague;
+      return PARTNER_LEAGUE_IDS.has(league.id);
     })
     .sort((a, b) => Number(MATCH_LIKE_TITLE.test(b.title)) - Number(MATCH_LIKE_TITLE.test(a.title)))
     .slice(0, 20);
