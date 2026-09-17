@@ -219,6 +219,19 @@ export const LEAGUES: LeagueConfig[] = [
     excludeKeywords: [...COMMON_EXCLUDES],
     tagSlugs: ["champions-league", "uefa-champions-league", "ucl"],
   },
+  {
+    id: "europa-league",
+    name: "Europa League",
+    shortName: "UEL",
+    country: "Europe",
+    flag: "\u{1F7E0}",
+    keywords: ["europa league", "uefa europa league", "uel"],
+    // "Europa League" never appears as a substring of "Europa Conference League" (the word
+    // "conference" always sits between them), so no exclude is needed to keep the two apart —
+    // same reasoning Champions League's own config already relies on.
+    excludeKeywords: [...COMMON_EXCLUDES],
+    tagSlugs: ["europa-league", "uefa-europa-league", "uel"],
+  },
 ];
 
 function normalizeHaystack(haystacks: string[]): string {

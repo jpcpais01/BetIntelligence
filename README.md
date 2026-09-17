@@ -789,9 +789,10 @@ Tapping **AI Analyze** runs against [`deepseek/deepseek-v4-flash-0731`](https://
    tried [API-Football](https://www.api-football.com/) instead — its free plan looked equivalent on paper, but locks every
    endpoint to old completed seasons in practice, making it useless for a current match. football-data.org's free tier has
    no such season lock, covering 7 of the 8 domestic leagues below plus the Champions League — everything except Belgian
-   Pro League, which has no free-tier code.) [Big Balls Sports Data](https://bigballsdata.com/) supplies the
-   injuries/availability section football-data.org can't (it has no injuries endpoint at any tier): Premier League, La
-   Liga, Bundesliga, Serie A, Ligue 1, and the Champions League — not Primeira Liga, Eredivisie, or Belgian Pro League.
+   Pro League (no free-tier code) and Europa League (not on the free plan at all). [Big Balls Sports Data](https://bigballsdata.com/)
+   supplies the injuries/availability section football-data.org can't (it has no injuries endpoint at any tier): Premier
+   League, La Liga, Bundesliga, Serie A, Ligue 1, and the Champions League — not Primeira Liga, Eredivisie, Belgian Pro
+   League, or Europa League.
    This one is an enrichment layer rather than a core source: an unset key, an uncovered league, or a failed request all
    just make the digest say injury data isn't available for that match, rather than failing the whole analysis the way a
    football-data.org miss does — that data was never guaranteed before, so its absence is a known, honest gap, not a
@@ -1146,7 +1147,7 @@ required to run AI analysis.
   auth required.
   - `lib/polymarket.ts` (Sports) fetches upcoming soccer events, matches them against a keyword
     list for the Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Primeira Liga, Eredivisie,
-    Belgian Pro League, and the Champions League, and derives 1X2 probabilities from each match's
+    Belgian Pro League, the Champions League, and the Europa League, and derives 1X2 probabilities from each match's
     three moneyline sub-markets. This snapshot is only ever the seed/fallback for what's actually
     displayed — see the CLOB bullet below and
     [The displayed odds always match CLOB's real current price](#the-displayed-odds-always-match-clobs-real-current-price).
@@ -1167,8 +1168,8 @@ required to run AI analysis.
 - **Live scores and match clock, and bet settlement**: [ESPN's public site API](https://site.api.espn.com/)
   (undocumented, no key) — `lib/liveScores.ts` powers the games list's live-score badge and clock
   (`getLiveScores`, one request per league in play) and [bet settlement](#settling-football-bets-against-the-real-result)'s
-  real final score (`getMatchResultsSince`), both across all 9 covered leagues including Belgian Pro
-  League, which football-data.org's free tier never had a code for at all — see
+  real final score (`getMatchResultsSince`), both across all 10 covered leagues including Belgian Pro
+  League and Europa League, neither of which football-data.org's free tier has a code for at all — see
   [Live scores and match clock](#live-scores-and-match-clock-from-espn).
 - **Football injuries/availability**: [Big Balls Sports Data](https://bigballsdata.com/)
   (`api.bigballsdata.com/v1`) — `lib/bigBallsData.ts` fetches each covered league's current injury

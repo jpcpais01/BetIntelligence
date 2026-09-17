@@ -33,6 +33,7 @@ export const ESPN_LEAGUE_SLUG: Record<LeagueId, string> = {
   eredivisie: "ned.1",
   "belgian-pro-league": "bel.1",
   "champions-league": "uefa.champions",
+  "europa-league": "uefa.europa",
 };
 
 export interface LiveScoreEntry {

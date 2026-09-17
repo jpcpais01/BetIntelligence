@@ -71,6 +71,17 @@ const TOP_TEAMS: Record<LeagueId, TopTeam[]> = {
     { canonical: "Paris Saint-Germain", aliases: ["Paris Saint-Germain", "Paris Saint Germain", "PSG"] },
     { canonical: "Barcelona", aliases: ["Barcelona", "FC Barcelona", "Barca"] },
   ],
+  // Europa League's actual participants rotate every season (it's whoever didn't make the
+  // Champions League that year, plus domestic cup winners) far more than the other leagues here —
+  // these are just historically frequent, recognizable names for the Top Games filter, not this
+  // season's specific lineup.
+  "europa-league": [
+    { canonical: "Tottenham Hotspur", aliases: ["Tottenham Hotspur", "Tottenham", "Spurs"] },
+    { canonical: "AS Roma", aliases: ["AS Roma", "Roma"] },
+    { canonical: "Sevilla", aliases: ["Sevilla"] },
+    { canonical: "Ajax", aliases: ["Ajax"] },
+    { canonical: "Eintracht Frankfurt", aliases: ["Eintracht Frankfurt", "Frankfurt"] },
+  ],
 };
 
 const CLUB_STOPWORDS = new Set([
