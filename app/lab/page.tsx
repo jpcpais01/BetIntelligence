@@ -10,13 +10,16 @@ import { resolvePendingSettlements } from "@/lib/settlement";
 import { buildCelebration, hasBeenCelebrated, markCelebrated, type Celebration } from "@/lib/celebration";
 import { liveKey, fetchLivePrices, type LivePriceRequest } from "@/lib/livePrices";
 import { RISK_MODES, buildRiskSlip, type RiskMode } from "@/lib/riskModes";
+import { loadBetMode, saveBetMode, type BetMode } from "@/lib/realMoney/mode";
+import type { WalletConnection } from "@/lib/realMoney/clob";
 import SlipPickRow from "@/components/SlipPickRow";
 import PlacedBetCard from "@/components/PlacedBetCard";
 import BetSlipBar from "@/components/BetSlipBar";
 import PickDetailSheet from "@/components/PickDetailSheet";
 import WinCelebration from "@/components/WinCelebration";
+import RealWalletSheet from "@/components/RealWalletSheet";
 import { useRequestLogos } from "@/components/ClubLogosProvider";
-import { SearchIcon, TicketIcon, CoinsIcon } from "@/components/icons";
+import { SearchIcon, TicketIcon, CoinsIcon, WalletIcon } from "@/components/icons";
 
 type Tab = "build" | "bets";
 
@@ -39,6 +42,51 @@ export default function LabPage() {
   const [riskError, setRiskError] = useState<string | null>(null);
   const [celebration, setCelebration] = useState<Celebration | null>(null);
   const requestLogos = useRequestLogos();
+
+  // Real mode's wallet lives only here, in memory, for as long as this page stays mounted — a
+  // reload always starts back at null (locked) regardless of what lib/realMoney/mode.ts remembers
+  // about which tab was last selected. Nothing about the decrypted key itself is ever persisted.
+  const [betMode, setBetMode] = useState<BetMode>("paper");
+  const [wallet, setWallet] = useState<WalletConnection | null>(null);
+  const [showWalletSheet, setShowWalletSheet] = useState(false);
+
+  useEffect(() => {
+    /* eslint-disable-next-line react-hooks/set-state-in-effect -- reading localStorage, unavailable during SSR */
+    setBetMode(loadBetMode());
+  }, []);
+
+  const handleSelectMode = (next: BetMode) => {
+    if (next === "real" && !wallet) {
+      // Real mode always needs an unlocked wallet before it actually takes effect — opening the
+      // sheet here rather than flipping betMode immediately means a cancelled connect/unlock
+      // attempt just leaves Paper mode selected, never a "Real" tab silently unable to place
+      // anything.
+      setShowWalletSheet(true);
+      return;
+    }
+    setBetMode(next);
+    saveBetMode(next);
+  };
+
+  const handleWalletReady = (nextWallet: WalletConnection) => {
+    setWallet(nextWallet);
+    setBetMode("real");
+    saveBetMode("real");
+    setShowWalletSheet(false);
+  };
+
+  const handleWalletLocked = () => {
+    setWallet(null);
+    setBetMode("paper");
+    saveBetMode("paper");
+  };
+
+  const handleWalletDisconnected = () => {
+    setWallet(null);
+    setBetMode("paper");
+    saveBetMode("paper");
+    setShowWalletSheet(false);
+  };
 
   // Mirrors `placedBets` so the recurring settlement check can always read the latest value
   // without depending on it directly — a direct dependency would tear down and restart the
@@ -213,6 +261,28 @@ export default function LabPage() {
         className="lab-hero safe-top sticky top-0 z-30 space-y-3 px-4 pb-3 pt-3"
         style={{ borderBottom: "1px solid var(--lab-border)" }}
       >
+        <div className="flex items-center gap-1.5">
+          <div className="flex flex-1 gap-1 rounded-full p-1" style={{ background: "var(--lab-surface-2)" }}>
+            <ModeButton label="Paper" active={betMode === "paper"} onClick={() => handleSelectMode("paper")} />
+            <ModeButton
+              label="Real"
+              active={betMode === "real"}
+              shine={betMode === "real"}
+              onClick={() => handleSelectMode("real")}
+            />
+          </div>
+          {betMode === "real" && (
+            <button
+              onClick={() => setShowWalletSheet(true)}
+              aria-label="Manage real-money wallet"
+              className="press shrink-0 rounded-full p-2.5"
+              style={{ background: "var(--lab-surface-2)", color: "var(--lab-gold)" }}
+            >
+              <WalletIcon className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
         {tab === "build" && (
           <div className="relative">
             <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-faint" />
@@ -320,6 +390,8 @@ export default function LabPage() {
       <BetSlipBar
         legs={legs}
         livePrices={livePrices}
+        betMode={betMode}
+        wallet={wallet}
         onRemove={handleRemove}
         onClear={handleClear}
         onPlaced={() => setPlacedBets(loadPlacedBets())}
@@ -334,7 +406,42 @@ export default function LabPage() {
           onClose={() => setCelebration(null)}
         />
       )}
+      {showWalletSheet && (
+        <RealWalletSheet
+          unlockedWallet={wallet}
+          onClose={() => setShowWalletSheet(false)}
+          onWalletReady={handleWalletReady}
+          onLocked={handleWalletLocked}
+          onDisconnected={handleWalletDisconnected}
+        />
+      )}
     </div>
+  );
+}
+
+function ModeButton({
+  label,
+  active,
+  shine,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  shine?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`press flex-1 rounded-full py-1.5 text-[12px] font-semibold ${shine ? "real-mode-shine" : ""}`}
+      style={
+        active
+          ? { background: shine ? "var(--lab-bg-2)" : "var(--lab-gold)", color: shine ? "var(--lab-gold)" : "#1a0f05" }
+          : { color: "var(--text-faint)" }
+      }
+    >
+      {label}
+    </button>
   );
 }
 

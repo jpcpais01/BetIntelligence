@@ -1,5 +1,5 @@
 import type { PlacedBet } from "@/lib/placedBets";
-import { toDecimalOdds, toPercent, toSignedReturnPercent, formatEur, formatRelativeTime } from "@/lib/format";
+import { toDecimalOdds, toPercent, toSignedReturnPercent, formatEur, formatUsd, formatRelativeTime } from "@/lib/format";
 import { TicketIcon, CloseIcon } from "./icons";
 
 // A placed bet is a paper-trade record. Once football-data.org confirms every football leg's
@@ -18,16 +18,28 @@ export default function PlacedBetCard({
   bet: PlacedBet;
   onRemove: (id: string) => void;
 }) {
-  const { legs, settlement, legResults } = bet;
+  const { legs, settlement, legResults, real } = bet;
   const pnl = settlement ? settlement.payout - bet.stake : 0;
   const pnlPct = bet.stake > 0 ? pnl / bet.stake : 0;
+  const money = real ? formatUsd : formatEur;
 
   return (
-    <div className="overflow-hidden rounded-3xl" style={{ background: "var(--lab-surface)", border: "1px solid var(--lab-border)" }}>
+    <div
+      className={`overflow-hidden rounded-3xl ${real ? "real-mode-shine" : ""}`}
+      style={{ background: "var(--lab-surface)", border: "1px solid var(--lab-border)" }}
+    >
       <div className="flex items-center justify-between gap-2 px-4 pt-3.5 pb-2.5">
         <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--lab-gold)" }}>
           <TicketIcon className="h-3.5 w-3.5" />
           Placed
+          {real && (
+            <span
+              className="rounded-full px-1.5 py-0.5 text-[9px] font-bold tracking-wide"
+              style={{ background: "rgba(var(--lab-red-rgb), 0.18)", color: "var(--lab-red)" }}
+            >
+              REAL
+            </span>
+          )}
         </span>
         <div className="flex shrink-0 items-center gap-1">
           <span className="text-[10px] text-text-faint">{formatRelativeTime(bet.placedAt)}</span>
@@ -80,14 +92,25 @@ export default function PlacedBetCard({
             <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />
             {settlement?.status === "won" ? "Won" : settlement?.status === "lost" ? "Lost" : "Pending"}
           </div>
-          <span className="pl-0.5 text-[10px] tabular-nums text-text-faint">Staked {formatEur(bet.stake)}</span>
+          <span className="pl-0.5 text-[10px] tabular-nums text-text-faint">Staked {money(bet.stake)}</span>
+          {real && (
+            <a
+              href={real.polymarketUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="pl-0.5 text-[10px] font-medium underline"
+              style={{ color: "var(--lab-cyan)" }}
+            >
+              View on Polymarket
+            </a>
+          )}
         </div>
         {settlement ? (
           <div className="flex items-center gap-3 text-right">
             <div>
               <p className="text-[9px] text-text-faint">Payout</p>
               <p className="font-display text-[13px] font-bold tabular-nums" style={{ color: "var(--lab-gold)" }}>
-                {formatEur(settlement.payout)}
+                {money(settlement.payout)}
               </p>
             </div>
             <div>
@@ -97,7 +120,7 @@ export default function PlacedBetCard({
                 style={{ color: pnl > 0.005 ? "var(--lab-green)" : pnl < -0.005 ? "var(--lab-red)" : "var(--text)" }}
               >
                 {pnl >= 0 ? "+" : ""}
-                {formatEur(pnl)} ({toSignedReturnPercent(pnlPct)})
+                {money(pnl)} ({toSignedReturnPercent(pnlPct)})
               </p>
             </div>
           </div>

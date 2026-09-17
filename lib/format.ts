@@ -98,6 +98,15 @@ export function formatEur(amount: number): string {
   return `${sign}€${Math.abs(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// Real-money amounts (lib/realMoney/) are always USDC, Polymarket's own settlement currency —
+// deliberately a different symbol from formatEur's € so a real stake can never be visually
+// confused with a paper one at a glance.
+export function formatUsd(amount: number): string {
+  if (!Number.isFinite(amount)) return "$0.00";
+  const sign = amount < 0 ? "-" : "";
+  return `${sign}$${Math.abs(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 // Analysis costs are typically fractions of a cent, so a flat 2-decimal format would round
 // almost everything to "$0.00" — scale precision to the size of the number instead. Returns
 // null when there's nothing to show (no cost data, e.g. a provider that doesn't report it, or

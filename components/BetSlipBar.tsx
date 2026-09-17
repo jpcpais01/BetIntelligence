@@ -6,12 +6,20 @@ import { combineSlip } from "@/lib/betslip";
 import { placeBet } from "@/lib/placedBets";
 import { DEFAULT_STAKE, QUICK_STAKES } from "@/lib/portfolio";
 import { liveKey } from "@/lib/livePrices";
-import { toPercent, toSignedPercent, toDecimalOdds, formatEur } from "@/lib/format";
+import { toPercent, toSignedPercent, toDecimalOdds, formatEur, formatUsd } from "@/lib/format";
+import type { BetMode } from "@/lib/realMoney/mode";
+import { placeRealMarketBuy, type WalletConnection } from "@/lib/realMoney/clob";
 import { TicketIcon, XCircleIcon, ChevronDownIcon, ScaleIcon, CoinsIcon } from "./icons";
 
 const BUYING_MS = 700;
 const SUCCESS_MS = 2400;
 const CONFETTI_COLORS = ["var(--slip-gold)", "var(--slip-pink)", "var(--slip-cyan)", "var(--slip-green)"];
+
+// Where a real order can actually be checked/claimed afterward — this app places the order but
+// never handles payout itself, so every real receipt points back here rather than to a specific
+// event page (a football-originated leg carries no Polymarket slug/URL of its own to link to,
+// only a market-kind Discover pick does).
+const POLYMARKET_PORTFOLIO_URL = "https://polymarket.com/portfolio";
 
 function liveMarketFor(leg: SlipLeg, livePrices: Record<string, number>): number {
   return livePrices[liveKey(leg.pickId, leg.outcomeLabel)] ?? leg.marketProb;
@@ -20,12 +28,16 @@ function liveMarketFor(leg: SlipLeg, livePrices: Record<string, number>): number
 export default function BetSlipBar({
   legs,
   livePrices,
+  betMode,
+  wallet,
   onRemove,
   onClear,
   onPlaced,
 }: {
   legs: SlipLeg[];
   livePrices: Record<string, number>;
+  betMode: BetMode;
+  wallet: WalletConnection | null;
   onRemove: (pickId: string) => void;
   onClear: () => void;
   onPlaced?: () => void;
@@ -36,6 +48,20 @@ export default function BetSlipBar({
   const [placedLegCount, setPlacedLegCount] = useState<number | null>(null);
   const [placedOdds, setPlacedOdds] = useState<string | null>(null);
   const [placedStake, setPlacedStake] = useState<number | null>(null);
+  const [placedReal, setPlacedReal] = useState(false);
+
+  // A real order is a single Polymarket market order, never a parlay (there is no such thing as
+  // an atomic multi-leg order on Polymarket — each leg is its own independent market) and never a
+  // 1X/X2 combo (no single CLOB token prices a double chance, so there's nothing to actually buy).
+  //
+  // Identifies WHICH exact leg+stake the confirm step is for, rather than a bare boolean — so it
+  // naturally reads back as "not confirming" the instant the leg or stake it was shown for changes
+  // underneath it (a leg added/removed, the stake bumped), with no separate effect needed to reset
+  // it. Confirming a stale amount/leg is exactly the kind of "wait, that's not what I meant to buy"
+  // a real order can't be undone from.
+  const [realConfirmingFor, setRealConfirmingFor] = useState<{ pickId: string; outcomeLabel: string; stake: number } | null>(null);
+  const [realSubmitting, setRealSubmitting] = useState(false);
+  const [realError, setRealError] = useState<string | null>(null);
 
   // Buying always transacts at today's price, not whatever the market showed back when the pick
   // was analyzed — pricedLegs substitutes each leg's live market probability in before the combined
@@ -46,8 +72,65 @@ export default function BetSlipBar({
   );
   const combined = useMemo(() => combineSlip(pricedLegs), [pricedLegs]);
 
+  const realLeg = betMode === "real" && pricedLegs.length === 1 ? pricedLegs[0] : null;
+  const realBlockedReason =
+    betMode !== "real"
+      ? null
+      : pricedLegs.length === 0
+        ? null
+        : pricedLegs.length > 1
+          ? "Real mode places one order at a time — Polymarket has no combined-parlay order type. Remove legs down to one, or switch back to Paper."
+          : !realLeg?.tokenId
+            ? "This pick has no tradeable token for a real order — a 1X/X2 combo has no single market to buy (Polymarket prices each side of a match, never the double chance itself)."
+            : null;
+  const canPlaceReal = betMode === "real" && wallet !== null && realLeg !== null && !!realLeg.tokenId && !realBlockedReason;
+  const realConfirming =
+    realConfirmingFor !== null &&
+    realLeg !== null &&
+    realConfirmingFor.pickId === realLeg.pickId &&
+    realConfirmingFor.outcomeLabel === realLeg.outcomeLabel &&
+    realConfirmingFor.stake === stake;
+
   const handleBuy = () => {
     if (legs.length === 0 || buying) return;
+
+    if (betMode === "real") {
+      if (!canPlaceReal || !realLeg || !wallet) return;
+      if (!realConfirming) {
+        setRealConfirmingFor({ pickId: realLeg.pickId, outcomeLabel: realLeg.outcomeLabel, stake });
+        setRealError(null);
+        return;
+      }
+      setRealSubmitting(true);
+      setRealError(null);
+      placeRealMarketBuy(wallet, { tokenId: realLeg.tokenId as string, usdcAmount: stake })
+        .then((result) => {
+          placeBet([realLeg], combineSlip([realLeg]), stake, {
+            orderId: result.orderId,
+            polymarketUrl: POLYMARKET_PORTFOLIO_URL,
+          });
+          setPlacedLegCount(1);
+          setPlacedOdds(toDecimalOdds(realLeg.marketProb));
+          setPlacedStake(stake);
+          setPlacedReal(true);
+          setRealConfirmingFor(null);
+          setExpanded(false);
+          onClear();
+          onPlaced?.();
+          window.setTimeout(() => {
+            setPlacedLegCount(null);
+            setPlacedOdds(null);
+            setPlacedStake(null);
+            setPlacedReal(false);
+          }, SUCCESS_MS);
+        })
+        .catch((err) => {
+          setRealError(err instanceof Error ? err.message : "Polymarket rejected this order.");
+        })
+        .finally(() => setRealSubmitting(false));
+      return;
+    }
+
     setBuying(true);
     window.setTimeout(() => {
       placeBet(pricedLegs, combined, stake);
@@ -74,14 +157,26 @@ export default function BetSlipBar({
         <div className="pointer-events-none fixed inset-0 z-[80] flex items-center justify-center px-6">
           <div className="lab-pop-in relative overflow-visible rounded-3xl border border-[var(--slip-gold)]/40 bg-[var(--slip-surface)] px-7 py-6 text-center shadow-2xl">
             <ConfettiBurst />
-            <p className="text-3xl">🎉</p>
-            <p className="mt-2 font-display text-[17px] font-bold text-text">Bet placed!</p>
+            <p className="text-3xl">{placedReal ? "💸" : "🎉"}</p>
+            <p className="mt-2 font-display text-[17px] font-bold text-text">
+              {placedReal ? "Real order placed!" : "Bet placed!"}
+            </p>
             <p className="mt-1 text-[12px] text-text-dim">
-              {placedStake !== null ? formatEur(placedStake) : ""} &middot; {placedLegCount} leg
+              {placedStake !== null ? (placedReal ? formatUsd(placedStake) : formatEur(placedStake)) : ""} &middot;{" "}
+              {placedLegCount} leg
               {placedLegCount === 1 ? "" : "s"} &middot; {placedOdds}x
             </p>
             <p className="mt-2 text-[10px] uppercase tracking-wide text-text-faint">
-              Paper trade &middot; find it under My Bets
+              {placedReal ? (
+                <>
+                  Real money &middot;{" "}
+                  <a href={POLYMARKET_PORTFOLIO_URL} target="_blank" rel="noreferrer" className="underline">
+                    view on Polymarket
+                  </a>
+                </>
+              ) : (
+                "Paper trade · find it under My Bets"
+              )}
             </p>
           </div>
         </div>
@@ -106,7 +201,7 @@ export default function BetSlipBar({
       {legs.length > 0 && (
         <div className="fixed inset-x-0 bottom-[calc(92px+env(safe-area-inset-bottom))] z-[45] mx-auto max-w-md px-4">
           <div
-            className="lab-slip-sheen lab-slip-morph shadow-xl"
+            className={`lab-slip-sheen lab-slip-morph shadow-xl ${betMode === "real" ? "real-mode-shine" : ""}`}
             style={{
               background: "var(--slip-surface-2)",
               border: "1px solid var(--slip-border)",
@@ -217,23 +312,40 @@ export default function BetSlipBar({
                             : { background: "var(--slip-bg-2)", color: "var(--text-dim)" }
                         }
                       >
-                        €{s}
+                        {betMode === "real" ? "$" : "€"}
+                        {s}
                       </button>
                     ))}
                   </div>
 
                   <div className="mt-3">
-                    <button
-                      onClick={handleBuy}
-                      disabled={buying}
-                      className={`lab-cta press flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-[14px] font-bold ${buying ? "lab-buy-pulse" : ""}`}
-                    >
-                      <CoinsIcon className="h-4 w-4" />
-                      {buying ? "Placing..." : `Buy ${formatEur(stake)} at ${toDecimalOdds(combined.marketProb)}x`}
-                    </button>
-                    <p className="mt-2 text-center text-[10px] text-text-faint">
-                      Paper trade only &middot; no real money moves
-                    </p>
+                    {betMode === "real" ? (
+                      <RealBuySection
+                        blockedReason={realBlockedReason}
+                        walletConnected={wallet !== null}
+                        confirming={realConfirming}
+                        submitting={realSubmitting}
+                        error={realError}
+                        stake={stake}
+                        odds={realLeg ? toDecimalOdds(realLeg.marketProb) : "—"}
+                        onBuy={handleBuy}
+                        onCancelConfirm={() => setRealConfirmingFor(null)}
+                      />
+                    ) : (
+                      <>
+                        <button
+                          onClick={handleBuy}
+                          disabled={buying}
+                          className={`lab-cta press flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-[14px] font-bold ${buying ? "lab-buy-pulse" : ""}`}
+                        >
+                          <CoinsIcon className="h-4 w-4" />
+                          {buying ? "Placing..." : `Buy ${formatEur(stake)} at ${toDecimalOdds(combined.marketProb)}x`}
+                        </button>
+                        <p className="mt-2 text-center text-[10px] text-text-faint">
+                          Paper trade only &middot; no real money moves
+                        </p>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -241,6 +353,91 @@ export default function BetSlipBar({
           </div>
         </div>
       )}
+    </>
+  );
+}
+
+function RealBuySection({
+  blockedReason,
+  walletConnected,
+  confirming,
+  submitting,
+  error,
+  stake,
+  odds,
+  onBuy,
+  onCancelConfirm,
+}: {
+  blockedReason: string | null;
+  walletConnected: boolean;
+  confirming: boolean;
+  submitting: boolean;
+  error: string | null;
+  stake: number;
+  odds: string;
+  onBuy: () => void;
+  onCancelConfirm: () => void;
+}) {
+  if (!walletConnected) {
+    return (
+      <p className="rounded-2xl p-3.5 text-center text-[12px]" style={{ background: "rgba(var(--lab-red-rgb), 0.1)", color: "var(--lab-red)" }}>
+        Connect your Polymarket wallet (the wallet icon above) to place a real order.
+      </p>
+    );
+  }
+
+  if (blockedReason) {
+    return (
+      <p className="rounded-2xl p-3.5 text-center text-[12px]" style={{ background: "rgba(var(--lab-red-rgb), 0.1)", color: "var(--lab-red)" }}>
+        {blockedReason}
+      </p>
+    );
+  }
+
+  if (confirming) {
+    return (
+      <div className="space-y-2.5 rounded-2xl p-3.5" style={{ background: "rgba(var(--lab-red-rgb), 0.1)" }}>
+        <p className="text-center text-[12px] font-bold" style={{ color: "var(--lab-red)" }}>
+          Confirm real order: {formatUsd(stake)} at {odds}x
+        </p>
+        <p className="text-center text-[10px] text-text-dim">
+          This submits an immediate buy order to Polymarket with real USDC. It cannot be undone.
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={onCancelConfirm}
+            disabled={submitting}
+            className="press flex-1 rounded-full py-2.5 text-[12px] font-semibold disabled:opacity-40"
+            style={{ background: "var(--slip-bg-2)", color: "var(--text-dim)" }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onBuy}
+            disabled={submitting}
+            className="press flex-1 rounded-full py-2.5 text-[12px] font-bold disabled:opacity-40"
+            style={{ background: "var(--lab-red)", color: "#1a0f05" }}
+          >
+            {submitting ? "Placing..." : "Place real order"}
+          </button>
+        </div>
+        {error && <p className="text-center text-[11px]" style={{ color: "var(--lab-red)" }}>{error}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <button
+        onClick={onBuy}
+        className="real-mode-shine press flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-[14px] font-bold"
+        style={{ background: "var(--lab-bg-2)", color: "var(--lab-gold)" }}
+      >
+        <CoinsIcon className="h-4 w-4" />
+        Buy {formatUsd(stake)} at {odds}x — real money
+      </button>
+      {error && <p className="mt-2 text-center text-[11px]" style={{ color: "var(--lab-red)" }}>{error}</p>}
+      <p className="mt-2 text-center text-[10px] text-text-faint">Real USDC · an immediate market order, no resting order left open</p>
     </>
   );
 }

@@ -714,6 +714,59 @@ always has once you're logged in; keeping those continuously synced to the logge
 devices is a deliberately separate, larger piece of work layered on top of this foundation, not
 bundled into it.
 
+## Real money: placing an actual Polymarket order
+
+Lab has a **Paper / Real** toggle at the top. Paper is everything described above — a simulated
+stake against the live market, settled later against the real match result, no money anywhere.
+**Real** places a genuine order on Polymarket itself, with real USDC, through
+[`@polymarket/clob-client`](https://github.com/Polymarket/clob-client) (Polymarket's own official
+SDK) talking directly to `clob.polymarket.com` from the browser.
+
+**Fully non-custodial — this app's server never sees the private key, in any form, ever.**
+Everything in `lib/realMoney/` and `components/RealWalletSheet.tsx` runs client-side only. Tapping
+Real for the first time opens a sheet asking for the Polymarket trading wallet's private key, a
+passphrase to protect it with, and which of Polymarket's three signing setups the account actually
+uses (a directly-connected browser wallet, an email/Magic login, or an explicit Gnosis Safe — the
+same three the CLOB SDK itself distinguishes as `SignatureType.EOA` / `POLY_PROXY` /
+`POLY_GNOSIS_SAFE`, since an email/Magic or Safe account trades through a separate proxy address
+its own EOA merely controls, not through the EOA's address directly). The key is encrypted right
+there in the browser (`lib/realMoney/crypto.ts`: AES-256-GCM, a PBKDF2-derived key at 210,000
+rounds — OWASP's 2023 floor for PBKDF2-HMAC-SHA256 — so a weak passphrase still costs real work to
+brute-force) and the ciphertext is the only thing that ever reaches `localStorage`
+(`betintelligence.realWallet.v1`). The decrypted key itself only ever exists in the Lab page's own
+React state, for the rest of that browser session — gone on a reload, a tap of **Lock**, or
+**Disconnect** (which also wipes the stored ciphertext). There is deliberately no password-recovery
+flow for a lost passphrase; the encrypted key would need to be re-imported from scratch, same as
+losing access to any other non-custodial wallet.
+
+Polymarket's own CLOB API credentials (a key/secret/passphrase triple, separate from the wallet's
+own passphrase above) are derived fresh from one signature every time Real mode unlocks
+(`createOrDeriveApiKey`) rather than stored anywhere — they're deterministic per wallet, so
+re-deriving costs one extra request and never needs a second secret sitting next to the private
+key. A **Test connection** button in the wallet sheet calls Polymarket's balance endpoint
+read-only — confirms the key/signature-type/funder combination is actually accepted and shows the
+real USDC balance behind it, without moving anything, before ever risking it on a real order.
+
+**v1 is intentionally narrow: one market order at a time.** A real order is always a single-leg,
+immediate **FOK** (Fill-Or-Kill) buy at the current market price — it either fills completely right
+now or nothing happens at all, never a resting limit order left open on the book. Two things paper
+mode allows that real mode doesn't, both enforced in `components/BetSlipBar.tsx` with an explained
+reason rather than a silently disabled button: a multi-leg parlay (Polymarket has no atomic
+multi-leg order type — each leg is its own independent market, so "one order" can only ever mean
+one leg), and a 1X/X2 double-chance combo (no single CLOB token prices a double chance; only a
+genuine `home`/`draw`/`away` pick carries a `tokenId` to actually buy). Placing a real order needs
+a second, explicit confirmation step showing the exact stake and price before it submits — a single
+tap is never enough to move real money. A successful order gets recorded locally exactly like a
+paper bet (`PlacedBet.real`, shown with a **REAL** badge and the same shining border effect the
+Paper/Real toggle itself gets in Real mode) so it shows up under My Bets and gets graded by the same
+real-match-result settlement pipeline as everything else — but this app never handles the actual
+payout. A win is claimed on Polymarket itself; "View on Polymarket" on a real bet's card links
+straight to the account's own portfolio there.
+
+Ongoing continuous sync of a real position across devices, resting limit orders, and multi-leg real
+parlays are all deliberately out of scope for this first pass, same spirit as the Accounts section
+above scoping down to signup/login/one-time-import first.
+
 ## Odds history
 
 Every card — a Discover market or a Sports match — has a collapsed **Odds history** dropdown that
@@ -1158,6 +1211,10 @@ required to run AI analysis.
   (`clob.polymarket.com/prices-history`) — `lib/oddsHistoryServer.ts`/`lib/livePrices.ts`, proxied
   through `/api/odds-history`. This is the actual number shown on a card's odds bars (see above)
   and the source the odds-history chart draws its own line from, so the two can never disagree.
+- **Real-money order placement**: the same CLOB (`clob.polymarket.com`), but this one call is never
+  proxied through this app's own server at all — `lib/realMoney/clob.ts` talks to it directly from
+  the browser via Polymarket's own `@polymarket/clob-client` SDK, signed locally with the connected
+  wallet. See [Real money](#real-money-placing-an-actual-polymarket-order).
 - **Analysis**: [OpenRouter](https://openrouter.ai/) chat completions — `lib/openrouter.ts` for
   Sports' football-specific prompts, `lib/openrouterMarkets.ts` for Discover's generalized
   any-market prompts (both share the same request/retry/JSON-parsing core in `lib/openrouter.ts`).

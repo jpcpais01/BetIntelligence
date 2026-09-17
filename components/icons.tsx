@@ -322,3 +322,28 @@ export function UserIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+export function WalletIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className}>
+      <path
+        d="M4 7.5A2.5 2.5 0 0 1 6.5 5H17a2 2 0 0 1 2 2v1"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <rect x="3" y="8" width="18" height="12" rx="2.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M15.5 14.5a1.25 1.25 0 1 0 0-2.5h-3v2.5h3Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function LockIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className}>
+      <rect x="5" y="11" width="14" height="9" rx="2" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M8 11V7.5a4 4 0 0 1 8 0V11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="12" cy="15.3" r="1.4" fill="currentColor" />
+    </svg>
+  );
+}

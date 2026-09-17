@@ -17,15 +17,27 @@ export interface BetSettlement {
   settledAt: string;
 }
 
+// Present only on a bet actually placed for real money (lib/realMoney/) — everything else about
+// `PlacedBet` (settlement, legResults, the celebration flow) already works identically for one of
+// these, since it's still a genuine position on a genuine real-world match. The one thing this app
+// never does for a real bet is move money: `stake` above is what was actually spent in USDC, but
+// any payout is claimed on Polymarket itself, never paid out by this app — `polymarketUrl` is
+// where that claim (or just checking the live order) actually happens.
+export interface RealOrderInfo {
+  orderId: string;
+  polymarketUrl: string;
+}
+
 export interface PlacedBet {
   id: string;
   placedAt: string;
   legs: SlipLeg[];
   combined: CombinedSlip;
-  // Paper stake in EUR, spent from the Home portfolio's cash balance when this bet was placed.
-  // Bets placed before this field existed won't have it — callers should treat a missing value as
-  // DEFAULT_STAKE (lib/portfolio.ts) rather than crash or show "€undefined".
+  // Stake spent when this bet was placed — EUR paper money normally, or real USDC when `real` is
+  // set below. Bets placed before this field existed won't have it — callers should treat a
+  // missing value as DEFAULT_STAKE (lib/portfolio.ts) rather than crash or show "€undefined".
   stake: number;
+  real?: RealOrderInfo;
   settlement?: BetSettlement;
   // Per-leg outcome (parallel to `legs`), independent of whether the WHOLE bet has settled — a
   // 3-leg parlay where one match finished can show that single leg green/red while the others
@@ -55,13 +67,14 @@ function persist(bets: PlacedBet[]): void {
   }
 }
 
-export function placeBet(legs: SlipLeg[], combined: CombinedSlip, stake: number): PlacedBet {
+export function placeBet(legs: SlipLeg[], combined: CombinedSlip, stake: number, real?: RealOrderInfo): PlacedBet {
   const bet: PlacedBet = {
     id: `bet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     placedAt: new Date().toISOString(),
     legs,
     combined,
     stake,
+    ...(real ? { real } : {}),
   };
   const next = [bet, ...loadPlacedBets()].slice(0, MAX_ENTRIES);
   persist(next);
